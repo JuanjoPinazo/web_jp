@@ -1,7 +1,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Users, FileText, UserCircle, LogOut, Settings, Bell } from 'lucide-react';
+import { LayoutDashboard, Users, FileText, UserCircle, LogOut, Settings, Bell, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import { Logo } from './Logo';
@@ -9,9 +9,11 @@ import { Logo } from './Logo';
 interface SidebarProps {
   role: 'admin' | 'client';
   userName: string;
+  isOpen?: boolean;
+  onClose?: () => void;
 }
 
-export const Sidebar = ({ role, userName }: SidebarProps) => {
+export const Sidebar = ({ role, userName, isOpen, onClose }: SidebarProps) => {
   const pathname = usePathname();
   const { logout } = useAuth();
 
@@ -27,17 +29,36 @@ export const Sidebar = ({ role, userName }: SidebarProps) => {
       ];
 
   return (
-    <aside className="w-64 h-screen bg-surface border-r border-border flex flex-col fixed left-0 top-0 z-50">
-      {/* Brand */}
-      <div className="p-8 border-b border-border">
-        <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-          <Logo className="w-10 h-10" />
-          <div className="flex flex-col">
-            <span className="font-bold text-sm tracking-tight text-foreground uppercase">Precision</span>
-            <span className="text-[10px] text-muted font-bold tracking-[0.2em] uppercase opacity-50">Platform</span>
-          </div>
-        </Link>
-      </div>
+    <>
+      {/* Mobile Overlay */}
+      {isOpen && (
+        <div 
+          className="fixed inset-0 bg-background/80 backdrop-blur-sm z-[45] lg:hidden transition-all duration-300"
+          onClick={onClose}
+        />
+      )}
+
+      <aside className={cn(
+        "w-64 h-screen bg-surface border-r border-border flex flex-col fixed left-0 top-0 z-50 transition-transform duration-300 lg:translate-x-0",
+        isOpen ? "translate-x-0" : "-translate-x-full"
+      )}>
+        {/* Brand & Close button */}
+        <div className="p-8 border-b border-border flex items-center justify-between">
+          <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+            <Logo className="w-10 h-10" />
+            <div className="flex flex-col">
+              <span className="font-bold text-sm tracking-tight text-foreground uppercase">Precision</span>
+              <span className="text-[10px] text-muted font-bold tracking-[0.2em] uppercase opacity-50">Platform</span>
+            </div>
+          </Link>
+          
+          <button 
+            onClick={onClose}
+            className="lg:hidden p-2 -mr-2 text-muted hover:text-foreground transition-colors"
+          >
+            <X size={20} />
+          </button>
+        </div>
 
       {/* Navigation */}
       <nav className="flex-1 p-4 space-y-2 mt-4">
@@ -88,5 +109,6 @@ export const Sidebar = ({ role, userName }: SidebarProps) => {
         </div>
       </div>
     </aside>
+  </>
   );
 };
