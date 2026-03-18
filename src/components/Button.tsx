@@ -13,7 +13,7 @@ export const Button = ({
   children, 
   ...props 
 }: ButtonProps) => {
-  const baseStyles = "inline-flex items-center justify-center font-medium transition-all duration-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-background disabled:opacity-50 disabled:cursor-not-allowed";
+  const baseStyles = "inline-flex w-full md:w-auto items-center justify-center font-medium transition-all duration-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-background disabled:opacity-50 disabled:cursor-not-allowed";
   
   const variants = {
     primary: "bg-accent text-white hover:bg-accent/90 shadow-lg shadow-accent/20",

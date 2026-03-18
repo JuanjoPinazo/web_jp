@@ -55,7 +55,7 @@ export default function DossierPage() {
                <Calendar size={12} />
                Publicado: {dossier.date}
             </div>
-            <h1 className="text-4xl md:text-5xl font-black font-heading tracking-tighter leading-tight max-w-4xl">
+            <h1 className="text-3xl md:text-5xl font-black font-heading tracking-tighter leading-tight max-w-4xl">
               {dossier.title}
             </h1>
             <p className="text-base text-muted max-w-2xl leading-relaxed">
@@ -84,7 +84,7 @@ export default function DossierPage() {
       {/* Recommendations Grid */}
       <div className="space-y-12">
         <h3 className="text-[11px] font-black uppercase tracking-[0.4em] text-accent text-center">Selección Estratégica</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
           {dossier.recommendations.map((rec) => {
             const restaurant = restaurants.find(r => r.id === rec.restaurantId);
             if (!restaurant) return null;

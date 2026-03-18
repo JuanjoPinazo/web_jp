@@ -36,7 +36,7 @@ export default function Home() {
             <span className="text-xs font-medium tracking-wide text-muted uppercase">Sistemas de Decisión Inteligente</span>
           </div>
           
-          <h1 className="mb-6 text-5xl font-extrabold tracking-tight md:text-7xl font-heading text-foreground">
+          <h1 className="mb-6 text-4xl font-extrabold tracking-tight md:text-5xl font-heading text-foreground">
             Recomendaciones Inteligentes & <br />
             <span className="text-accent">Perspectivas Personales</span>
           </h1>
@@ -45,14 +45,14 @@ export default function Home() {
             Decisiones prácticas, curadas y guiadas por la tecnología para profesionales que valoran la precisión y el tiempo.
           </p>
           
-          <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-            <Link href="/login">
-              <Button size="lg" className="w-full sm:w-auto">
+          <div className="flex flex-col items-center justify-center gap-4 w-full sm:flex-row">
+            <Link href="/login" className="w-full sm:w-auto">
+              <Button size="lg" className="w-full">
                 Acceder al Dossier
               </Button>
             </Link>
-            <Link href="/about">
-              <Button variant="secondary" size="lg" className="w-full sm:w-auto">
+            <Link href="/about" className="w-full sm:w-auto">
+              <Button variant="secondary" size="lg" className="w-full">
                 La Filosofía
               </Button>
             </Link>
@@ -63,7 +63,7 @@ export default function Home() {
       {/* Philosophy Preview / Stats */}
       <section className="mt-32">
         <Container>
-          <div className="grid gap-8 md:grid-cols-3">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
             <div className="p-8 border rounded-2xl bg-surface/30 border-border hover:border-accent/20 transition-colors">
               <div className="w-12 h-12 mb-6 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>

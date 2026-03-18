@@ -17,7 +17,7 @@ export default function DashboardPage() {
     <div className="space-y-12">
       {/* Header */}
       <div className="flex flex-col gap-2">
-        <h1 className="text-4xl font-black font-heading tracking-tight">
+        <h1 className="text-3xl md:text-5xl font-black font-heading tracking-tight">
           Bienvenido, {userName}.
         </h1>
         <p className="text-muted text-sm font-medium">
@@ -49,12 +49,12 @@ export default function DashboardPage() {
       {/* Dossiers Grid */}
       <div className="space-y-6">
         <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted">Dossieres Disponibles</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 md:gap-8">
           {dossiers.map((dossier) => (
             <Link 
               key={dossier.id} 
               href={`/dashboard/dossiers/${dossier.id}`}
-              className="group bg-surface border border-border rounded-[2rem] p-8 shadow-sm hover:border-accent/40 hover:shadow-2xl hover:shadow-accent/5 transition-all relative overflow-hidden flex flex-col gap-8"
+              className="group bg-surface border border-border rounded-[2rem] p-6 md:p-8 shadow-sm hover:border-accent/40 hover:shadow-2xl hover:shadow-accent/5 transition-all relative overflow-hidden flex flex-col gap-6 md:gap-8"
             >
               <div className="flex flex-col gap-4">
                 <div className="flex justify-between items-start">

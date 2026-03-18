@@ -35,7 +35,7 @@ export const RestaurantCard = ({
       </div>
 
       {/* Header Info */}
-      <div className="p-6 border-b border-border bg-gradient-to-br from-surface to-background/50">
+      <div className="p-4 md:p-6 border-b border-border bg-gradient-to-br from-surface to-background/50">
         <div className="flex justify-between items-start mb-6">
           <div className="p-3 bg-background rounded-xl border border-border text-accent group-hover:scale-110 transition-transform">
             {IconMap[restaurant.iconName]}
@@ -58,7 +58,7 @@ export const RestaurantCard = ({
       </div>
       
       {/* Dynamic Content Sections */}
-      <div className="p-6 space-y-6">
+      <div className="p-4 md:p-6 space-y-6">
         {/* JP Insight Section */}
         <section>
           <div className="flex items-center justify-between mb-2">

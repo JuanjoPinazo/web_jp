@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
-import { Lock, Mail, ArrowRight, Loader2, ShieldCheck } from 'lucide-react';
+import { Lock, Mail, ArrowRight, Loader2, ShieldCheck, ArrowLeft } from 'lucide-react';
 import { Button } from '@/components/Button';
 
 export default function LoginPage() {
@@ -44,6 +44,16 @@ export default function LoginPage() {
       </div>
 
       <div className="w-full max-w-md relative z-10">
+        <div className="mb-8">
+          <button 
+            onClick={() => router.push('/')}
+            className="flex items-center gap-2 text-muted hover:text-accent font-bold text-[10px] uppercase tracking-[0.2em] transition-all group"
+          >
+            <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
+            Volver al Inicio
+          </button>
+        </div>
+        
         <div className="text-center mb-10">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-accent text-background font-black text-3xl mb-6 shadow-2xl shadow-accent/20">
             JP
