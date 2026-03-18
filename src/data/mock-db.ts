@@ -37,9 +37,27 @@ export const mockDossiers: Dossier[] = [
       },
       {
         id: 'rec-2',
+        restaurantId: '2', // Casa Carmela
+        jpScore: { quality: 10, logistics: 5, experience: 9 },
+        personalNote: "El referente absoluto en paella clásica. Imprescindible reservar con mucha antelación."
+      },
+      {
+        id: 'rec-3',
+        restaurantId: '3', // La Principal
+        jpScore: { quality: 8, logistics: 9, experience: 7 },
+        personalNote: "Máxima versatilidad en el centro. Ideal para una comida ágil y de calidad."
+      },
+      {
+        id: 'rec-4',
         restaurantId: '4', // Nou Racó
         jpScore: { quality: 8, logistics: 7, experience: 10 },
         personalNote: "Para una experiencia diferencial en la Albufera si el tiempo acompaña."
+      },
+      {
+        id: 'rec-5',
+        restaurantId: '5', // Mas Blayet
+        jpScore: { quality: 7, logistics: 10, experience: 8 },
+        personalNote: "La mejor logística familiar de la ciudad. Zona de juegos imbatible para niños."
       }
     ]
   }
