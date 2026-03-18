@@ -24,7 +24,7 @@ export const Sidebar = ({ role, userName, isOpen, onClose }: SidebarProps) => {
         { name: 'Dossiers', icon: FileText, href: '/admin/dossiers' },
       ]
     : [
-        { name: 'Mis Dossiers', icon: LayoutDashboard, href: '/dashboard' },
+        { name: 'Casos Activos', icon: LayoutDashboard, href: '/dashboard' },
         { name: 'Perfil', icon: UserCircle, href: '/profile' },
       ];
 
