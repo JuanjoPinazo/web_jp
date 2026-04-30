@@ -1,13 +1,14 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { User, AuthSession } from '@/types/platform';
-import { mockUsers } from '@/data/mock-db';
+import { AuthSession } from '@/types/platform';
 import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
 
 interface AuthContextType {
   session: AuthSession;
   login: (email: string, pass: string) => Promise<boolean>;
+  signUp: (email: string, pass: string, name: string, surname: string) => Promise<boolean>;
   logout: () => void;
 }
 
@@ -20,38 +21,106 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   });
   const router = useRouter();
 
-  // Load session from localStorage for mock persistence
   useEffect(() => {
-    const savedUser = localStorage.getItem('jp_user');
-    if (savedUser) {
+    const fetchProfile = async (supabaseUser: any) => {
+      if (!supabaseUser) {
+        setSession({ user: null, status: 'unauthenticated' });
+        return;
+      }
+
+      const { data: profile, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', supabaseUser.id)
+        .single();
+
+      if (error) {
+        console.error('Error fetching profile:', error);
+        // Fallback to metadata if profile fetch fails
+        setSession({
+          user: {
+            id: supabaseUser.id,
+            email: supabaseUser.email || '',
+            name: supabaseUser.user_metadata?.name || 'Usuario',
+            surname: supabaseUser.user_metadata?.surname || '',
+            role: supabaseUser.user_metadata?.role || 'client',
+            phone: supabaseUser.user_metadata?.phone || '',
+          },
+          status: 'authenticated'
+        } as any);
+        return;
+      }
+
       setSession({
-        user: JSON.parse(savedUser),
+        user: {
+          id: profile.id,
+          email: profile.email,
+          name: profile.nombre || 'Usuario',
+          surname: profile.apellidos || '',
+          role: profile.role || 'client',
+          phone: profile.telefono || '',
+          client_id: profile.client_id
+        },
         status: 'authenticated'
-      });
-    } else {
-      setSession({
-        user: null,
-        status: 'unauthenticated'
-      });
-    }
+      } as any);
+    };
+
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
+      fetchProfile(currentSession?.user);
+    });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, currentSession) => {
+      fetchProfile(currentSession?.user);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
   const login = async (email: string, pass: string) => {
-    // Mock login
-    const user = mockUsers.find(u => u.email === email && u.password === pass);
-    if (user) {
-      localStorage.setItem('jp_user', JSON.stringify(user));
-      setSession({
-        user,
-        status: 'authenticated'
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password: pass,
       });
+      if (error) {
+        console.warn('Login failed:', error.message);
+        return false;
+      }
       return true;
+    } catch (err: any) {
+      console.warn('Login error:', err.message || err);
+      return false;
     }
-    return false;
   };
 
-  const logout = () => {
-    localStorage.removeItem('jp_user');
+  const signUp = async (email: string, pass: string, name: string, surname: string) => {
+    try {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password: pass,
+        options: {
+          data: {
+            name,
+            surname,
+            role: 'client'
+          }
+        }
+      });
+      if (error) {
+        console.warn('Signup failed:', error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      console.warn('Signup error:', err.message || err);
+      return false;
+    }
+  };
+
+  const logout = async () => {
+    await supabase.auth.signOut();
     setSession({
       user: null,
       status: 'unauthenticated'
@@ -60,7 +129,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ session, login, logout }}>
+    <AuthContext.Provider value={{ session, login, signUp, logout }}>
       {children}
     </AuthContext.Provider>
   );

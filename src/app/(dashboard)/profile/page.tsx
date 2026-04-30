@@ -1,8 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { useAuth } from '@/context/AuthContext';
-import { supabase } from '@/lib/supabase';
+import { useUser } from '@/hooks/useUser';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -19,75 +18,40 @@ const profileSchema = z.object({
 type ProfileFormValues = z.infer<typeof profileSchema>;
 
 export default function ProfilePage() {
-  const { session } = useAuth();
-  const [loading, setLoading] = useState(false);
-  const [fetching, setFetching] = useState(true);
-  const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const { profile, loading, error: hookError, success: hookSuccess, updateProfile } = useUser();
+  const [localMessage, setLocalMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
   });
 
+  // Reset form when profile data is loaded
   useEffect(() => {
-    async function fetchProfile() {
-      if (!session.user?.id) return;
-
-      try {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', session.user.id)
-          .single();
-
-        if (error) {
-          console.error('Error fetching from Supabase (maybe table doesn\'t exist):', error);
-          // Fallback to local session user
-          reset({
-            name: session.user.name,
-            surname: session.user.surname,
-            email: session.user.email,
-            phone: session.user.phone,
-          });
-        } else if (data) {
-          reset(data);
-        }
-      } catch (err) {
-        console.error('Connection error:', err);
-      } finally {
-        setFetching(false);
-      }
+    if (profile) {
+      reset({
+        name: profile.name,
+        surname: profile.surname,
+        email: profile.email,
+        phone: profile.phone,
+      });
     }
+  }, [profile, reset]);
 
-    fetchProfile();
-  }, [session.user, reset]);
+  // Sync hook messages to local UI state
+  useEffect(() => {
+    if (hookSuccess) {
+      setLocalMessage({ type: 'success', text: 'Perfil actualizado correctamente en Supabase.' });
+    } else if (hookError) {
+      setLocalMessage({ type: 'error', text: hookError });
+    }
+  }, [hookSuccess, hookError]);
 
   const onSubmit = async (values: ProfileFormValues) => {
-    setLoading(true);
-    setMessage(null);
-
-    try {
-      if (!session.user?.id) return;
-
-      const { error } = await supabase
-        .from('profiles')
-        .upsert({
-          id: session.user.id,
-          ...values,
-          updated_at: new Date().toISOString(),
-        });
-
-      if (error) throw error;
-      
-      setMessage({ type: 'success', text: 'Perfil actualizado correctamente en Supabase.' });
-    } catch (error: any) {
-      console.error('Error updating profile:', error);
-      setMessage({ type: 'error', text: 'Error al actualizar: ' + (error.message || 'Sin conexión a Supabase') });
-    } finally {
-      setLoading(false);
-    }
+    setLocalMessage(null);
+    await updateProfile(values);
   };
 
-  if (fetching) {
+  if (loading && !profile) {
     return (
       <div className="flex items-center justify-center p-20">
         <Loader2 className="animate-spin text-accent" size={32} />
@@ -100,7 +64,7 @@ export default function ProfilePage() {
       {/* Header */}
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl md:text-5xl font-black font-heading tracking-tight">Tu Perfil.</h1>
-        <p className="text-muted text-sm font-medium">Gestiona tu información personal y de contacto.</p>
+        <p className="text-muted text-sm font-medium">Gestiona tu información personal y de contacto en tiempo real con Supabase.</p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
@@ -111,18 +75,18 @@ export default function ProfilePage() {
                  <UserCircle size={48} strokeWidth={1.5} />
               </div>
               <div className="flex flex-col">
-                 <h2 className="text-xl font-bold">{session.user?.name} {session.user?.surname}</h2>
-                 <span className="text-[10px] font-bold text-muted uppercase tracking-[0.2em]">{session.user?.role}</span>
+                 <h2 className="text-xl font-bold">{profile?.name} {profile?.surname}</h2>
+                 <span className="text-[10px] font-bold text-muted uppercase tracking-[0.2em]">Usuario Premium</span>
               </div>
               
               <div className="w-full pt-6 border-t border-border flex flex-col gap-4 text-left">
                  <div className="flex items-center gap-3 text-muted text-xs">
                     <Mail size={14} />
-                    <span>{session.user?.email}</span>
+                    <span className="truncate">{profile?.email}</span>
                  </div>
                  <div className="flex items-center gap-3 text-muted text-xs">
                     <Phone size={14} />
-                    <span>{session.user?.phone}</span>
+                    <span>{profile?.phone}</span>
                  </div>
               </div>
            </div>
@@ -176,10 +140,10 @@ export default function ProfilePage() {
                  </div>
               </div>
 
-              {message && (
-                <div className={`p-4 rounded-xl border flex items-center gap-3 ${message.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 'bg-red-500/10 border-red-500/20 text-red-500'}`}>
-                   {message.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
-                   <span className="text-xs font-bold">{message.text}</span>
+              {localMessage && (
+                <div className={`p-4 rounded-xl border flex items-center gap-3 ${localMessage.type === 'success' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 'bg-red-500/10 border-red-500/20 text-red-500'}`}>
+                   {localMessage.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+                   <span className="text-xs font-bold">{localMessage.text}</span>
                 </div>
               )}
 
@@ -195,7 +159,7 @@ export default function ProfilePage() {
                  Nota de Seguridad
               </h4>
               <p className="text-[10px] text-muted leading-relaxed font-medium capitalize">
-                 Tu información está protegida mediante encriptación SSL y almacenada en nuestra infraestructura de alta disponibilidad. Cualquier cambio se verá reflejado en tus casos activos y dossieres de inmediato.
+                 Tu información está protegida mediante encriptación SSL y almacenada en la infraestructura oficial de Supabase. Cualquier cambio se verá reflejado en tus casos activos y dossieres de inmediato.
               </p>
            </div>
         </div>

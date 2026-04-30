@@ -1,62 +1,56 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, Users, FileText, UserCircle, LogOut, Settings, Bell, X } from 'lucide-react';
+import { LayoutDashboard, Users, FileText, UserCircle, LogOut, Settings, Bell, X, Shield } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/context/AuthContext';
 import { Logo } from './Logo';
+import { useDialog } from '@/context/DialogContext';
 
 interface SidebarProps {
   role: 'admin' | 'client';
   userName: string;
-  isOpen?: boolean;
-  onClose?: () => void;
 }
 
-export const Sidebar = ({ role, userName, isOpen, onClose }: SidebarProps) => {
+export const Sidebar = ({ role, userName }: SidebarProps) => {
   const pathname = usePathname();
   const { logout } = useAuth();
+  const { confirm } = useDialog();
 
-  const menuItems = role === 'admin' 
-    ? [
-        { name: 'Dashboard', icon: LayoutDashboard, href: '/admin' },
-        { name: 'Usuarios', icon: Users, href: '/admin/users' },
-        { name: 'Dossiers', icon: FileText, href: '/admin/dossiers' },
-      ]
-    : [
-        { name: 'Recomendaciones', icon: LayoutDashboard, href: '/dashboard' },
-        { name: 'Perfil', icon: UserCircle, href: '/profile' },
-      ];
+  const menuItems = [
+    { name: 'Dashboard', icon: LayoutDashboard, href: '/dashboard' },
+    { name: 'Perfil', icon: UserCircle, href: '/profile' },
+  ];
+
+  const adminItem = { name: 'Panel Admin', icon: Shield, href: '/admin' };
 
   return (
     <>
-      {/* Mobile Overlay */}
-      {isOpen && (
-        <div 
-          className="fixed inset-0 bg-background/80 backdrop-blur-sm z-[45] lg:hidden transition-all duration-300"
-          onClick={onClose}
-        />
-      )}
-
       <aside className={cn(
-        "w-64 h-screen bg-surface border-r border-border flex flex-col fixed left-0 top-0 z-50 transition-transform duration-300 lg:translate-x-0",
-        isOpen ? "translate-x-0" : "-translate-x-full"
+        "w-64 h-screen bg-surface border-r border-border flex flex-col fixed left-0 top-0 z-50 transition-all duration-500",
+        "hidden md:flex translate-x-0" // Always hidden on mobile, always flex on desktop
       )}>
         {/* Brand & Close button */}
         <div className="p-8 border-b border-border flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
-            <Logo className="w-10 h-10" />
-            <div className="flex flex-col">
-              <span className="font-bold text-sm tracking-tight text-foreground uppercase">Precision</span>
-              <span className="text-[10px] text-muted font-bold tracking-[0.2em] uppercase opacity-50">Platform</span>
-            </div>
-          </Link>
-          
           <button 
-            onClick={onClose}
-            className="lg:hidden p-2 -mr-2 text-muted hover:text-foreground transition-colors"
+            onClick={async () => {
+              const isConfirmed = await confirm({
+                title: 'Cerrar sesión',
+                message: '¿Deseas cerrar la sesión y volver al menú principal?',
+                type: 'warning',
+                confirmText: 'Cerrar sesión'
+              });
+              if (isConfirmed) {
+                logout();
+              }
+            }}
+            className="flex items-center gap-4 hover:opacity-80 transition-all duration-300 group text-left"
           >
-            <X size={20} />
+            <Logo className="w-12 h-12" />
+            <div className="flex flex-col">
+              <span className="font-bold text-base tracking-tight text-foreground transition-colors group-hover:text-accent">Juanjo Pinazo</span>
+              <span className="text-[10px] text-muted font-bold tracking-[0.3em] uppercase opacity-60">Intelligence</span>
+            </div>
           </button>
         </div>
 
@@ -80,6 +74,21 @@ export const Sidebar = ({ role, userName, isOpen, onClose }: SidebarProps) => {
             </Link>
           );
         })}
+
+        {role === 'admin' && (
+          <div className="pt-4 mt-4 border-t border-border/50">
+            <Link 
+              href={adminItem.href}
+              className={cn(
+                "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group bg-accent/5 border border-accent/10 text-accent hover:bg-accent/10",
+                pathname.startsWith('/admin') && "bg-accent text-white hover:bg-accent/90"
+              )}
+            >
+              <adminItem.icon size={18} className={pathname.startsWith('/admin') ? "text-white" : "text-accent"} />
+              <span className="text-sm font-black uppercase tracking-widest">{adminItem.name}</span>
+            </Link>
+          </div>
+        )}
       </nav>
 
       {/* User Info & Actions */}
@@ -90,7 +99,14 @@ export const Sidebar = ({ role, userName, isOpen, onClose }: SidebarProps) => {
               {userName.split(' ').map(n => n[0]).join('')}
             </div>
             <div className="flex flex-col overflow-hidden">
-              <span className="text-xs font-bold text-foreground truncate">{userName}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold text-foreground truncate">{userName}</span>
+                {role === 'admin' && (
+                  <span className="px-1.5 py-0.5 rounded-md bg-accent/20 text-accent text-[8px] font-black uppercase tracking-tighter border border-accent/20">
+                    Admin
+                  </span>
+                )}
+              </div>
               <span className="text-[9px] font-bold text-muted uppercase tracking-widest">{role}</span>
             </div>
           </div>
@@ -100,7 +116,17 @@ export const Sidebar = ({ role, userName, isOpen, onClose }: SidebarProps) => {
                 <Settings size={14} />
              </button>
              <button 
-               onClick={logout}
+               onClick={async () => {
+                 const isConfirmed = await confirm({
+                   title: 'Cerrar sesión',
+                   message: '¿Deseas cerrar la sesión y volver al menú principal?',
+                   type: 'warning',
+                   confirmText: 'Cerrar sesión'
+                 });
+                 if (isConfirmed) {
+                   logout();
+                 }
+               }}
                className="flex-1 p-2 rounded-lg hover:bg-accent/10 border border-transparent hover:border-accent/20 transition-all flex items-center justify-center text-accent group"
              >
                 <LogOut size={14} />

@@ -27,7 +27,7 @@ export const mockCases: Case[] = [
     userId: 'client-1',
     title: "Viaje Corporativo Tech 2026",
     type: 'travel',
-    description: "Planificación estratégica para el congreso anual de tecnología en Valencia, incluyendo agenda de networking y ocio curado.",
+    description: "Planificación estratégica para el congreso anual de tecnología en Valencia, incluyendo agenda de networking y ocio de alta nivel.",
     startDate: "2026-10-15",
     endDate: "2026-10-20",
     items: [

@@ -14,11 +14,12 @@ const sora = Sora({
 
 export const metadata: Metadata = {
   title: "Juanjo Pinazo | Sistemas de Decisión Inteligente",
-  description: "Recomendaciones personales y perspectivas tecnológicas curadas por Juanjo Pinazo.",
+  description: "Recomendaciones personales y perspectivas tecnológicas verificadas por Juanjo Pinazo.",
 };
 
 import { AuthProvider } from "@/context/AuthContext";
 import { ThemeProvider } from "@/context/ThemeContext";
+import { DialogProvider } from "@/context/DialogContext";
 
 export default function RootLayout({
   children,
@@ -32,7 +33,7 @@ export default function RootLayout({
           dangerouslySetInnerHTML={{
             __html: `
               try {
-                if (localStorage.theme === 'dark' || (!('theme' in localStorage))) {
+                if (localStorage.theme_preference === 'dark' || (!('theme_preference' in localStorage))) {
                   document.documentElement.classList.add('dark')
                 } else {
                   document.documentElement.classList.remove('dark')
@@ -47,7 +48,9 @@ export default function RootLayout({
       >
         <ThemeProvider>
           <AuthProvider>
-            {children}
+            <DialogProvider>
+              {children}
+            </DialogProvider>
           </AuthProvider>
         </ThemeProvider>
       </body>

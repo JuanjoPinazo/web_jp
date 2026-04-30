@@ -38,7 +38,7 @@ export const restaurants: Restaurant[] = [
     iconName: 'Anchor',
     badge: "Top Valoración",
     rating: "4.5",
-    imageUrl: "/restaurants/gran_azul.png"
+    imageUrl: "/restaurants/gran_azul.jpg"
   },
   {
     id: '2',
@@ -57,7 +57,7 @@ export const restaurants: Restaurant[] = [
     iconName: 'Waves',
     badge: "Icono Histórico",
     rating: "4.4",
-    imageUrl: "/restaurants/casa_carmela.png"
+    imageUrl: "/restaurants/casa_carmela.jpg"
   },
   {
     id: '3',
@@ -76,7 +76,7 @@ export const restaurants: Restaurant[] = [
     iconName: 'Utensils',
     badge: "Versatilidad",
     rating: "4.2",
-    imageUrl: "/restaurants/la_principal.png"
+    imageUrl: "/restaurants/la_principal.jpg"
   },
   {
     id: '4',
@@ -95,7 +95,7 @@ export const restaurants: Restaurant[] = [
     iconName: 'TreePine',
     badge: "Entorno Único",
     rating: "4.1",
-    imageUrl: "/restaurants/nou_raco.png"
+    imageUrl: "/restaurants/nou_raco.jpg"
   },
   {
     id: '5',
@@ -114,6 +114,6 @@ export const restaurants: Restaurant[] = [
     iconName: 'Baby',
     badge: "Family Friendly",
     rating: "4.1",
-    imageUrl: "/restaurants/mas_blayet.png"
+    imageUrl: "/restaurants/mas_blayet.jpg"
   }
 ];

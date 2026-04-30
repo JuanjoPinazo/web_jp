@@ -7,6 +7,9 @@ export interface User {
   email: string;
   phone: string;
   role: UserRole;
+  client_id?: string;
+  context_users?: { context_id: string }[];
+  clients?: any;
   password?: string; // Only for mock auth
 }
 
@@ -42,9 +45,20 @@ export interface Case {
 
 export interface Recommendation {
   id: string;
-  restaurantId: string;
-  jpScore: JPScore;
-  personalNote: string;
+  title?: string;
+  categoria?: string;
+  rating?: number;
+  descripcion?: string;
+  imagen_url?: string;
+  activo?: boolean;
+  client_id?: string | null;
+  context_id?: string | null;
+  user_id?: string | null;
+  tags?: string[];
+  created_at?: string;
+  restaurantId?: string; // Legacy
+  jpScore?: JPScore;      // Legacy
+  personalNote?: string;  // Legacy
 }
 
 export interface Dossier {

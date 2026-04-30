@@ -44,3 +44,37 @@ body {
 h1, h2, h3, h4, .font-heading {
   font-family: var(--font-sora), ui-sans-serif, system-ui, sans-serif;
 }
+
+@layer utilities {
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+}
+
+@keyframes slowZoom {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.05); }
+}
+
+@keyframes pulseLine {
+  0% { opacity: 0; transform: translateX(-100%); }
+  50% { opacity: 0.15; }
+  100% { opacity: 0; transform: translateX(100%); }
+}
+
+.hero-image {
+  animation: slowZoom 30s ease-in-out infinite alternate;
+}
+
+.intel-line {
+  position: absolute;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0, 209, 255, 0.4), transparent);
+  width: 50%;
+  animation: pulseLine 8s infinite linear;
+  pointer-events: none;
+}

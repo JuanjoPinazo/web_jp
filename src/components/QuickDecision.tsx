@@ -41,13 +41,16 @@ export const QuickDecision = ({ restaurant }: { restaurant: Restaurant }) => {
             </div>
           </div>
           
-          <div className="w-full md:w-72 aspect-square rounded-2xl overflow-hidden border border-border shadow-2xl relative">
+          <div className="w-full md:w-80 aspect-[4/3] md:aspect-square rounded-2xl overflow-hidden border border-border shadow-2xl relative shadow-accent/10">
              <Image
                src={restaurant.imageUrl}
                alt={restaurant.name}
                fill
-               className="object-cover transition-transform duration-500 group-hover:scale-110"
+               sizes="(max-width: 768px) 100vw, 320px"
+               className="object-cover transition-transform duration-700 group-hover:scale-105"
              />
+             <div className="absolute inset-0 bg-gradient-to-t from-black/40 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+
              <div className="absolute inset-0 bg-accent/10 mix-blend-overlay" />
              <div className="absolute bottom-4 left-4 z-20">
                 <span className="px-3 py-1 rounded-lg bg-background/90 backdrop-blur text-[10px] font-bold text-accent border border-accent/20 uppercase tracking-widest">Unidad Seleccionada</span>

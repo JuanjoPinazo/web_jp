@@ -91,7 +91,7 @@ export default function RestaurantsPage() {
            </h2>
            
            <p className="text-lg text-muted max-w-2xl leading-relaxed">
-             Una selección curada y guiada por decisiones lógicas basada en <span className="text-foreground font-semibold">calidad</span>, 
+             Una selección de alta calidad y guiada por decisiones lógicas basada en <span className="text-foreground font-semibold">calidad</span>, 
              <span className="text-foreground font-semibold"> logística</span> y <span className="text-foreground font-semibold"> experiencia real</span>. 
            </p>
         </header>
@@ -110,7 +110,7 @@ export default function RestaurantsPage() {
                 Valencia · <span className="text-accent">Selección Gastronómica</span>
              </h2>
              <p className="text-sm text-muted">
-                Curada para una toma de decisiones rápida y segura.
+                Verificada para una toma de decisiones rápida y segura.
              </p>
           </div>
           

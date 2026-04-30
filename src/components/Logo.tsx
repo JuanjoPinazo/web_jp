@@ -1,27 +1,25 @@
-import React from 'react';
+'use client';
 
+import React from 'react';
+import Image from 'next/image';
+import { useTheme } from '@/context/ThemeContext';
+
+// Restoration of original logos with theme-aware blending for maximum integration.
 export const Logo = ({ className = "w-10 h-10" }: { className?: string }) => {
+  const { theme } = useTheme();
+  
+  // Use original branding assets
+  const logoSrc = theme === 'light' ? '/logo_jp_negro.png' : '/logo_jp_blanco.png';
+  
   return (
-    <svg 
-      viewBox="0 0 100 100" 
-      fill="none" 
-      xmlns="http://www.w3.org/2000/svg" 
-      className={className}
-    >
-      {/* 
-          A sophisticated "JP" monogram based on the provided design.
-          Uses a continuous bold stroke with interlocking loops.
-      */}
-      <path 
-        d="M50 15V45C50 45 78 45 78 65C78 85 50 85 35 65L22 45C7 25 35 25 50 45V85" 
-        stroke="currentColor" 
-        strokeWidth="14" 
-        strokeLinecap="round" 
-        strokeLinejoin="round"
+    <div className={`relative ${className} overflow-hidden rounded-full`}>
+      <Image
+        src={logoSrc}
+        alt="Juanjo Pinazo Logo"
+        fill
+        className="object-contain"
+        priority
       />
-      
-      {/* Optional accent node to maintain technical feel but keeping it clean */}
-      <circle cx="50" cy="45" r="3" fill="var(--accent)" />
-    </svg>
+    </div>
   );
 };
