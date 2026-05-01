@@ -21,21 +21,29 @@ export default function ProfilePage() {
   const { profile, loading, error: hookError, success: hookSuccess, updateProfile } = useUser();
   const [localMessage, setLocalMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<ProfileFormValues>({
+  const { register, handleSubmit, reset, setValue, trigger, formState: { errors } } = useForm<ProfileFormValues>({
     resolver: zodResolver(profileSchema),
+    defaultValues: {
+      name: '',
+      surname: '',
+      email: '',
+      phone: ''
+    }
   });
 
   // Reset form when profile data is loaded
   useEffect(() => {
-    if (profile) {
+    if (profile && !loading) {
       reset({
-        name: profile.name,
-        surname: profile.surname,
-        email: profile.email,
-        phone: profile.phone,
+        name: profile.name || '',
+        surname: profile.surname || '',
+        email: profile.email || '',
+        phone: profile.phone || '',
       });
+      // Force validation re-run to clear any "required" errors now that data is present
+      trigger();
     }
-  }, [profile, reset]);
+  }, [profile, loading, reset, trigger]);
 
   // Sync hook messages to local UI state
   useEffect(() => {

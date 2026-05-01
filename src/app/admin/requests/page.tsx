@@ -131,6 +131,28 @@ export default function AdminRequestsPage() {
       if (error) throw error;
       if (!data || data.length === 0) throw new Error('No se pudo aprobar. Puede ser un problema de permisos en la base de datos (RLS).');
       
+      // NEW: Automatically create the user account and send invitation
+      const response = await fetch('/api/admin/create-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${(await supabase.auth.getSession()).data.session?.access_token}`
+        },
+        body: JSON.stringify({
+          email: approvingRequest.email,
+          name: approvingRequest.nombre,
+          surname: approvingRequest.apellidos || '',
+          role: 'client', // Default role for requests
+          client_id: selectedClientId,
+          phone: approvingRequest.phone || ''
+        })
+      });
+
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || 'La solicitud se marcó como aprobada, pero falló la creación del usuario/email.');
+      }
+
       setRequests(requests.map(r => r.id === approvingRequest.id ? { ...r, status: 'approved' } : r));
       setApprovingRequest(null);
       setSelectedClientId('');
@@ -139,8 +161,8 @@ export default function AdminRequestsPage() {
       setSelectedRoleId('');
       
       await alert({ 
-        title: 'Solicitud aprobada', 
-        message: 'Solicitud aprobada y asignaciones guardadas. Ahora debes invitar al usuario desde Supabase Auth para completar el alta.',
+        title: '¡Aprobación Completada!', 
+        message: 'La solicitud ha sido aprobada y el usuario ha recibido su email de activación premium correctamente.',
         type: 'success'
       });
     } catch (err: any) {
