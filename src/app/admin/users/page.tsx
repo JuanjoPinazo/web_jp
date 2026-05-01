@@ -37,6 +37,20 @@ export default function AdminUsersPage() {
     loadData();
   }, [getUsers, getClients]);
 
+  useEffect(() => {
+    if (editingUser) {
+      setFormData({
+        email: editingUser.email || '',
+        name: editingUser.name || '',
+        surname: editingUser.surname || '',
+        role: editingUser.role || 'client',
+        client_id: editingUser.client_id || '',
+        phone: editingUser.phone || ''
+      });
+      setIsModalOpen(true);
+    }
+  }, [editingUser]);
+
   const loadData = async () => {
     try {
       setLoading(true);
@@ -255,10 +269,10 @@ export default function AdminUsersPage() {
             <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsModalOpen(false)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
             <motion.div initial={{ opacity: 0, scale: 0.95, y: 20 }} animate={{ opacity: 1, scale: 1, y: 0 }} exit={{ opacity: 0, scale: 0.95, y: 20 }} className="relative w-full max-w-lg bg-surface border border-border rounded-[3rem] p-10 shadow-2xl overflow-hidden">
                {/* Modal Content */}
-               <div className="flex justify-between items-center mb-10">
-                  <h3 className="text-3xl font-black font-heading tracking-tighter uppercase">{editingUser ? 'Actualizar' : 'Invitar'}</h3>
-                  <button onClick={() => setIsModalOpen(false)} className="p-3 rounded-full bg-background border border-border text-muted hover:text-accent"><X size={24} /></button>
-               </div>
+                <div className="flex justify-between items-center mb-10">
+                   <h3 className="text-3xl font-black font-heading tracking-tighter uppercase">{editingUser ? 'Actualizar' : 'Invitar'}</h3>
+                   <button onClick={() => { setIsModalOpen(false); setEditingUser(null); setFormData({ email: '', name: '', surname: '', role: 'client', client_id: '', phone: '' }); }} className="p-3 rounded-full bg-background border border-border text-muted hover:text-accent"><X size={24} /></button>
+                </div>
                <form onSubmit={handleCreateUser} className="space-y-6">
                   <div className="grid grid-cols-2 gap-6">
                      <div className="space-y-2">
