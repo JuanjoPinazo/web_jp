@@ -66,13 +66,24 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
 
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
-      fetchProfile(currentSession?.user);
+    supabase.auth.getSession().then(({ data: { session: currentSession }, error }) => {
+      if (error && error.message.includes('Refresh Token')) {
+        console.warn('Session expired or invalid refresh token, signing out...');
+        supabase.auth.signOut();
+        setSession({ user: null, status: 'unauthenticated' });
+      } else {
+        fetchProfile(currentSession?.user);
+      }
     });
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, currentSession) => {
-      fetchProfile(currentSession?.user);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, currentSession) => {
+      if (_event === 'TOKEN_REFRESHED' && !currentSession) {
+         // Potential refresh error
+         setSession({ user: null, status: 'unauthenticated' });
+      } else {
+        fetchProfile(currentSession?.user);
+      }
     });
 
     return () => subscription.unsubscribe();

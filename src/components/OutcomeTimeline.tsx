@@ -30,19 +30,19 @@ export function OutcomeTimeline({ plan }: OutcomeTimelineProps) {
     plan.flights.forEach(f => {
       events.push({
         id: `flight-dep-${f.id}`,
-        title: `Salida de Vuelo`,
+        title: `Salida: ${f.airline || ''} ${f.flight_number || ''}`,
         time: new Date(f.departure_time),
         location: f.origin,
-        desc: `Vuelo ${f.airline || ''} ${f.flight_number || ''} hacia ${f.destination}`,
+        desc: `Vuelo hacia ${f.destination}. ${f.terminal ? `Terminal ${f.terminal}.` : ''} Ref: ${f.booking_reference || 'N/A'}`,
         icon: PlaneTakeoff,
         color: 'text-purple-500'
       });
       events.push({
         id: `flight-arr-${f.id}`,
-        title: `Llegada de Vuelo`,
+        title: `Aterrizaje en ${f.destination}`,
         time: new Date(f.arrival_time),
         location: f.destination,
-        desc: `Aterrizaje programado.`,
+        desc: `Llegada prevista al aeropuerto de destino.`,
         icon: PlaneLanding,
         color: 'text-blue-500'
       });
@@ -52,19 +52,19 @@ export function OutcomeTimeline({ plan }: OutcomeTimelineProps) {
     plan.hotels.forEach(h => {
       events.push({
         id: `hotel-in-${h.id}`,
-        title: `Check-in Hotel`,
+        title: `Check-in: ${h.hotel_name}`,
         time: new Date(h.check_in),
         location: h.hotel_name,
-        desc: `Check-in en ${h.room_type || 'habitación'}. ${h.notes || ''}`,
+        desc: `Registro en recepción. ${h.room_type ? `Habitación ${h.room_type}.` : ''} Ref: ${h.booking_reference || 'N/A'}.`,
         icon: Building2,
         color: 'text-emerald-500'
       });
       events.push({
         id: `hotel-out-${h.id}`,
-        title: `Check-out Hotel`,
+        title: `Check-out: ${h.hotel_name}`,
         time: new Date(h.check_out),
         location: h.hotel_name,
-        desc: `Fin de la estancia.`,
+        desc: `Cierre de dossier y salida del hotel.`,
         icon: Building2,
         color: 'text-emerald-500'
       });
@@ -74,10 +74,10 @@ export function OutcomeTimeline({ plan }: OutcomeTimelineProps) {
     plan.transfers.forEach(t => {
       events.push({
         id: `transfer-${t.id}`,
-        title: `Traslado Programado`,
+        title: `Traslado: ${t.pickup_location}`,
         time: new Date(t.pickup_time),
         location: t.pickup_location,
-        desc: `Conductor ${t.driver_name || 'asignado'} te llevará a ${t.dropoff_location}.`,
+        desc: `Recogida programada. Chófer: ${t.driver_name || 'Asignado'} ${t.driver_phone ? `(${t.driver_phone})` : ''}. Vehículo: ${t.vehicle || 'Estándar'}.`,
         icon: Car,
         color: 'text-amber-500'
       });

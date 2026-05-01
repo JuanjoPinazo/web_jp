@@ -13,8 +13,8 @@ const sora = Sora({
 });
 
 export const metadata: Metadata = {
-  title: "Juanjo Pinazo | Sistemas de Decisión Inteligente",
-  description: "Recomendaciones personales y perspectivas tecnológicas verificadas por Juanjo Pinazo.",
+  title: "JP Intelligence Platform | Sistemas de Decisión Inteligente",
+  description: "Plataforma operacional y sistemas de decisión inteligente de JP Intelligence.",
 };
 
 import { AuthProvider } from "@/context/AuthContext";

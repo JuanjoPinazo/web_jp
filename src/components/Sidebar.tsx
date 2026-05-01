@@ -48,8 +48,8 @@ export const Sidebar = ({ role, userName }: SidebarProps) => {
           >
             <Logo className="w-12 h-12" />
             <div className="flex flex-col">
-              <span className="font-bold text-base tracking-tight text-foreground transition-colors group-hover:text-accent">Juanjo Pinazo</span>
-              <span className="text-[10px] text-muted font-bold tracking-[0.3em] uppercase opacity-60">Intelligence</span>
+              <span className="font-bold text-base tracking-tight text-foreground transition-colors group-hover:text-accent">JP Intelligence</span>
+              <span className="text-[10px] text-muted font-bold tracking-[0.3em] uppercase opacity-60">Platform</span>
             </div>
           </button>
         </div>
@@ -107,7 +107,9 @@ export const Sidebar = ({ role, userName }: SidebarProps) => {
                   </span>
                 )}
               </div>
-              <span className="text-[9px] font-bold text-muted uppercase tracking-widest">{role}</span>
+              <span className="text-[9px] font-bold text-muted uppercase tracking-widest">
+                {role === 'admin' ? 'Administrador' : 'Cliente'}
+              </span>
             </div>
           </div>
           

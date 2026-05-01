@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAdmin } from '@/hooks/useAdmin';
 import { User } from '@/types/platform';
-import { Loader2, UserCircle, Shield, User as UserIcon, Mail, Phone, Calendar, Plus, X, Trash2, Edit2, Search, LayoutGrid, List, Filter, Building2, MoreHorizontal } from 'lucide-react';
+import { Loader2, UserCircle, Shield, User as UserIcon, Mail, Phone, Calendar, Plus, X, Trash2, Edit2, Search, LayoutGrid, List, Filter, Building2, MoreHorizontal, Send } from 'lucide-react';
 import { useDialog } from '@/context/DialogContext';
 import { Button } from '@/components/Button';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -103,6 +103,87 @@ export default function AdminUsersPage() {
     }
   };
 
+  const handleResendInvite = async (user: User) => {
+    try {
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      const token = currentSession?.access_token;
+
+      const response = await fetch('/api/admin/resend-invite', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          userId: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role
+        })
+      });
+
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.error || 'Error al reenviar invitación');
+      }
+
+      const result = await response.json();
+      
+      if (result.success === false && result.message === 'ESTADO_ACTIVO') {
+        await alert({ 
+          title: 'Usuario ya Activo', 
+          message: 'Este usuario ya ha activado su cuenta anteriormente. No necesita una nueva invitación.', 
+          type: 'warning' 
+        });
+        return;
+      }
+
+      await alert({ 
+        title: 'Invitación Enviada', 
+        message: `Se ha enviado un nuevo email de acceso a ${user.email} con el formato premium.`, 
+        type: 'success' 
+      });
+    } catch (err: any) {
+      console.error(err);
+      await alert({ title: 'Error', message: err.message, type: 'danger' });
+    }
+  };
+
+  const handleDeleteUser = async (userId: string) => {
+    const ok = await confirm({ 
+      title: 'Eliminar Usuario', 
+      message: '¿Estás seguro de que deseas eliminar permanentemente a este usuario? Esta acción borrará su perfil y su acceso al sistema.', 
+      type: 'danger' 
+    });
+    
+    if (!ok) return;
+
+    try {
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      const token = currentSession?.access_token;
+
+      const response = await fetch('/api/admin/delete-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ userId })
+      });
+
+      if (!response.ok) {
+        const result = await response.json();
+        throw new Error(result.error || 'Error al eliminar usuario');
+      }
+
+      await alert({ title: 'Usuario Eliminado', message: 'El usuario ha sido borrado correctamente.', type: 'success' });
+      await loadData(); // Refresh list
+    } catch (err: any) {
+      console.error(err);
+      await alert({ title: 'Error', message: err.message, type: 'danger' });
+    }
+  };
+
   const filteredUsers = users.filter(user => {
     const matchesSearch = 
       (user.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -191,13 +272,11 @@ export default function AdminUsersPage() {
                    <div className="w-14 h-14 rounded-2xl bg-muted/10 border border-border flex items-center justify-center text-muted group-hover:scale-110 transition-transform">
                      <UserCircle size={32} />
                    </div>
-                   <div className="flex gap-2">
-                     <button onClick={() => setEditingUser(user)} className="p-2.5 rounded-xl bg-background border border-border text-muted hover:text-accent transition-all"><Edit2 size={16} /></button>
-                     <button onClick={async () => {
-                       const ok = await confirm({ title: 'Eliminar Usuario', message: '¿Estás seguro?', type: 'danger' });
-                       if (ok) { /* handle delete */ }
-                     }} className="p-2.5 rounded-xl bg-background border border-border text-muted hover:text-red-500 transition-all"><Trash2 size={16} /></button>
-                   </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => handleResendInvite(user)} title="Reenviar Invitación" className="p-2.5 rounded-xl bg-accent/10 border border-accent/20 text-accent hover:bg-accent hover:text-white transition-all"><Send size={16} /></button>
+                      <button onClick={() => setEditingUser(user)} className="p-2.5 rounded-xl bg-background border border-border text-muted hover:text-accent transition-all"><Edit2 size={16} /></button>
+                      <button onClick={() => handleDeleteUser(user.id)} className="p-2.5 rounded-xl bg-background border border-border text-muted hover:text-red-500 transition-all"><Trash2 size={16} /></button>
+                    </div>
                 </div>
 
                 <div className="space-y-1 relative z-10">
@@ -233,29 +312,31 @@ export default function AdminUsersPage() {
                 key={user.id} 
                 className="p-4 rounded-2xl bg-surface border border-border hover:border-accent/30 transition-all flex items-center justify-between gap-4 group"
               >
-                 <div className="flex items-center gap-4 flex-1">
-                    <div className="w-10 h-10 rounded-xl bg-muted/10 flex items-center justify-center text-muted shrink-0">
-                       <UserIcon size={20} />
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 flex-1">
-                       <div>
-                          <p className="text-sm font-bold">{user.name} {user.surname}</p>
-                          <p className="text-[10px] text-muted">{user.email}</p>
-                       </div>
-                       <div className="hidden md:flex items-center">
-                          <span className={`px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest border ${user.role === 'admin' ? 'bg-accent/10 border-accent/20 text-accent' : 'bg-muted/10 border-border text-muted'}`}>
-                            {user.role}
-                          </span>
-                       </div>
-                       <div className="hidden md:flex items-center text-muted text-[10px] font-medium">
-                          {user.clients?.name || '—'}
-                       </div>
-                    </div>
-                 </div>
-                 <div className="flex items-center gap-2">
-                    <button onClick={() => setEditingUser(user)} className="p-2 rounded-lg hover:bg-accent/10 text-muted hover:text-accent transition-all"><Edit2 size={16} /></button>
-                    <button className="p-2 rounded-lg hover:bg-red-500/10 text-muted hover:text-red-500 transition-all"><Trash2 size={16} /></button>
-                 </div>
+                <div className="flex items-center gap-4 flex-1">
+                  <div className="w-10 h-10 rounded-xl bg-muted/10 border border-border flex items-center justify-center text-muted group-hover:scale-110 transition-transform">
+                    <UserCircle size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold">{user.name} {user.surname}</h3>
+                    <p className="text-[10px] text-muted">{user.email}</p>
+                  </div>
+                </div>
+                
+                <div className="flex items-center gap-8">
+                  <div className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest border ${user.role === 'admin' ? 'bg-accent/10 border-accent/20 text-accent' : 'bg-muted/10 border-border text-muted'}`}>
+                    {user.role}
+                  </div>
+                  
+                  <div className="text-[10px] text-muted font-mono">
+                    {user.clients?.name || '—'}
+                  </div>
+
+                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => handleResendInvite(user)} title="Reenviar Invitación" className="p-2 rounded-lg bg-background border border-border text-muted hover:text-accent transition-all"><Send size={14} /></button>
+                    <button onClick={() => setEditingUser(user)} className="p-2 rounded-lg bg-background border border-border text-muted hover:text-accent transition-all"><Edit2 size={14} /></button>
+                    <button onClick={() => handleDeleteUser(user.id)} className="p-2 rounded-lg bg-background border border-border text-muted hover:text-red-500 transition-all"><Trash2 size={14} /></button>
+                  </div>
+                </div>
               </motion.div>
             )
           ))}
@@ -287,6 +368,10 @@ export default function AdminUsersPage() {
                   <div className="space-y-2">
                      <label className="text-[10px] font-black uppercase tracking-widest text-muted px-1">Email</label>
                      <input type="email" className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none focus:border-accent/40" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} required />
+                  </div>
+                  <div className="space-y-2">
+                     <label className="text-[10px] font-black uppercase tracking-widest text-muted px-1">Teléfono</label>
+                     <input type="tel" className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none focus:border-accent/40" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} placeholder="+34 ..." />
                   </div>
                   <div className="grid grid-cols-2 gap-6">
                      <div className="space-y-2">

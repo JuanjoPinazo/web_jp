@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '@/context/AuthContext';
+import { useRouter } from 'next/navigation';
 import { useTravelPlans, FullTravelPlan } from '@/hooks/useTravelPlans';
 import { 
   Building2, 
@@ -25,6 +26,7 @@ import { OutcomeDrawer } from '@/components/OutcomeDrawer';
 import { OutcomeTimeline } from '@/components/OutcomeTimeline';
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { session } = useAuth();
   const { getMyActivePlan, loading: planLoading } = useTravelPlans();
   const userName = session.user?.name || 'Usuario';
@@ -39,9 +41,20 @@ export default function DashboardPage() {
   useEffect(() => {
     const loadContexts = async () => {
       if (!session?.user) return;
+      
+      const { supabase } = await import('@/lib/supabase');
+
+      // Safety Check: If user is authenticated but might need to set a password
+      const { data: { user: authUser } } = await supabase.auth.getUser();
+      
+      // If user has no identities (common in fresh invites) or was never confirmed
+      if (authUser && !authUser.last_sign_in_at && authUser.app_metadata?.provider === 'email') {
+        router.push('/set-password');
+        return;
+      }
+
       try {
         setLoading(true);
-        const { supabase } = await import('@/lib/supabase');
         // Fetch contexts the user is assigned to
         const { data: contexts, error } = await supabase
           .from('context_users')
@@ -87,15 +100,15 @@ export default function DashboardPage() {
       cards.push({
         id: `flight-${f.id}`,
         title: `Vuelo ${f.type === 'salida' ? 'Ida' : 'Vuelta'}`,
-        status: 'Vuelo confirmado',
+        status: f.airline ? `${f.airline} ${f.flight_number || ''}` : 'Vuelo confirmado',
         icon: Plane,
         actionType: 'flight',
         payload: f,
         details: {
           hora: `${new Date(f.departure_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} (Salida)`,
           ubicacion: f.origin || 'N/A',
-          estado: 'Confirmado',
-          observaciones: `${f.flight_number || ''} | Destino: ${f.destination || 'N/A'} | Ref: ${f.booking_reference || 'N/A'}`
+          estado: f.status === 'confirmed' ? 'Confirmado' : 'Pendiente',
+          observaciones: `Destino: ${f.destination || 'N/A'} | Ref: ${f.booking_reference || 'Sin ref.'}${f.terminal ? ` | Terminal: ${f.terminal}` : ''}`
         }
       });
     });
@@ -104,15 +117,15 @@ export default function DashboardPage() {
       cards.push({
         id: `hotel-${h.id}`,
         title: 'Alojamiento',
-        status: 'Hotel confirmado',
+        status: h.hotel_name,
         icon: Building2,
         actionType: 'hotel',
         payload: h,
         details: {
-          hora: `${new Date(h.check_in).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} (Check-in)`,
+          hora: `${new Date(h.check_in).toLocaleDateString([], {day: '2-digit', month: 'short'})} (Check-in)`,
           ubicacion: h.hotel_name,
-          estado: 'Confirmado',
-          observaciones: `Ref: ${h.booking_reference || 'N/A'}. ${h.notes || ''}`
+          estado: 'Reservado',
+          observaciones: `Ref: ${h.booking_reference || 'Confirmado'}${h.room_type ? ` | Hab: ${h.room_type}` : ''}. ${h.notes || ''}`
         }
       });
     });
@@ -121,15 +134,15 @@ export default function DashboardPage() {
       cards.push({
         id: `transfer-${t.id}`,
         title: 'Traslado',
-        status: 'Vehículo coordinado',
+        status: t.pickup_location,
         icon: Car,
         actionType: 'transfer',
         payload: t,
         details: {
           hora: `${new Date(t.pickup_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} (Recogida)`,
           ubicacion: t.pickup_location,
-          estado: 'Asignado',
-          observaciones: `Destino: ${t.dropoff_location}. Chófer: ${t.driver_name || 'Pendiente'}. Vehículo: ${t.vehicle || 'Estándar'}`
+          estado: 'Coordinado',
+          observaciones: `Destino: ${t.dropoff_location}. Chófer: ${t.driver_name || 'Personal Asignado'}${t.driver_phone ? ` (${t.driver_phone})` : ''}.`
         }
       });
     });
@@ -138,7 +151,7 @@ export default function DashboardPage() {
       cards.push({
         id: `restaurant-${r.id}`,
         title: 'Gastronomía',
-        status: 'Mesa reservada',
+        status: r.restaurant_name,
         icon: Utensils,
         actionType: 'restaurant',
         payload: r,
@@ -146,7 +159,7 @@ export default function DashboardPage() {
           hora: new Date(r.reservation_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
           ubicacion: r.restaurant_name,
           estado: 'Reservado',
-          observaciones: `A nombre de: ${r.reservation_name || userName}. ${r.notes || ''}`
+          observaciones: `Mesa para ${r.reservation_name || userName}. ${r.notes || ''}`
         }
       });
     });
@@ -154,16 +167,16 @@ export default function DashboardPage() {
     activePlan.documents.forEach((d) => {
       cards.push({
         id: `doc-${d.id}`,
-        title: 'Documento',
+        title: 'Dossier Digital',
         status: d.title,
         icon: FileText,
         actionType: 'document',
         payload: d,
         details: {
-          hora: 'Disponible',
-          ubicacion: 'Nube',
-          estado: 'Accesible',
-          observaciones: 'Puedes descargar este documento para tu viaje.'
+          hora: 'Digital',
+          ubicacion: 'Área Privada',
+          estado: 'Disponible',
+          observaciones: 'Documentación oficial lista para su descarga.'
         }
       });
     });

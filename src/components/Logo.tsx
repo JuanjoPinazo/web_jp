@@ -15,7 +15,7 @@ export const Logo = ({ className = "w-10 h-10" }: { className?: string }) => {
     <div className={`relative ${className} overflow-hidden rounded-full`}>
       <Image
         src={logoSrc}
-        alt="Juanjo Pinazo Logo"
+        alt="JP Intelligence Platform Logo"
         fill
         className="object-contain"
         priority

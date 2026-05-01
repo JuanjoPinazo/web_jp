@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 
@@ -143,7 +143,7 @@ export const useTravelPlans = () => {
   // --- CLIENT ACTIONS ---
   
   // Fetches the full plan for the logged-in user and a specific context
-  const getMyActivePlan = async (contextId: string): Promise<FullTravelPlan | null> => {
+  const getMyActivePlan = useCallback(async (contextId: string): Promise<FullTravelPlan | null> => {
     if (!session?.user?.id || !contextId) return null;
     
     try {
@@ -186,11 +186,11 @@ export const useTravelPlans = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [session]);
 
   // --- ADMIN ACTIONS ---
   
-  const getAdminPlanForUser = async (userId: string, contextId: string): Promise<FullTravelPlan | null> => {
+  const getAdminPlanForUser = useCallback(async (userId: string, contextId: string): Promise<FullTravelPlan | null> => {
     try {
       setLoading(true);
       const { data: plan, error: planError } = await supabase
@@ -230,7 +230,7 @@ export const useTravelPlans = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   const createOrUpdatePlan = async (userId: string, contextId: string, supportPhone?: string) => {
     const { data: { user } } = await supabase.auth.getUser();

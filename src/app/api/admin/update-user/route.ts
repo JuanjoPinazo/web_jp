@@ -61,7 +61,7 @@ export async function POST(request: Request) {
         apellidos: surname,
         email: email,
         role: role,
-        client_id: client_id,
+        client_id: client_id || null,
         telefono: phone
       })
       .eq('id', userId);

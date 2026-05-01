@@ -34,7 +34,16 @@ export const useAdmin = () => {
         .select('*, context_users(context_id)')
         .order('created_at', { ascending: false });
       if (error) throw error;
-      return data as User[];
+      
+      // Map database columns to interface properties
+      const mappedUsers = (data || []).map((u: any) => ({
+        ...u,
+        name: u.nombre || '',
+        surname: u.apellidos || '',
+        phone: u.telefono || ''
+      }));
+      
+      return mappedUsers as User[];
     } catch (err) {
       console.warn('Error fetching users, returning empty array:', err);
       return [];

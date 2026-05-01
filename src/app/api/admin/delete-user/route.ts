@@ -31,7 +31,6 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Sesión inválida' }, { status: 401 });
     }
 
-    // Check role in profiles
     const { data: profile } = await getSupabaseAdmin()
       .from('profiles')
       .select('role')
@@ -42,23 +41,26 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Permisos insuficientes' }, { status: 403 });
     }
 
-    // Prevent self-deletion
-    if (requester.id === userId) {
-      return NextResponse.json({ error: 'No puedes eliminarte a ti mismo' }, { status: 400 });
+    // 2. Delete from Profiles table first (due to foreign keys)
+    // Actually, usually profiles has ON DELETE CASCADE from auth.users, 
+    // but we'll do it manually to be safe and avoid RLS issues.
+    const { error: profileDeleteError } = await getSupabaseAdmin()
+      .from('profiles')
+      .delete()
+      .eq('id', userId);
+
+    if (profileDeleteError) {
+      console.error('Error deleting profile:', profileDeleteError);
+      return NextResponse.json({ error: 'Error al borrar perfil: ' + profileDeleteError.message }, { status: 500 });
     }
 
-    // 2. Delete user from Supabase Auth
-    // This will trigger cascade delete in profiles if configured, 
-    // or we might need to delete profile manually if not.
-    const { error: deleteError } = await getSupabaseAdmin().auth.admin.deleteUser(userId);
-
-    if (deleteError) {
-      return NextResponse.json({ error: deleteError.message }, { status: 400 });
+    // 3. Delete from Supabase Auth
+    const { error: authDeleteError } = await getSupabaseAdmin().auth.admin.deleteUser(userId);
+    
+    if (authDeleteError) {
+      console.error('Error deleting auth user:', authDeleteError);
+      return NextResponse.json({ error: 'Error al borrar usuario de autenticación: ' + authDeleteError.message }, { status: 500 });
     }
-
-    // 3. Optional: Manual profile cleanup if cascade is not set
-    // In most cases, the trigger/cascade handles this, but let's be sure
-    await getSupabaseAdmin().from('profiles').delete().eq('id', userId);
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
