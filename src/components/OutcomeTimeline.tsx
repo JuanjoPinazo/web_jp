@@ -11,7 +11,9 @@ import {
   MapPin, 
   Headphones,
   Circle,
-  FileText
+  FileText,
+  Trophy,
+  Plane
 } from 'lucide-react';
 import { FullTravelPlan } from '@/hooks/useTravelPlans';
 
@@ -26,97 +28,139 @@ export function OutcomeTimeline({ plan }: OutcomeTimelineProps) {
 
     const events: any[] = [];
 
-    // Flights
-    plan.flights.forEach(f => {
+    const sortedFlights = [...plan.flights]
+      .filter(f => f.is_verified)
+      .sort((a, b) => new Date(a.departure_time).getTime() - new Date(b.departure_time).getTime());
+    
+    // Group 1: IDA (Outbound)
+    const outboundFlights = sortedFlights.filter(f => f.type === 'outbound' || !f.type); // Default to outbound if not specified
+    if (outboundFlights.length > 0) {
+      const f = outboundFlights[0];
+      const depTime = new Date(f.departure_time);
       events.push({
-        id: `flight-dep-${f.id}`,
-        title: `Salida: ${f.airline || ''} ${f.flight_number || ''}`,
-        time: new Date(f.departure_time),
-        location: f.origin,
-        desc: `Vuelo hacia ${f.destination}. ${f.terminal ? `Terminal ${f.terminal}.` : ''} Ref: ${f.booking_reference || 'N/A'}`,
-        icon: PlaneTakeoff,
+        id: 'header-ida',
+        type: 'header',
+        title: `✈️ TRAYECTO IDA · ${depTime.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric' }).toUpperCase()}`,
+        time: new Date(depTime.getTime() - 1000), 
+        icon: Plane,
         color: 'text-purple-500'
       });
-      events.push({
-        id: `flight-arr-${f.id}`,
-        title: `Aterrizaje en ${f.destination}`,
-        time: new Date(f.arrival_time),
-        location: f.destination,
-        desc: `Llegada prevista al aeropuerto de destino.`,
-        icon: PlaneLanding,
-        color: 'text-blue-500'
-      });
-    });
 
-    // Hotels
+      outboundFlights.forEach(flight => {
+        const dTime = new Date(flight.departure_time);
+        events.push({
+          id: `flight-dep-${flight.id}`,
+          title: 'Salida',
+          time: dTime,
+          originalTime: flight.departure_time?.split('T')[1]?.substring(0, 5),
+          location: flight.departure_location || 'Origen',
+          desc: `${flight.airline || ''} ${flight.flight_number || ''}. Ref: ${flight.reservation_code || 'Confirmado'}.`,
+          icon: PlaneTakeoff,
+          color: 'text-purple-500'
+        });
+
+        if (flight.arrival_time) {
+          events.push({
+            id: `flight-arr-${flight.id}`,
+            title: 'Llegada',
+            time: new Date(flight.arrival_time),
+            originalTime: flight.arrival_time?.split('T')[1]?.substring(0, 5),
+            location: flight.arrival_location || 'Destino',
+            desc: `Aterrizaje previsto. ${plan.transfers.length > 0 ? 'Transfer esperándote.' : ''}`,
+            icon: PlaneLanding,
+            color: 'text-blue-500'
+          });
+        }
+      });
+    }
+
+    // Intermediate Hotels & Events
     plan.hotels.forEach(h => {
       events.push({
         id: `hotel-in-${h.id}`,
-        title: `Check-in: ${h.hotel_name}`,
+        title: `Check-in Hotel`,
         time: new Date(h.check_in),
+        originalTime: h.check_in?.split('T')[1]?.substring(0, 5),
         location: h.hotel_name,
-        desc: `Registro en recepción. ${h.room_type ? `Habitación ${h.room_type}.` : ''} Ref: ${h.booking_reference || 'N/A'}.`,
-        icon: Building2,
-        color: 'text-emerald-500'
-      });
-      events.push({
-        id: `hotel-out-${h.id}`,
-        title: `Check-out: ${h.hotel_name}`,
-        time: new Date(h.check_out),
-        location: h.hotel_name,
-        desc: `Cierre de dossier y salida del hotel.`,
+        desc: `${h.address || ''} ${h.room_type ? `· Hab: ${h.room_type}` : ''}`,
         icon: Building2,
         color: 'text-emerald-500'
       });
     });
 
-    // Transfers
-    plan.transfers.forEach(t => {
+    if (plan.contexts?.name) {
       events.push({
-        id: `transfer-${t.id}`,
-        title: `Traslado: ${t.pickup_location}`,
-        time: new Date(t.pickup_time),
-        location: t.pickup_location,
-        desc: `Recogida programada. Chófer: ${t.driver_name || 'Asignado'} ${t.driver_phone ? `(${t.driver_phone})` : ''}. Vehículo: ${t.vehicle || 'Estándar'}.`,
-        icon: Car,
-        color: 'text-amber-500'
+        id: `event-${plan.context_id}`,
+        title: `Congreso: ${plan.contexts.name}`,
+        time: plan.contexts.start_date ? new Date(plan.contexts.start_date) : new Date(),
+        location: plan.contexts.location || 'Sede del Evento',
+        desc: 'Acceso VIP confirmado. Tu acreditación está lista.',
+        icon: Trophy,
+        color: 'text-emerald-400'
       });
-    });
+    }
 
-    // Restaurants
-    plan.restaurants.forEach(r => {
+    // Group 2: VUELTA (Return)
+    const returnFlights = sortedFlights.filter(f => f.type === 'return');
+    if (returnFlights.length > 0) {
+      const f = returnFlights[0];
+      const depTime = new Date(f.departure_time);
+      
       events.push({
-        id: `restaurant-${r.id}`,
-        title: `Reserva Restaurante`,
-        time: new Date(r.reservation_time),
-        location: r.restaurant_name,
-        desc: `Mesa a nombre de ${r.reservation_name || 'JP Intelligence'}. ${r.notes || ''}`,
-        icon: Utensils,
-        color: 'text-pink-500'
+        id: 'header-vuelta',
+        type: 'header',
+        title: `✈️ TRAYECTO VUELTA · ${depTime.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric' }).toUpperCase()}`,
+        time: new Date(depTime.getTime() - 1000),
+        icon: Plane,
+        color: 'text-purple-500'
       });
-    });
 
-    // Documents (We just put them at the beginning of the timeline)
-    plan.documents.forEach(d => {
-      events.push({
-        id: `doc-${d.id}`,
-        title: `Documentación: ${d.title}`,
-        time: new Date(0), // Push to the top
-        location: 'Documento Digital',
-        desc: `Puedes descargar este documento desde el portal.`,
-        icon: FileText,
-        color: 'text-accent'
+      returnFlights.forEach(flight => {
+        const dTime = new Date(flight.departure_time);
+        events.push({
+          id: `flight-dep-${flight.id}`,
+          title: 'Salida',
+          time: dTime,
+          originalTime: flight.departure_time?.split('T')[1]?.substring(0, 5),
+          location: flight.departure_location || 'Origen',
+          desc: `${flight.airline || ''} ${flight.flight_number || ''}. Ref: ${flight.reservation_code || 'Confirmado'}.`,
+          icon: PlaneTakeoff,
+          color: 'text-purple-500'
+        });
+
+        if (flight.arrival_time) {
+          events.push({
+            id: `flight-arr-${flight.id}`,
+            title: 'Llegada',
+            time: new Date(flight.arrival_time),
+            originalTime: flight.arrival_time?.split('T')[1]?.substring(0, 5),
+            location: flight.arrival_location || 'Destino',
+            desc: `Aterrizaje y fin de trayecto operativo.`,
+            icon: PlaneLanding,
+            color: 'text-blue-500'
+          });
+        }
       });
-    });
+    }
 
     // Sort by time
     events.sort((a, b) => a.time.getTime() - b.time.getTime());
 
     // Format time strings
-    return events.map(e => ({
-      ...e,
-      timeString: e.time.getTime() === 0 ? 'Documento' : e.time.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', weekday: 'short'})
-    }));
+    return events.map(e => {
+      let timeString = '';
+      if (e.type !== 'header') {
+        // Si tenemos un objeto Date que vino de un ISO string, intentamos sacar la hora cruda
+        const iso = e.time.toISOString(); // Esto es UTC, pero si lo guardamos como local...
+        // Mejor: Si el evento tiene una propiedad 'originalTime' (que añadiremos), la usamos.
+        timeString = e.originalTime || e.time.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+      }
+      
+      return {
+        ...e,
+        timeString
+      };
+    });
   }, [plan]);
 
   if (!plan) return null;
@@ -127,48 +171,71 @@ export function OutcomeTimeline({ plan }: OutcomeTimelineProps) {
         {/* Continuous Line */}
         <div className="absolute left-[21px] top-6 bottom-6 w-0.5 bg-gradient-to-b from-accent/40 via-accent/10 to-transparent" />
 
-        <div className="space-y-12">
-          {timelineSteps.map((step, i) => (
-            <motion.div
-              key={step.id}
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: i * 0.1 }}
-              className="relative flex gap-8 group"
-            >
-              {/* Icon Container */}
-              <div className="relative z-10">
-                <div className={`w-11 h-11 rounded-2xl bg-[#0a0a0a] border border-white/10 flex items-center justify-center ${step.color} shadow-lg group-hover:scale-110 transition-transform`}>
-                  <step.icon size={20} />
+        <div className="space-y-10">
+          {timelineSteps.map((step, i) => {
+            if (step.type === 'header') {
+              return (
+                <div key={step.id} className="relative z-10 pt-4 pb-2">
+                  <div className="flex items-center gap-4">
+                    <div className={`p-2 rounded-lg bg-surface/50 border border-white/5 ${step.color}`}>
+                      <step.icon size={16} />
+                    </div>
+                    <h3 className="text-xs font-black uppercase tracking-[0.3em] text-white/90">
+                      {step.title}
+                    </h3>
+                    <div className="flex-1 h-px bg-white/5" />
+                  </div>
                 </div>
-              </div>
+              );
+            }
 
-              {/* Content */}
-              <div className="flex-1 pt-1 space-y-2">
-                <div className="flex justify-between items-baseline gap-4">
-                  <h4 className="text-lg font-black text-white">{step.title}</h4>
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em] text-accent/80">{step.timeString}</span>
+            return (
+              <motion.div
+                key={step.id}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className="relative flex gap-10 group"
+              >
+                {/* Icon Container */}
+                <div className="relative z-10">
+                  <div className={`w-12 h-12 rounded-2xl bg-[#0a0a0a] border border-white/5 flex items-center justify-center ${step.color} shadow-2xl group-hover:scale-110 transition-all duration-500`}>
+                    <step.icon size={20} strokeWidth={2.5} />
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted">
-                    <Circle size={8} className="fill-current" />
-                    {step.location}
+
+                {/* Content */}
+                <div className="flex-1 pt-1 space-y-2">
+                  <div className="flex flex-col md:flex-row md:justify-between md:items-baseline gap-1">
+                    <h4 className="text-xl font-black text-white tracking-tight">{step.title}</h4>
+                    {step.timeString && (
+                      <span className="text-[10px] font-black uppercase tracking-[0.2em] text-accent">{step.timeString}</span>
+                    )}
+                  </div>
+                  {step.location && (
+                    <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted/60">
+                        {step.location}
+                    </div>
+                  )}
+                  {step.desc && (
+                    <p className="text-xs font-medium text-muted leading-relaxed max-w-sm">
+                      {step.desc}
+                    </p>
+                  )}
                 </div>
-                <p className="text-sm text-white/50 leading-relaxed max-w-sm">
-                  {step.desc}
-                </p>
-              </div>
-            </motion.div>
-          ))}
+              </motion.div>
+            );
+          })}
           
           {/* Support Node */}
           {plan.support_phone && (
             <motion.div
               initial={{ opacity: 0, x: -20 }}
               animate={{ opacity: 1, x: 0 }}
-              className="relative flex gap-8 group"
+              className="relative flex gap-10 group"
             >
               <div className="relative z-10">
-                <div className="w-11 h-11 rounded-2xl bg-[#0a0a0a] border border-white/10 flex items-center justify-center text-muted shadow-lg group-hover:scale-110 transition-transform">
+                <div className="w-12 h-12 rounded-2xl bg-[#0a0a0a] border border-white/5 flex items-center justify-center text-muted shadow-lg group-hover:scale-110 transition-transform">
                   <Headphones size={20} />
                 </div>
               </div>
@@ -177,10 +244,6 @@ export function OutcomeTimeline({ plan }: OutcomeTimelineProps) {
                 <div className="flex justify-between items-baseline gap-4">
                   <h4 className="text-lg font-black text-white">Soporte Continuo</h4>
                   <span className="text-[10px] font-black uppercase tracking-[0.2em] text-accent/80">24/7</span>
-                </div>
-                <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted">
-                    <Circle size={8} className="fill-current" />
-                    Asistencia Telefónica
                 </div>
                 <p className="text-sm text-white/50 leading-relaxed max-w-sm">
                   Cualquier imprevisto durante la operativa está cubierto.

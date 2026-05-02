@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Clock, MapPin, CheckCircle2, Info, Phone, Download } from 'lucide-react';
+import { X, Clock, MapPin, CheckCircle2, Info, Phone, Download, User, Ticket, Briefcase, Coffee, ShieldCheck } from 'lucide-react';
 import { Button } from './Button';
 
 interface OutcomeDrawerProps {
@@ -94,14 +94,85 @@ export function OutcomeDrawer({ isOpen, onClose, card }: OutcomeDrawerProps) {
                       <Info size={18} />
                     </div>
                     <div>
-                      <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1">Detalles Operativos</p>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1">Notas del Concierge</p>
                       <p className="text-white/80 text-sm leading-relaxed">{details.observaciones}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Structured Hotel Details */}
+                {actionType === 'hotel' && (
+                  <div className="pt-4 space-y-4 border-t border-white/5">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-accent">Detalles del Alojamiento</p>
+                    
+                    <div className="grid grid-cols-1 gap-4">
+                      {payload.traveler_name && (
+                        <div className="flex items-center gap-3">
+                          <User size={14} className="text-muted" />
+                          <p className="text-xs text-white"><span className="text-muted">Titular:</span> {payload.traveler_name}</p>
+                        </div>
+                      )}
+                      {payload.confirmation_number && (
+                        <div className="flex items-center gap-3">
+                          <Ticket size={14} className="text-muted" />
+                          <p className="text-xs text-white"><span className="text-muted">Confirmación:</span> <span className="font-mono">{payload.confirmation_number}</span></p>
+                        </div>
+                      )}
+                      {payload.pin_code && (
+                        <div className="flex items-center gap-3">
+                          <ShieldCheck size={14} className="text-muted" />
+                          <p className="text-xs text-white"><span className="text-muted">Código Acceso:</span> <span className="font-mono bg-white/10 px-1.5 py-0.5 rounded">{payload.pin_code}</span></p>
+                        </div>
+                      )}
+                      <div className="flex items-center gap-3">
+                        <Coffee size={14} className={payload.breakfast_included ? "text-emerald-500" : "text-muted"} />
+                        <p className="text-xs text-white">{payload.breakfast_included ? "Desayuno Incluido" : "Solo Alojamiento"}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Structured Flight Details */}
+                {actionType === 'flight' && (
+                  <div className="pt-4 space-y-4 border-t border-white/5">
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-accent">Detalles del Vuelo</p>
+                    
+                    <div className="grid grid-cols-1 gap-4">
+                      {payload.reservation_code && (
+                        <div className="flex items-center gap-3">
+                          <Ticket size={14} className="text-muted" />
+                          <p className="text-xs text-white"><span className="text-muted">Localizador:</span> <span className="font-mono">{payload.reservation_code}</span></p>
+                        </div>
+                      )}
+                      {payload.passengers && (
+                        <div className="flex items-center gap-3">
+                          <User size={14} className="text-muted" />
+                          <p className="text-xs text-white"><span className="text-muted">Pasajeros:</span> {payload.passengers}</p>
+                        </div>
+                      )}
+                      {payload.seat && (
+                        <div className="flex items-center gap-3">
+                          <MapPin size={14} className="text-muted" />
+                          <p className="text-xs text-white"><span className="text-muted">Asiento:</span> {payload.seat}</p>
+                        </div>
+                      )}
+                      {payload.baggage_info && (
+                        <div className="flex items-center gap-3">
+                          <Briefcase size={14} className="text-muted" />
+                          <p className="text-xs text-white"><span className="text-muted">Equipaje:</span> {payload.baggage_info}</p>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
                 
                 {/* Dynamic Actions */}
                 <div className="pt-6 space-y-3">
+                  {(actionType === 'hotel' || actionType === 'flight') && payload.voucher_url && (
+                    <a href={payload.voucher_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-3 w-full p-5 rounded-2xl bg-accent text-background font-black text-xs uppercase tracking-widest hover:scale-[1.02] transition-all shadow-xl shadow-accent/20">
+                      <Download size={18} /> {actionType === 'hotel' ? 'Descargar Reserva' : 'Descargar Billete'}
+                    </a>
+                  )}
                   {actionType === 'transfer' && payload?.driver_phone && (
                     <a href={`tel:${payload.driver_phone}`} className="flex items-center justify-center gap-2 w-full p-4 rounded-xl bg-emerald-500/10 text-emerald-500 font-bold hover:bg-emerald-500 hover:text-white transition-colors">
                       <Phone size={18} /> Llamar Chófer

@@ -30,7 +30,8 @@ export default function AdminUsersPage() {
     surname: '',
     role: 'client',
     client_id: '',
-    phone: ''
+    phone: '',
+    sendInvite: true
   });
 
   useEffect(() => {
@@ -45,7 +46,8 @@ export default function AdminUsersPage() {
         surname: editingUser.surname || '',
         role: editingUser.role || 'client',
         client_id: editingUser.client_id || '',
-        phone: editingUser.phone || ''
+        phone: editingUser.phone || '',
+        sendInvite: false
       });
       setIsModalOpen(true);
     }
@@ -87,13 +89,17 @@ export default function AdminUsersPage() {
 
       await alert({ 
         title: 'Éxito', 
-        message: editingUser ? 'Usuario actualizado correctamente.' : 'Usuario invitado correctamente.', 
+        message: editingUser 
+          ? 'Usuario actualizado correctamente.' 
+          : formData.sendInvite 
+            ? 'Usuario invitado correctamente.' 
+            : 'Usuario creado en borrador (sin invitación).', 
         type: 'success' 
       });
       
       setIsModalOpen(false);
       setEditingUser(null);
-      setFormData({ email: '', name: '', surname: '', role: 'client', client_id: '', phone: '' });
+      setFormData({ email: '', name: '', surname: '', role: 'client', client_id: '', phone: '', sendInvite: true });
       loadData();
     } catch (err: any) {
       console.error(err);
@@ -280,10 +286,25 @@ export default function AdminUsersPage() {
                 </div>
 
                 <div className="space-y-1 relative z-10">
-                   <h3 className="text-xl font-bold font-heading">{user.name} {user.surname}</h3>
-                   <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${user.role === 'admin' ? 'bg-accent/10 border-accent/20 text-accent' : 'bg-muted/10 border-border text-muted'}`}>
-                     {user.role === 'admin' ? <Shield size={10} /> : <UserIcon size={10} />}
-                     {user.role}
+                   <div className="flex flex-wrap gap-2 pt-1">
+                      <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${user.role === 'admin' ? 'bg-accent/10 border-accent/20 text-accent' : 'bg-muted/10 border-border text-muted'}`}>
+                        {user.role === 'admin' ? <Shield size={10} /> : <UserIcon size={10} />}
+                        {user.role}
+                      </div>
+                      
+                      {/* Onboarding Status Badge */}
+                      <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${
+                        user.onboarding_status === 'active' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 
+                        user.onboarding_status === 'invited' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' : 
+                        'bg-slate-500/10 border-slate-500/20 text-slate-400'
+                      }`}>
+                        <div className={`w-1.5 h-1.5 rounded-full ${
+                          user.onboarding_status === 'active' ? 'bg-emerald-500' : 
+                          user.onboarding_status === 'invited' ? 'bg-blue-500' : 
+                          'bg-slate-500'
+                        }`} />
+                        {user.onboarding_status || 'draft'}
+                      </div>
                    </div>
                 </div>
 
@@ -298,11 +319,11 @@ export default function AdminUsersPage() {
                         <span className="text-[10px] font-bold">{user.phone}</span>
                      </div>
                    )}
-                   {user.clients && (
-                     <div className="flex items-center gap-3 text-muted">
-                        <Building2 size={14} className="text-accent" />
-                        <span className="text-[10px] font-bold">{user.clients.name}</span>
-                     </div>
+                   {user.invitation_sent_at && user.onboarding_status !== 'active' && (
+                      <div className="flex items-center gap-3 text-muted/60">
+                         <Calendar size={12} />
+                         <span className="text-[9px] font-medium italic">Invitado el {new Date(user.invitation_sent_at).toLocaleDateString()}</span>
+                      </div>
                    )}
                 </div>
               </motion.div>
@@ -321,13 +342,21 @@ export default function AdminUsersPage() {
                     <p className="text-[10px] text-muted">{user.email}</p>
                   </div>
                 </div>
-                
-                <div className="flex items-center gap-8">
-                  <div className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest border ${user.role === 'admin' ? 'bg-accent/10 border-accent/20 text-accent' : 'bg-muted/10 border-border text-muted'}`}>
-                    {user.role}
+                       <div className="flex items-center gap-3">
+                    <div className={`px-2 py-0.5 rounded-full text-[7px] font-black uppercase tracking-widest border ${
+                      user.onboarding_status === 'active' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 
+                      user.onboarding_status === 'invited' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' : 
+                      'bg-slate-500/10 border-slate-500/20 text-slate-400'
+                    }`}>
+                      {user.onboarding_status || 'draft'}
+                    </div>
+
+                    <div className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest border ${user.role === 'admin' ? 'bg-accent/10 border-accent/20 text-accent' : 'bg-muted/10 border-border text-muted'}`}>
+                      {user.role}
+                    </div>
                   </div>
                   
-                  <div className="text-[10px] text-muted font-mono">
+                  <div className="text-[10px] text-muted font-mono w-24 truncate">
                     {user.clients?.name || '—'}
                   </div>
 
@@ -336,7 +365,6 @@ export default function AdminUsersPage() {
                     <button onClick={() => setEditingUser(user)} className="p-2 rounded-lg bg-background border border-border text-muted hover:text-accent transition-all"><Edit2 size={14} /></button>
                     <button onClick={() => handleDeleteUser(user.id)} className="p-2 rounded-lg bg-background border border-border text-muted hover:text-red-500 transition-all"><Trash2 size={14} /></button>
                   </div>
-                </div>
               </motion.div>
             )
           ))}
@@ -352,7 +380,7 @@ export default function AdminUsersPage() {
                {/* Modal Content */}
                 <div className="flex justify-between items-center mb-10">
                    <h3 className="text-3xl font-black font-heading tracking-tighter uppercase">{editingUser ? 'Actualizar' : 'Invitar'}</h3>
-                   <button onClick={() => { setIsModalOpen(false); setEditingUser(null); setFormData({ email: '', name: '', surname: '', role: 'client', client_id: '', phone: '' }); }} className="p-3 rounded-full bg-background border border-border text-muted hover:text-accent"><X size={24} /></button>
+                   <button onClick={() => { setIsModalOpen(false); setEditingUser(null); setFormData({ email: '', name: '', surname: '', role: 'client', client_id: '', phone: '', sendInvite: true }); }} className="p-3 rounded-full bg-background border border-border text-muted hover:text-accent"><X size={24} /></button>
                 </div>
                <form onSubmit={handleCreateUser} className="space-y-6">
                   <div className="grid grid-cols-2 gap-6">
@@ -389,9 +417,22 @@ export default function AdminUsersPage() {
                         </select>
                      </div>
                   </div>
-                  <Button type="submit" className="w-full py-6 rounded-2xl shadow-xl shadow-accent/20" disabled={isSubmitting}>
-                     {isSubmitting ? <Loader2 className="animate-spin" size={20} /> : (editingUser ? 'Guardar Cambios' : 'Enviar Invitación')}
-                  </Button>
+
+                  {!editingUser && (
+                      <div className="p-6 rounded-[2rem] bg-accent/5 border border-accent/10 flex items-center justify-between group cursor-pointer" onClick={() => setFormData({...formData, sendInvite: !formData.sendInvite})}>
+                        <div className="space-y-1">
+                          <p className="text-xs font-bold text-white">Enviar invitación ahora</p>
+                          <p className="text-[9px] text-muted uppercase font-black tracking-widest">El usuario recibirá el email de acceso de inmediato</p>
+                        </div>
+                        <div className={`w-12 h-6 rounded-full p-1 transition-all ${formData.sendInvite ? 'bg-accent' : 'bg-white/10'}`}>
+                           <div className={`w-4 h-4 rounded-full bg-white transition-all ${formData.sendInvite ? 'translate-x-6' : 'translate-x-0'}`} />
+                        </div>
+                      </div>
+                   )}
+
+                   <Button type="submit" className="w-full py-6 rounded-2xl shadow-xl shadow-accent/20" disabled={isSubmitting}>
+                      {isSubmitting ? <Loader2 className="animate-spin" size={20} /> : (editingUser ? 'Guardar Cambios' : formData.sendInvite ? 'Enviar Invitación' : 'Crear en Borrador')}
+                   </Button>
                </form>
             </motion.div>
           </div>

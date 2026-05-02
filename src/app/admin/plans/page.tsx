@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAdmin } from '@/hooks/useAdmin';
 import { useTravelPlans, FullTravelPlan } from '@/hooks/useTravelPlans';
@@ -29,7 +29,8 @@ import {
   ExternalLink,
   ShieldCheck,
   History,
-  FileBadge
+  FileBadge,
+  Download
 } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -37,25 +38,43 @@ import { useDialog } from '@/context/DialogContext';
 
 export default function AdminPlansPage() {
   const { getUsers, getContexts } = useAdmin();
-  const { getAdminPlanForUser, saveItem, deleteItem } = useTravelPlans();
+  const [isImporting, setIsImporting] = useState(false);
+  const [importType, setImportType] = useState('auto');
+  const [importStep, setImportStep] = useState<'upload' | 'extracting' | 'validating'>('upload');
+  const [extractionResult, setExtractionResult] = useState<any>(null);
+
+  const { getAdminPlanForUser, saveItem, deleteItem, saveTravelDocument } = useTravelPlans();
   const { alert, confirm } = useDialog();
+
+  const displayLocalTime = (dateStr: string) => {
+    if (!dateStr) return 'S/H';
+    try {
+      // Extraemos la parte de la hora directamente del string ISO para evitar conversiones de zona horaria del navegador
+      // El formato suele ser YYYY-MM-DDTHH:mm:ss...
+      const timePart = dateStr.split('T')[1];
+      if (timePart) {
+        return timePart.substring(0, 5);
+      }
+      return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch (e) {
+      return 'S/H';
+    }
+  };
 
   const [view, setView] = useState<'list' | 'detail'>('list');
   const [users, setUsers] = useState<any[]>([]);
   const [contexts, setContexts] = useState<any[]>([]);
   const [plans, setPlans] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedPlan, setSelectedPlan] = useState<FullTravelPlan | null>(null);
-  const [dbError, setDbError] = useState<string | null>(null);
-  
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedPlan, setSelectedPlan] = useState<any>(null);
   const [isCreating, setIsCreating] = useState(false);
-  const [editingPlan, setEditingPlan] = useState<any | null>(null);
-  const [activeSection, setActiveSection] = useState<string | null>(null);
-  const [editData, setEditData] = useState<any>(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingPlan, setEditingPlan] = useState<any>(null);
+  const [editingFlight, setEditingFlight] = useState<any>(null);
   const [selectedUser, setSelectedUser] = useState('');
   const [selectedContext, setSelectedContext] = useState('');
-  const [supportInfo, setSupportInfo] = useState({ phone: '' });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [supportInfo, setSupportInfo] = useState({ phone: '+34 600 000 000' });
 
   useEffect(() => {
     loadData();
@@ -63,37 +82,25 @@ export default function AdminPlansPage() {
 
   const loadData = async () => {
     setLoading(true);
-    setDbError(null);
     try {
       const [uData, cData] = await Promise.all([getUsers(), getContexts()]);
-      setUsers(uData);
-      setContexts(cData);
-      
-      const { data: rawPlans, error: pError } = await supabase
-        .from('contact_travel_plans')
-        .select('*')
-        .is('deleted_at', null)
-        .order('created_at', { ascending: false });
-      
-      if (pError) throw pError;
+      setUsers(uData || []);
+      setContexts(cData || []);
 
-      if (rawPlans && rawPlans.length > 0) {
-        const enrichedPlans = rawPlans.map(plan => ({
-          ...plan,
-          profiles: uData.find(u => u.id === plan.user_id),
-          contexts: cData.find(c => c.id === plan.context_id)
-        }));
-        setPlans(enrichedPlans);
-      } else {
-        setPlans([]);
-      }
+      const { data: pData, error: pError } = await supabase
+        .from('contact_travel_plans')
+        .select(`
+          *,
+          profiles:user_id (nombre, apellidos, email),
+          contexts:context_id (name)
+        `)
+        .order('created_at', { ascending: false });
+
+      if (pError) throw pError;
+      setPlans(pData || []);
     } catch (err: any) {
-      console.error('Error loading plans:', err.message || err);
-      if (err.message?.includes('relation "contact_travel_plans" does not exist')) {
-        setDbError('Las tablas de logística no han sido creadas aún.');
-      } else {
-        setDbError(err.message || 'Error al cargar los planes.');
-      }
+      console.error('Error loading data:', err);
+      alert({ title: 'Error', message: 'No se pudieron cargar los datos.', type: 'danger' });
     } finally {
       setLoading(false);
     }
@@ -103,512 +110,497 @@ export default function AdminPlansPage() {
     setLoading(true);
     try {
       const fullPlan = await getAdminPlanForUser(plan.user_id, plan.context_id);
-      if (fullPlan) {
-        setSelectedPlan({
-          ...fullPlan,
-          profiles: plan.profiles,
-          contexts: plan.contexts
-        } as any);
-        setView('detail');
-      }
+      setSelectedPlan(fullPlan);
+      setView('detail');
     } catch (err) {
-      console.error(err);
+      alert({ title: 'Error', message: 'No se pudo cargar el detalle del plan.', type: 'danger' });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSoftDelete = async (id: string, table = 'contact_travel_plans') => {
-    const isConfirmed = await confirm({
-      title: 'Eliminar Registro',
-      message: '¿Estás seguro de que deseas eliminar este registro? Se realizará un borrado lógico.',
-      type: 'danger',
-      confirmText: 'Eliminar'
-    });
-    
-    if (!isConfirmed) return;
-    
+  const filteredPlans = plans.filter(p => {
+    const userName = `${p.profiles?.nombre} ${p.profiles?.apellidos}`.toLowerCase();
+    const contextName = p.contexts?.name?.toLowerCase() || '';
+    const query = searchQuery.toLowerCase();
+    return userName.includes(query) || contextName.includes(query);
+  });
+
+  const handleImportPdf = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportStep('extracting');
+    setIsImporting(true);
+
     try {
-      await deleteItem(table, id);
-      if (table === 'contact_travel_plans') {
-        setView('list');
-        loadData();
-      } else if (selectedPlan) {
-        handleManagePlan(selectedPlan);
-      }
+      const { extractTravelInfo } = await import('@/app/actions/travel-extraction');
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('type', importType);
+      formData.append('userName', `${selectedPlan?.profiles?.nombre} ${selectedPlan?.profiles?.apellidos}`);
+
+      const result = await extractTravelInfo(formData);
+      setExtractionResult({ ...result, file });
+      setImportStep('validating');
     } catch (err: any) {
-      await alert({ title: 'Error', message: err.message, type: 'danger' });
+      alert({ title: 'Error', message: err.message, type: 'danger' });
+      setIsImporting(false);
     }
   };
 
-  const handleSaveSection = async () => {
-    if (!selectedPlan || !activeSection) return;
-    setIsSubmitting(true);
-    try {
-      const tableMap: any = {
-        hotel: 'travel_hotels',
-        flight: 'travel_flights',
-        transfer: 'travel_transfers',
-        document: 'travel_documents',
-        registration: 'travel_registrations'
-      };
-      
-      const table = tableMap[activeSection];
-      if (!table) return;
+  const handleSaveFlight = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingFlight) return;
 
-      await saveItem(table, { ...editData, plan_id: selectedPlan.id });
-      await alert({ title: 'Éxito', message: 'Datos guardados correctamente.', type: 'success' });
-      setActiveSection(null);
+    try {
+      setIsSubmitting(true);
+      
+      // Sanitización de datos
+      const flightData = { ...editingFlight };
+      delete flightData.created_at;
+      delete flightData.updated_at;
+
+      const { error } = await supabase
+        .from('travel_flights')
+        .update({
+          ...flightData,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', editingFlight.id);
+
+      if (error) throw error;
+
+      await alert({ title: 'Éxito', message: 'Vuelo actualizado correctamente.', type: 'success' });
+      setEditingFlight(null);
       handleManagePlan(selectedPlan);
     } catch (err: any) {
-      await alert({ title: 'Error', message: err.message, type: 'danger' });
+      alert({ title: 'Error', message: err.message, type: 'danger' });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'confirmed': return 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20';
-      case 'updated': return 'bg-orange-500/10 text-orange-500 border-orange-500/20';
-      case 'cancelled': return 'bg-red-500/10 text-red-500 border-red-500/20';
-      default: return 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20';
-    }
-  };
-
-  const getSourceIcon = (source: string) => {
-    switch (source) {
-      case 'medicrm': return <Settings size={12} />;
-      case 'agency': return <ExternalLink size={12} />;
-      default: return <UserIcon size={12} />;
-    }
-  };
-
-  // --- RENDERERS ---
-
-  const renderList = () => (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-end gap-6">
-        <div className="flex flex-col gap-2">
-          <h1 className="text-3xl md:text-5xl font-black font-heading tracking-tight text-foreground">Planes Logísticos.</h1>
-          <p className="text-muted text-sm font-medium uppercase tracking-widest">Gestión de viajes, hoteles y documentación por usuario.</p>
+  const renderPlansList = () => (
+    <div className="space-y-6">
+      <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
+        <div>
+          <h1 className="text-2xl font-black text-primary tracking-tighter flex items-center gap-3">
+            <Plane className="text-accent" /> Logística de Viajes
+          </h1>
+          <p className="text-muted text-xs font-medium uppercase tracking-widest mt-1">Panel de Control de Itinerarios</p>
         </div>
-        <Button className="gap-2 rounded-2xl px-6 py-6 shadow-xl shadow-accent/10" onClick={() => setIsCreating(true)}>
-          <Plus size={20} />
-          Nuevo Plan
-        </Button>
-      </header>
-
-      {dbError ? (
-        <div className="p-10 rounded-[3rem] bg-red-500/5 border border-red-500/20 text-center space-y-4">
-          <AlertCircle className="mx-auto text-red-500" size={48} />
-          <p className="text-xl font-bold">{dbError}</p>
+        <div className="flex gap-2 w-full md:w-auto">
+          <div className="relative flex-1 md:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" size={16} />
+            <input 
+              type="text" 
+              placeholder="Buscar pasajero o evento..." 
+              className="w-full bg-background border border-border rounded-xl pl-10 pr-4 py-2 text-xs outline-none focus:border-accent transition-all"
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+            />
+          </div>
+          <Button onClick={() => setIsCreating(true)} className="rounded-xl px-4 flex items-center gap-2">
+            <Plus size={18} /> <span className="hidden md:inline">Nuevo Plan</span>
+          </Button>
         </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4">
-          {plans.map((plan) => (
-            <div key={plan.id} className="bg-surface border border-border rounded-[2rem] p-6 flex flex-col md:flex-row justify-between items-center gap-6 group hover:border-accent/30 transition-all hover:shadow-2xl hover:shadow-accent/5">
-              <div className="flex items-center gap-6 flex-1">
-                <div className="w-16 h-16 rounded-2xl bg-accent/10 flex items-center justify-center text-accent group-hover:scale-110 transition-transform">
-                  <UserIcon size={28} />
-                </div>
-                <div className="space-y-1">
-                  <h3 className="text-xl font-bold">{plan.profiles?.full_name || plan.profiles?.nombre || 'Usuario'}</h3>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] text-muted font-bold uppercase tracking-widest">{plan.contexts?.name}</span>
-                    <span className="w-1 h-1 rounded-full bg-border" />
-                    <span className="text-[9px] text-muted font-medium uppercase tracking-tighter">Act: {new Date(plan.created_at).toLocaleDateString()}</span>
-                  </div>
-                </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        {filteredPlans.map(plan => (
+          <motion.div 
+            key={plan.id}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="bg-background border border-border rounded-2xl p-5 hover:border-accent/50 transition-all group relative overflow-hidden"
+          >
+            <div className="absolute top-0 right-0 p-4 opacity-0 group-hover:opacity-100 transition-all">
+              <Button variant="ghost" size="sm" onClick={() => { setEditingPlan(plan); setSupportInfo({ phone: plan.support_phone }); }}>
+                <Edit2 size={14} />
+              </Button>
+            </div>
+
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center text-accent">
+                <UserIcon size={24} />
               </div>
-              
-              <div className="flex items-center gap-4 w-full md:w-auto">
-                <Button 
-                  className="flex-1 md:flex-none rounded-xl px-8 py-5 shadow-lg shadow-accent/5"
-                  onClick={() => handleManagePlan(plan)}
-                >
-                  Gestionar
-                </Button>
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => { setEditingPlan(plan); }}
-                    className="p-4 rounded-xl bg-background border border-border text-muted hover:text-accent transition-all"
-                  >
-                    <Edit2 size={18} />
-                  </button>
-                  <button 
-                    onClick={() => handleSoftDelete(plan.id)}
-                    className="p-4 rounded-xl bg-background border border-border text-muted hover:text-red-500 transition-all"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                </div>
+              <div>
+                <h3 className="font-bold text-sm text-primary line-clamp-1">{plan.profiles?.nombre} {plan.profiles?.apellidos}</h3>
+                <p className="text-[10px] text-muted font-black uppercase tracking-widest">{plan.contexts?.name || 'Evento General'}</p>
               </div>
             </div>
-          ))}
-          
-          {plans.length === 0 && (
-            <div className="py-20 text-center border-2 border-dashed border-border rounded-[3rem] bg-surface/30">
-              <p className="text-muted text-sm font-bold uppercase tracking-widest">No hay planes logísticos creados aún</p>
+
+            <div className="space-y-3 mb-6">
+              <div className="flex items-center gap-2 text-xs text-muted">
+                <ShieldCheck size={14} className={plan.status === 'active' ? 'text-green-500' : 'text-orange-500'} />
+                <span>Estado: <b className="text-primary uppercase text-[10px]">{plan.status === 'active' ? 'Publicado' : 'Borrador'}</b></span>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-muted">
+                <Phone size={14} />
+                <span>Soporte: <b className="text-primary">{plan.support_phone || 'S/N'}</b></span>
+              </div>
             </div>
-          )}
-        </div>
-      )}
+
+            <Button 
+              variant="outline" 
+              className="w-full rounded-xl border-accent/20 text-accent text-xs font-bold hover:bg-accent hover:text-white transition-all py-2"
+              onClick={() => handleManagePlan(plan)}
+            >
+              Gestionar Itinerario <ChevronRight size={14} />
+            </Button>
+          </motion.div>
+        ))}
+      </div>
     </div>
   );
 
   const renderDetail = () => {
     if (!selectedPlan) return null;
 
-    const SectionCard = ({ title, icon: Icon, children, sectionId, items = [] }: any) => (
-      <div className="bg-surface border border-border rounded-[2.5rem] overflow-hidden group hover:border-accent/20 transition-all">
-        <div className="p-8 border-b border-border/50 flex justify-between items-center bg-background/50">
-          <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-accent/5 flex items-center justify-center text-accent">
-              <Icon size={24} />
-            </div>
-            <div>
-              <h3 className="text-lg font-black font-heading uppercase tracking-tight">{title}</h3>
-              <p className="text-[10px] text-muted font-bold uppercase tracking-widest">{items.length} {items.length === 1 ? 'Elemento' : 'Elementos'}</p>
-            </div>
-          </div>
-          <button 
-            onClick={() => { setActiveSection(sectionId); setEditData({ plan_id: selectedPlan.id, status: 'planned', source: 'manual' }); }}
-            className="w-10 h-10 rounded-full bg-accent text-white flex items-center justify-center shadow-lg shadow-accent/20 hover:scale-110 transition-transform"
-          >
-            <Plus size={20} />
-          </button>
-        </div>
-        <div className="p-8 space-y-4">
-          {children}
-          {items.length === 0 && (
-            <p className="text-[11px] text-muted italic py-4 text-center">No hay datos registrados en esta sección.</p>
-          )}
-        </div>
-      </div>
-    );
-
-    const ItemRow = ({ title, subtitle, status, source, lastUpdated, onEdit, onDelete }: any) => (
-      <div className="bg-background/40 border border-border/40 rounded-2xl p-4 flex justify-between items-center group/item hover:bg-background/60 transition-all">
-        <div className="space-y-1">
-          <div className="flex items-center gap-3">
-            <h4 className="font-bold text-sm">{title}</h4>
-            <span className={`px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest border ${getStatusColor(status)}`}>
-              {status}
-            </span>
-          </div>
-          <p className="text-xs text-muted font-medium">{subtitle}</p>
-          <div className="flex items-center gap-3 text-[9px] text-muted/60 font-bold uppercase tracking-tight pt-1">
-            <span className="flex items-center gap-1">
-              {getSourceIcon(source)}
-              {source}
-            </span>
-            <span>•</span>
-            <span className="flex items-center gap-1">
-              <Clock size={10} />
-              {lastUpdated ? new Date(lastUpdated).toLocaleDateString() : 'N/A'}
-            </span>
-          </div>
-        </div>
-        <div className="flex gap-2 opacity-0 group-hover/item:opacity-100 transition-opacity">
-          <button onClick={onEdit} className="p-2 text-muted hover:text-accent"><Edit2 size={14} /></button>
-          <button onClick={onDelete} className="p-2 text-muted hover:text-red-500"><Trash2 size={14} /></button>
-        </div>
-      </div>
-    );
+    const flights = selectedPlan.flights || [];
+    const hotels = selectedPlan.hotels || [];
+    const transfers = selectedPlan.transfers || [];
 
     return (
-      <div className="space-y-8 animate-in fade-in slide-in-from-right-4 duration-500">
-        <button 
-          onClick={() => setView('list')}
-          className="flex items-center gap-2 text-muted hover:text-accent font-bold text-xs uppercase tracking-[0.2em] transition-all"
-        >
-          <ArrowLeft size={16} />
-          Volver a la lista
-        </button>
-
-        <header className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 bg-accent/5 p-8 rounded-[3rem] border border-accent/10">
-          <div className="flex items-center gap-6">
-            <div className="w-20 h-20 rounded-[2rem] bg-accent flex items-center justify-center text-white shadow-2xl shadow-accent/30">
-              <UserIcon size={40} />
-            </div>
-            <div className="space-y-1">
-              <h1 className="text-3xl font-black font-heading tracking-tight">{selectedPlan.profiles?.full_name || selectedPlan.profiles?.nombre || 'Usuario'}</h1>
-              <p className="text-xs text-muted font-bold uppercase tracking-widest flex items-center gap-2">
-                <Calendar size={14} className="text-accent" />
+      <div className="space-y-8 pb-20">
+        {/* Header Detalle */}
+        <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" className="rounded-xl p-2" onClick={() => setView('list')}>
+              <ArrowLeft size={20} />
+            </Button>
+            <div>
+              <h2 className="text-xl font-black text-primary tracking-tighter">
+                Plan: {selectedPlan.profiles?.nombre} {selectedPlan.profiles?.apellidos}
+              </h2>
+              <p className="text-[10px] text-muted font-black uppercase tracking-widest">
                 {selectedPlan.contexts?.name}
               </p>
             </div>
           </div>
-          <div className="flex flex-col items-end gap-2 text-right">
-            <div className={`px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] border ${getStatusColor(selectedPlan.status)}`}>
-              Plan {selectedPlan.status}
-            </div>
-            <p className="text-[10px] text-muted font-medium uppercase tracking-tighter">Última mod: {new Date(selectedPlan.created_at || '').toLocaleString()}</p>
+          <div className="flex gap-2">
+            <Button variant="outline" className="rounded-xl px-4 flex items-center gap-2 border-accent/20 text-accent hover:bg-accent hover:text-white" onClick={() => setIsImporting(true)}>
+              <FileBadge size={18} /> Importar PDF de Agencia
+            </Button>
           </div>
-        </header>
+        </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Registration Section */}
-          <SectionCard title="Inscripción / Registro" icon={FileBadge} sectionId="registration" items={selectedPlan.registrations}>
-            {selectedPlan.registrations.map(reg => (
-              <ItemRow 
-                key={reg.id}
-                title={`Código: ${reg.registration_code || 'Pendiente'}`}
-                subtitle={reg.notes || 'Sin observaciones'}
-                status={reg.status}
-                source={reg.source}
-                lastUpdated={reg.last_updated_at}
-                onEdit={() => { setEditData(reg); setActiveSection('registration'); }}
-                onDelete={() => handleSoftDelete(reg.id, 'travel_registrations')}
-              />
-            ))}
-          </SectionCard>
-
-          {/* Hotel Section */}
-          <SectionCard title="Alojamiento" icon={Hotel} sectionId="hotel" items={selectedPlan.hotels}>
-            {selectedPlan.hotels.map(h => (
-              <ItemRow 
-                key={h.id}
-                title={h.hotel_name}
-                subtitle={`${new Date(h.check_in).toLocaleDateString()} - ${new Date(h.check_out).toLocaleDateString()}`}
-                status={h.status}
-                source={h.source}
-                lastUpdated={h.last_updated_at}
-                onEdit={() => { setEditData(h); setActiveSection('hotel'); }}
-                onDelete={() => handleSoftDelete(h.id, 'travel_hotels')}
-              />
-            ))}
-          </SectionCard>
-
-          {/* Flight Section */}
-          <SectionCard title="Vuelos" icon={Plane} sectionId="flight" items={selectedPlan.flights}>
-            {selectedPlan.flights.map(f => (
-              <ItemRow 
-                key={f.id}
-                title={`Vuelo ${f.flight_number}`}
-                subtitle={`${f.origin} ➔ ${f.destination}`}
-                status={f.status}
-                source={f.source}
-                lastUpdated={f.last_updated_at}
-                onEdit={() => { setEditData(f); setActiveSection('flight'); }}
-                onDelete={() => handleSoftDelete(f.id, 'travel_flights')}
-              />
-            ))}
-          </SectionCard>
-
-          {/* Transfer Section */}
-          <SectionCard title="Transfers / Recogidas" icon={Car} sectionId="transfer" items={selectedPlan.transfers}>
-            {selectedPlan.transfers.map(t => (
-              <ItemRow 
-                key={t.id}
-                title={t.transfer_type || 'Transfer Privado'}
-                subtitle={`${t.pickup_location} ➔ ${t.dropoff_location}`}
-                status={t.status}
-                source={t.source}
-                lastUpdated={t.last_updated_at}
-                onEdit={() => { setEditData(t); setActiveSection('transfer'); }}
-                onDelete={() => handleSoftDelete(t.id, 'travel_transfers')}
-              />
-            ))}
-          </SectionCard>
-
-          {/* Support Section */}
-          <div className="lg:col-span-2 bg-rose-500/5 border border-rose-500/10 rounded-[2.5rem] p-10 flex flex-col md:flex-row items-center justify-between gap-8">
-            <div className="flex items-center gap-6">
-              <div className="w-16 h-16 rounded-2xl bg-rose-500/10 flex items-center justify-center text-rose-500">
-                <ShieldCheck size={32} />
-              </div>
-              <div className="space-y-1">
-                <h3 className="text-xl font-black font-heading uppercase tracking-tight">Soporte JP Concierge</h3>
-                <p className="text-sm text-muted font-medium">Asistencia 24/7 disponible para el usuario en este plan.</p>
-              </div>
+        {/* Summary Bar */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="bg-background border border-border p-4 rounded-2xl flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-500/10 flex items-center justify-center text-blue-500">
+              <Plane size={20} />
             </div>
-            <div className="flex items-center gap-8">
-              <div className="text-right">
-                <p className="text-[10px] text-muted font-black uppercase tracking-widest">Teléfono de Soporte</p>
-                <p className="text-xl font-bold text-rose-500">{selectedPlan.support_phone || 'No asignado'}</p>
-              </div>
-              <Button variant="outline" className="rounded-xl px-6 border-rose-500/20 text-rose-500 hover:bg-rose-500/10" onClick={() => { setEditingPlan(selectedPlan); }}>
-                Cambiar Soporte
-              </Button>
+            <div>
+              <p className="text-[10px] font-black text-muted uppercase tracking-widest">Vuelos</p>
+              <p className="text-lg font-black text-primary">{flights.length}</p>
+            </div>
+          </div>
+          <div className="bg-background border border-border p-4 rounded-2xl flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-orange-500/10 flex items-center justify-center text-orange-500">
+              <Hotel size={20} />
+            </div>
+            <div>
+              <p className="text-[10px] font-black text-muted uppercase tracking-widest">Hoteles</p>
+              <p className="text-lg font-black text-primary">{hotels.length}</p>
+            </div>
+          </div>
+          <div className="bg-background border border-border p-4 rounded-2xl flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-purple-500/10 flex items-center justify-center text-purple-500">
+              <Car size={20} />
+            </div>
+            <div>
+              <p className="text-[10px] font-black text-muted uppercase tracking-widest">Traslados</p>
+              <p className="text-lg font-black text-primary">{transfers.length}</p>
+            </div>
+          </div>
+          <div className="bg-background border border-border p-4 rounded-2xl flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-green-500/10 flex items-center justify-center text-green-500">
+              <FileText size={20} />
+            </div>
+            <div>
+              <p className="text-[10px] font-black text-muted uppercase tracking-widest">Documentos</p>
+              <p className="text-lg font-black text-primary">{selectedPlan.documents?.length || 0}</p>
             </div>
           </div>
         </div>
+
+        {/* Vuelos Section */}
+        <section className="space-y-4">
+          <div className="flex justify-between items-center px-1">
+            <h3 className="text-xs font-black uppercase text-muted tracking-widest flex items-center gap-2">
+              <Plane size={14} className="text-accent" /> Segmentos de Vuelo
+            </h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {flights.sort((a: any, b: any) => (a.type === 'outbound' ? -1 : 1)).map((flight: any) => {
+              const flightDoc = selectedPlan.documents?.find((d: any) => d.related_entity === 'flight' && d.related_entity_id === flight.id);
+              
+              return (
+                <div key={flight.id} className="bg-background border border-border rounded-2xl overflow-hidden group">
+                  <div className="p-4 border-b border-border flex justify-between items-center bg-muted/30">
+                    <div className="flex items-center gap-3">
+                      <div className="px-2 py-0.5 rounded bg-accent/10 text-accent text-[9px] font-black uppercase tracking-widest">
+                        {flight.type === 'return' ? 'Vuelo Vuelta' : 'Vuelo Ida'}
+                      </div>
+                      {!flight.is_verified && (
+                        <div className="flex items-center gap-1 text-[9px] font-black text-orange-500 uppercase tracking-widest">
+                          <AlertCircle size={10} /> Pendiente
+                        </div>
+                      )}
+                      {flight.is_verified && (
+                        <div className="flex items-center gap-1 text-[9px] font-black text-green-600 uppercase tracking-widest">
+                          <CheckCircle2 size={10} /> Verificado
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                      {flightDoc && (
+                        <a href={flightDoc.file_url} target="_blank" rel="noopener noreferrer">
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                            <FileText size={14} className="text-accent" />
+                          </Button>
+                        </a>
+                      )}
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setEditingFlight(flight)}>
+                        <Edit2 size={14} className="text-muted hover:text-accent" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleDelete('flight', flight.id)}>
+                        <Trash2 size={14} className="text-red-500" />
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="p-5 grid grid-cols-2 gap-6">
+                    <div>
+                      <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1">Origen</p>
+                      <p className="font-bold text-sm">{flight.departure_location || 'S/N'}</p>
+                      <p className="text-xs text-muted">
+                        {flight.departure_time ? new Date(flight.departure_time).toLocaleDateString('es-ES', {day:'2-digit', month:'2-digit'}) : ''} · 
+                        {displayLocalTime(flight.departure_time)}h
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1">Destino</p>
+                      <p className="font-bold text-sm">{flight.arrival_location || 'S/N'}</p>
+                      <p className="text-xs text-muted">
+                        {flight.arrival_time ? new Date(flight.arrival_time).toLocaleDateString('es-ES', {day:'2-digit', month:'2-digit'}) : ''} · 
+                        {displayLocalTime(flight.arrival_time)}h
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1">Aerolínea / Vuelo</p>
+                      <p className="font-bold text-xs uppercase tracking-tight">{flight.airline || 'N/A'} - {flight.flight_number || 'S/N'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1">Localizador</p>
+                      <p className="font-mono text-xs font-bold text-accent">{flight.reservation_code || 'S/R'}</p>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {flights.length === 0 && (
+              <div className="col-span-full border border-dashed border-border rounded-2xl p-10 text-center">
+                <p className="text-xs text-muted font-medium">No hay vuelos registrados para este itinerario.</p>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Hoteles Section */}
+        <section className="space-y-4">
+          <h3 className="text-xs font-black uppercase text-muted tracking-widest flex items-center gap-2">
+            <Hotel size={14} className="text-accent" /> Alojamiento
+          </h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {hotels.map((hotel: any) => (
+              <div key={hotel.id} className="bg-background border border-border rounded-2xl overflow-hidden group">
+                <div className="p-4 border-b border-border flex justify-between items-center bg-muted/30">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
+                      <Hotel size={16} />
+                    </div>
+                    <span className="text-xs font-bold text-primary">{hotel.hotel_name || 'Hotel S/N'}</span>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => handleDelete('hotel', hotel.id)}>
+                    <Trash2 size={14} className="text-red-500" />
+                  </Button>
+                </div>
+                <div className="p-5 space-y-4">
+                  <div className="flex items-start gap-3">
+                    <MapPin size={14} className="text-muted mt-1" />
+                    <div>
+                      <p className="text-[10px] font-black text-muted uppercase tracking-widest">Ubicación</p>
+                      <p className="text-xs font-medium">{hotel.address || 'Dirección no especificada'}</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-[10px] font-black text-muted uppercase tracking-widest">Check-in</p>
+                      <p className="text-xs font-bold">{hotel.check_in ? new Date(hotel.check_in).toLocaleDateString('es-ES') : 'S/F'}</p>
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black text-muted uppercase tracking-widest">Check-out</p>
+                      <p className="text-xs font-bold">{hotel.check_out ? new Date(hotel.check_out).toLocaleDateString('es-ES') : 'S/F'}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+            {hotels.length === 0 && (
+              <div className="col-span-full border border-dashed border-border rounded-2xl p-10 text-center">
+                <p className="text-xs text-muted font-medium">No hay alojamientos registrados.</p>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <h3 className="text-xs font-black uppercase text-muted tracking-widest flex items-center gap-2">
+            <FileText size={14} className="text-accent" /> Documentación
+          </h3>
+          <div className="bg-background border border-border rounded-2xl divide-y divide-border">
+            {selectedPlan.documents?.filter((d: any) => !d.related_entity_id).map((doc: any) => (
+              <div key={doc.id} className="p-4 flex items-center justify-between hover:bg-muted/30 transition-all">
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 rounded-xl bg-accent/5 flex items-center justify-center text-accent">
+                    <FileBadge size={20} />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-primary">{doc.title}</p>
+                    <p className="text-[9px] text-muted font-black uppercase tracking-widest">Digitalizado el {new Date(doc.created_at).toLocaleDateString()}</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <a href={doc.file_url} target="_blank" rel="noopener noreferrer">
+                    <Button variant="ghost" size="sm" className="rounded-lg">
+                      <Download size={16} />
+                    </Button>
+                  </a>
+                  <Button variant="ghost" size="sm" className="rounded-lg" onClick={() => handleDelete('document', doc.id)}>
+                    <Trash2 size={16} className="text-red-500" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+            {!selectedPlan.documents?.filter((d: any) => !d.related_entity_id).length && (
+              <div className="p-10 text-center text-xs text-muted">No hay documentos generales. Los billetes se visualizan en sus tarjetas correspondientes.</div>
+            )}
+          </div>
+        </section>
       </div>
     );
   };
 
+  const handleDelete = async (type: string, id: string) => {
+    const isConfirmed = await confirm({
+      title: 'Eliminar Registro',
+      message: '¿Estás seguro de que deseas eliminar este elemento? Esta acción no se puede deshacer.',
+      type: 'danger'
+    });
+
+    if (isConfirmed) {
+      try {
+        const tableMap: any = { flight: 'travel_flights', hotel: 'travel_hotels', transfer: 'travel_transfers', document: 'travel_documents' };
+        await deleteItem(tableMap[type], id);
+        handleManagePlan(selectedPlan);
+      } catch (err) {
+        alert({ title: 'Error', message: 'No se pudo eliminar el registro.', type: 'danger' });
+      }
+    }
+  };
+
   return (
-    <div className="max-w-7xl mx-auto space-y-8 pb-20 px-4 md:px-0">
+    <div className="max-w-7xl mx-auto px-4 py-8">
       {loading && (
-        <div className="fixed inset-0 bg-background/20 backdrop-blur-[2px] z-[200] flex items-center justify-center">
-          <div className="bg-surface p-8 rounded-3xl shadow-2xl border border-border flex flex-col items-center gap-4">
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="flex flex-col items-center gap-4">
             <Loader2 className="animate-spin text-accent" size={40} />
-            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-muted">Cargando datos...</p>
+            <p className="text-xs font-black uppercase tracking-widest text-muted">Sincronizando itinenario...</p>
           </div>
         </div>
       )}
 
-      {view === 'list' ? renderList() : renderDetail()}
+      {view === 'list' ? renderPlansList() : renderDetail()}
 
-      {/* Dynamic Section Modal */}
+      {/* Modals de Gestión de Plan (Creación/Edición) */}
       <AnimatePresence>
-        {activeSection && (
-          <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-[150] flex items-center justify-center p-6 text-foreground">
+        {(isCreating || editingPlan) && (
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
             <motion.div 
-              initial={{ opacity: 0, scale: 0.9, y: 20 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="bg-surface border border-border w-full max-w-lg rounded-[2.5rem] shadow-2xl p-10 relative overflow-y-auto max-h-[90vh]"
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-background border border-border w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl"
             >
-              <button onClick={() => setActiveSection(null)} className="absolute top-8 right-8 text-muted hover:text-accent"><X size={24} /></button>
-              <h2 className="text-2xl font-black font-heading mb-8 uppercase tracking-tighter">Editar {activeSection}</h2>
-              
-              <div className="space-y-6">
-                {activeSection === 'hotel' && (
-                  <>
-                    <input className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none" placeholder="Nombre del Hotel" value={editData.hotel_name || ''} onChange={e => setEditData({...editData, hotel_name: e.target.value})} />
-                    <input className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none" placeholder="Dirección" value={editData.address || ''} onChange={e => setEditData({...editData, address: e.target.value})} />
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-[9px] font-black uppercase text-muted tracking-widest px-1">Check-in</label>
-                        <input type="datetime-local" className="w-full bg-background border border-border rounded-xl p-3 text-xs" value={editData.check_in?.slice(0, 16) || ''} onChange={e => setEditData({...editData, check_in: e.target.value})} />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[9px] font-black uppercase text-muted tracking-widest px-1">Check-out</label>
-                        <input type="datetime-local" className="w-full bg-background border border-border rounded-xl p-3 text-xs" value={editData.check_out?.slice(0, 16) || ''} onChange={e => setEditData({...editData, check_out: e.target.value})} />
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {activeSection === 'flight' && (
-                  <>
-                    <input className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none" placeholder="Número de Vuelo" value={editData.flight_number || ''} onChange={e => setEditData({...editData, flight_number: e.target.value})} />
-                    <div className="grid grid-cols-2 gap-4">
-                      <input className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none" placeholder="Origen" value={editData.origin || ''} onChange={e => setEditData({...editData, origin: e.target.value})} />
-                      <input className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none" placeholder="Destino" value={editData.destination || ''} onChange={e => setEditData({...editData, destination: e.target.value})} />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <label className="text-[9px] font-black uppercase text-muted tracking-widest px-1">Salida</label>
-                        <input type="datetime-local" className="w-full bg-background border border-border rounded-xl p-3 text-xs" value={editData.departure_time?.slice(0, 16) || ''} onChange={e => setEditData({...editData, departure_time: e.target.value})} />
-                      </div>
-                      <div className="space-y-2">
-                        <label className="text-[9px] font-black uppercase text-muted tracking-widest px-1">Llegada</label>
-                        <input type="datetime-local" className="w-full bg-background border border-border rounded-xl p-3 text-xs" value={editData.arrival_time?.slice(0, 16) || ''} onChange={e => setEditData({...editData, arrival_time: e.target.value})} />
-                      </div>
-                    </div>
-                  </>
-                )}
-
-                {activeSection === 'registration' && (
-                  <>
-                    <input className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none" placeholder="Código de Inscripción" value={editData.registration_code || ''} onChange={e => setEditData({...editData, registration_code: e.target.value})} />
-                    <input className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none" placeholder="URL Documento / PDF" value={editData.document_url || ''} onChange={e => setEditData({...editData, document_url: e.target.value})} />
-                    <textarea className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none resize-none" rows={3} placeholder="Notas adicionales..." value={editData.notes || ''} onChange={e => setEditData({...editData, notes: e.target.value})} />
-                  </>
-                )}
-
-                {/* Common fields for admin */}
-                <div className="pt-6 border-t border-border/50 space-y-4">
+              <div className="p-6 border-b border-border flex justify-between items-center bg-muted/20">
+                <h3 className="font-black text-lg tracking-tighter text-primary">
+                  {editingPlan ? 'Configurar Plan Operativo' : 'Nuevo Plan Operativo'}
+                </h3>
+                <Button variant="ghost" className="rounded-xl h-8 w-8 p-0" onClick={() => { setIsCreating(false); setEditingPlan(null); }}>
+                  <X size={18} />
+                </Button>
+              </div>
+              <div className="p-6 space-y-6">
+                {!editingPlan && (
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <label className="text-[9px] font-black uppercase text-muted tracking-widest px-1">Estado Visual</label>
-                      <select className="w-full bg-background border border-border rounded-xl p-3 text-xs" value={editData.status || 'planned'} onChange={e => setEditData({...editData, status: e.target.value})}>
-                        <option value="planned">Planificado</option>
-                        <option value="confirmed">Confirmado</option>
-                        <option value="updated">Actualizado</option>
-                        <option value="cancelled">Cancelado</option>
+                      <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Pasajero / Usuario</label>
+                      <select 
+                        className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none"
+                        value={selectedUser}
+                        onChange={e => setSelectedUser(e.target.value)}
+                      >
+                        <option value="">Seleccionar...</option>
+                        {users.map(u => <option key={u.id} value={u.id}>{u.nombre} {u.apellidos}</option>)}
                       </select>
                     </div>
                     <div className="space-y-2">
-                      <label className="text-[9px] font-black uppercase text-muted tracking-widest px-1">Fuente del Dato</label>
-                      <select className="w-full bg-background border border-border rounded-xl p-3 text-xs" value={editData.source || 'manual'} onChange={e => setEditData({...editData, source: e.target.value})}>
-                        <option value="manual">Manual</option>
-                        <option value="medicrm">MediCRM</option>
-                        <option value="agency">Agencia</option>
+                      <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Contexto / Evento</label>
+                      <select 
+                        className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none"
+                        value={selectedContext}
+                        onChange={e => setSelectedContext(e.target.value)}
+                      >
+                        <option value="">Seleccionar...</option>
+                        {contexts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                       </select>
                     </div>
                   </div>
-                </div>
-
-                <div className="pt-4">
-                  <Button className="w-full py-6 rounded-2xl shadow-xl shadow-accent/20" onClick={handleSaveSection} disabled={isSubmitting}>
-                    {isSubmitting ? <Loader2 className="animate-spin" size={20} /> : 'Guardar Sección'}
-                  </Button>
-                </div>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
-
-      {/* Creation / Support Edit Modal */}
-      {(isCreating || (editingPlan && view === 'list')) && (
-        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-[150] flex items-center justify-center p-6 text-foreground">
-          <div className="bg-surface border border-border w-full max-w-lg rounded-[2.5rem] shadow-2xl p-10 relative">
-            <button onClick={() => { setIsCreating(false); setEditingPlan(null); }} className="absolute top-8 right-8 text-muted hover:text-accent"><X size={24} /></button>
-            <h2 className="text-2xl font-black font-heading mb-8">
-              {editingPlan ? 'Editar Cabecera' : 'Nuevo Plan Operativo'}
-            </h2>
-            <div className="space-y-6">
-              {!editingPlan && (
-                <>
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Usuario / Contacto</label>
-                    <select 
-                      className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none focus:border-accent"
-                      value={selectedUser}
-                      onChange={e => setSelectedUser(e.target.value)}
-                    >
-                      <option value="">Selecciona un usuario...</option>
-                      {users.map(u => <option key={u.id} value={u.id}>{u.full_name || u.nombre || u.email}</option>)}
-                    </select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Evento / Contexto</label>
-                    <select 
-                      className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none focus:border-accent"
-                      value={selectedContext}
-                      onChange={e => setSelectedContext(e.target.value)}
-                    >
-                      <option value="">Selecciona un evento...</option>
-                      {contexts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </select>
-                  </div>
-                </>
-              )}
-
-              <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Teléfono Soporte JP</label>
-                <input 
-                  className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none focus:border-accent"
-                  value={supportInfo.phone}
-                  onChange={e => setSupportInfo({...supportInfo, phone: e.target.value})}
-                  placeholder="+34 600 000 000"
-                />
-              </div>
-
-              {editingPlan && (
+                )}
+                
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Estado General</label>
-                  <select 
-                    className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none focus:border-accent"
-                    value={editingPlan.status}
-                    onChange={e => setEditingPlan({...editingPlan, status: e.target.value})}
-                  >
-                    <option value="active">Activo</option>
-                    <option value="draft">Borrador</option>
-                    <option value="completed">Completado</option>
-                  </select>
+                  <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Teléfono de Soporte 24h</label>
+                  <input 
+                    type="text" 
+                    className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent"
+                    value={supportInfo.phone}
+                    onChange={e => setSupportInfo({ phone: e.target.value })}
+                  />
                 </div>
-              )}
 
-              <div className="pt-4">
-                <Button className="w-full py-6 rounded-2xl shadow-xl shadow-accent/20" onClick={editingPlan ? async () => {
+                {editingPlan && (
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Estado de Publicación</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button 
+                        onClick={() => setEditingPlan({...editingPlan, status: 'active'})}
+                        className={`p-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${editingPlan.status === 'active' ? 'bg-green-500/10 border-green-500 text-green-600' : 'bg-background border-border text-muted hover:border-accent'}`}
+                      >
+                        Publicado
+                      </button>
+                      <button 
+                        onClick={() => setEditingPlan({...editingPlan, status: 'draft'})}
+                        className={`p-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${editingPlan.status === 'draft' ? 'bg-orange-500/10 border-orange-500 text-orange-600' : 'bg-background border-border text-muted hover:border-accent'}`}
+                      >
+                        Borrador
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <Button className="w-full rounded-xl py-6 font-black uppercase tracking-widest text-[11px]" onClick={editingPlan ? async () => {
                   try {
                     setIsSubmitting(true);
                     const { error } = await supabase.from('contact_travel_plans').update({
@@ -648,10 +640,337 @@ export default function AdminPlansPage() {
                   {isSubmitting ? <Loader2 className="animate-spin" size={20} /> : editingPlan ? 'Guardar Cambios' : 'Crear Cabecera del Plan'}
                 </Button>
               </div>
-            </div>
+            </motion.div>
           </div>
-        </div>
-      )}
+        )}
+      </AnimatePresence>
+
+      {/* Modal de Importación PDF */}
+      <AnimatePresence>
+        {isImporting && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-background border border-border w-full max-w-2xl rounded-[32px] overflow-hidden shadow-2xl"
+            >
+               <div className="p-8">
+                  <div className="flex justify-between items-center mb-8">
+                    <div>
+                      <h3 className="text-2xl font-black text-primary tracking-tighter">Motor de Extracción IA</h3>
+                      <p className="text-xs text-muted font-medium uppercase tracking-widest mt-1">Importación de Logística</p>
+                    </div>
+                    <Button variant="ghost" className="rounded-full h-10 w-10 p-0" onClick={() => { setIsImporting(false); setExtractionResult(null); }}>
+                      <X size={24} />
+                    </Button>
+                  </div>
+
+                  {importStep === 'upload' && (
+                    <div className="space-y-8">
+                       <div className="grid grid-cols-2 gap-4">
+                         <button onClick={() => setImportType('flight')} className={`p-6 rounded-3xl border-2 transition-all flex flex-col items-center gap-4 ${importType === 'flight' ? 'border-accent bg-accent/5' : 'border-border bg-muted/10 opacity-50 hover:opacity-100'}`}>
+                           <Plane size={32} className={importType === 'flight' ? 'text-accent' : 'text-muted'} />
+                           <span className="text-[10px] font-black uppercase tracking-widest">Billete de Vuelo</span>
+                         </button>
+                         <button onClick={() => setImportType('hotel')} className={`p-6 rounded-3xl border-2 transition-all flex flex-col items-center gap-4 ${importType === 'hotel' ? 'border-accent bg-accent/5' : 'border-border bg-muted/10 opacity-50 hover:opacity-100'}`}>
+                           <Hotel size={32} className={importType === 'hotel' ? 'text-accent' : 'text-muted'} />
+                           <span className="text-[10px] font-black uppercase tracking-widest">Reserva Hotel</span>
+                         </button>
+                       </div>
+                       
+                       <label className="block">
+                         <div className="border-2 border-dashed border-border rounded-[32px] p-12 flex flex-col items-center justify-center gap-4 hover:border-accent/50 cursor-pointer transition-all bg-muted/5 group">
+                           <div className="w-16 h-16 rounded-full bg-accent/10 flex items-center justify-center text-accent group-hover:scale-110 transition-all">
+                             <Plus size={32} />
+                           </div>
+                           <p className="text-xs font-bold text-muted uppercase tracking-widest">Seleccionar Archivo PDF</p>
+                           <input type="file" accept=".pdf" className="hidden" onChange={handleImportPdf} />
+                         </div>
+                       </label>
+                    </div>
+                  )}
+
+                  {importStep === 'extracting' && (
+                    <div className="p-20 flex flex-col items-center gap-6">
+                      <Loader2 className="animate-spin text-accent" size={60} />
+                      <div className="text-center">
+                        <p className="text-sm font-black uppercase tracking-[0.2em] text-primary mb-2">Analizando Documento</p>
+                        <p className="text-xs text-muted font-medium">Nuestra IA está identificando los bloques de viaje...</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {importStep === 'validating' && extractionResult && (
+                    <div className="space-y-8 max-h-[70vh] overflow-y-auto pr-4 custom-scrollbar">
+                      <div className="bg-accent/10 border border-accent/20 rounded-2xl p-4 flex items-center gap-4">
+                        <div className="w-10 h-10 rounded-full bg-accent flex items-center justify-center text-white font-black text-sm">
+                          {Math.round(extractionResult.confidence * 100)}%
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black uppercase text-accent tracking-widest">Confianza de Extracción</p>
+                          <p className="text-xs font-medium text-primary">Se han identificado {extractionResult.confidence >= 0.9 ? 'todos' : 'casi todos'} los campos críticos.</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-6">
+                        {extractionResult.type === 'flight' ? (
+                          <>
+                            <FieldReview label="Aerolínea" value={extractionResult.data.airline} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, airline: v}})} />
+                            <FieldReview label="Nº de Vuelo" value={extractionResult.data.flight_number} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, flight_number: v}})} />
+                            <FieldReview label="Origen" value={extractionResult.data.departure_location} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, departure_location: v}})} />
+                            <FieldReview label="Destino" value={extractionResult.data.arrival_location} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, arrival_location: v}})} />
+                            <FieldReview label="Salida (Local)" value={extractionResult.data.departure_time} type="text" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, departure_time: v}})} />
+                            <FieldReview label="Llegada (Local)" value={extractionResult.data.arrival_time} type="text" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, arrival_time: v}})} />
+                            <FieldReview label="Cód. Reserva" value={extractionResult.data.reservation_code} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, reservation_code: v}})} />
+                            <FieldReview label="Asiento" value={extractionResult.data.seat} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, seat: v}})} />
+                          </>
+                        ) : (
+                          <>
+                            <FieldReview label="Hotel" value={extractionResult.data.hotel_name} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, hotel_name: v}})} />
+                            <FieldReview label="Confirmación" value={extractionResult.data.confirmation_number} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, confirmation_number: v}})} />
+                            <FieldReview label="Check-in" value={extractionResult.data.check_in} type="text" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, check_in: v}})} />
+                            <FieldReview label="Check-out" value={extractionResult.data.check_out} type="text" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, check_out: v}})} />
+                            <div className="col-span-2">
+                              <FieldReview label="Dirección" value={extractionResult.data.address} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, address: v}})} />
+                            </div>
+                          </>
+                        )}
+                      </div>
+
+                      <div className="pt-8 border-t border-border flex gap-4">
+                        <Button variant="ghost" className="flex-1 rounded-2xl py-6 font-bold" onClick={() => setImportStep('upload')}>Descartar</Button>
+                        <Button className="flex-2 rounded-2xl py-6 font-black uppercase tracking-widest text-xs" disabled={isSubmitting} onClick={async () => {
+                          try {
+                            setIsSubmitting(true);
+                            const editData = extractionResult.data;
+                            const depLoc = editData.departure_location === 'VAL' ? 'VLC' : editData.departure_location;
+                            const arrLoc = editData.arrival_location === 'VAL' ? 'VLC' : editData.arrival_location;
+
+                            // Detección de trayecto (Outbound / Return)
+                            let tripType = editData.type;
+                            const isFromSpain = /VLC|Valencia|MAD|Madrid|ALC|Alicante/i.test(depLoc);
+                            const isToFrance = /ORY|Orly|CDG|Paris|Par\u00eds/i.test(arrLoc);
+                            const isFromFrance = /ORY|Orly|CDG|Paris|Par\u00eds/i.test(depLoc);
+                            const isToSpain = /VLC|Valencia|MAD|Madrid|ALC|Alicante/i.test(arrLoc);
+
+                            if (isFromSpain && isToFrance) tripType = 'outbound';
+                            else if (isFromFrance && isToSpain) tripType = 'return';
+
+                            // LIMPIEZA CRÍTICA: Solo enviar campos que existen en la DB
+                            const allowedFields = [
+                              'id', 'plan_id', 'airline', 'flight_number', 'departure_location', 
+                              'arrival_location', 'origin', 'destination', 'departure_time', 
+                              'arrival_time', 'reservation_code', 'seat', 'baggage_info', 
+                              'is_verified', 'source', 'type', 'notes',
+                              'hotel_name', 'confirmation_number', 'address', 'check_in', 'check_out'
+                            ];
+
+                            const sanitizedData: any = {};
+                            allowedFields.forEach(key => {
+                              if (editData[key] !== undefined) sanitizedData[key] = editData[key];
+                            });
+
+                            // Aplicar normalizaciones sobre el objeto limpio
+                            sanitizedData.departure_location = depLoc;
+                            sanitizedData.arrival_location = arrLoc;
+                            sanitizedData.origin = depLoc;
+                            sanitizedData.destination = arrLoc;
+                            sanitizedData.type = tripType;
+                            sanitizedData.is_verified = true;
+                            sanitizedData.plan_id = selectedPlan.id;
+                            
+                            // Normalización Crítica de fechas para Supabase (ISO)
+                            const toISO = (dateStr: string) => {
+                              if (!dateStr) return null;
+                              const match = dateStr.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2})/);
+                              if (match) {
+                                const [, day, month, year, time] = match;
+                                return `${year}-${month}-${day}T${time}:00`;
+                              }
+                              return dateStr;
+                            };
+
+                            if (sanitizedData.departure_time) sanitizedData.departure_time = toISO(sanitizedData.departure_time);
+                            if (sanitizedData.arrival_time) sanitizedData.arrival_time = toISO(sanitizedData.arrival_time);
+                            if (sanitizedData.check_in) sanitizedData.check_in = toISO(sanitizedData.check_in);
+                            if (sanitizedData.check_out) sanitizedData.check_out = toISO(sanitizedData.check_out);
+
+                            const tableMap: any = { hotel: 'travel_hotels', flight: 'travel_flights' };
+                            const res = await saveItem(tableMap[extractionResult.type], sanitizedData);
+                            
+                            if (!res || !res.id) {
+                              throw new Error('La base de datos rechazó el registro.');
+                            }
+
+                            // 2. Upload and link the PDF
+                            if (extractionResult.file) {
+                              const fileName = `${extractionResult.type}_${Date.now()}.pdf`;
+                              const { data: uploadData, error: uploadError } = await supabase.storage
+                                .from('travel-documents')
+                                .upload(`${selectedPlan.id}/${fileName}`, extractionResult.file);
+
+                              if (uploadError) throw new Error(`Error en storage: ${uploadError.message}`);
+
+                              const { data: { publicUrl } } = supabase.storage
+                                .from('travel-documents')
+                                .getPublicUrl(uploadData.path);
+
+                              await saveTravelDocument({
+                                plan_id: selectedPlan.id,
+                                title: sanitizedData.type === 'return' ? 'Billete Vuelta (PDF)' : 'Billete Ida (PDF)',
+                                file_url: publicUrl,
+                                related_entity: extractionResult.type,
+                                related_entity_id: res.id
+                              });
+                            }
+
+                            setImportStep('upload');
+                            setExtractionResult(null);
+                            handleManagePlan(selectedPlan);
+                          } catch (err: any) {
+                             console.error('Error Crítico:', err);
+                             const errorMsg = err.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
+                             await alert({ 
+                               title: 'Error de Guardado', 
+                               message: `No se pudo guardar: ${errorMsg}`, 
+                               type: 'danger' 
+                             });
+                          } finally {
+                             setIsSubmitting(false);
+                          }
+                        }}>
+                           {isSubmitting ? <Loader2 className="animate-spin" /> : 'Confirmar y Guardar'}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+               </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal de Edición de Vuelo */}
+      <AnimatePresence>
+        {editingFlight && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[70] flex items-center justify-center p-4 overflow-y-auto">
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-background border border-border w-full max-w-2xl rounded-[32px] overflow-hidden shadow-2xl my-8"
+            >
+              <div className="p-8 border-b border-border flex justify-between items-center bg-muted/20">
+                <div>
+                  <h3 className="text-2xl font-black text-primary tracking-tighter">Editar Segmento de Vuelo</h3>
+                  <p className="text-[10px] text-muted font-black uppercase tracking-widest mt-1">Control Manual de Logística</p>
+                </div>
+                <Button variant="ghost" className="rounded-full h-10 w-10 p-0" onClick={() => setEditingFlight(null)}>
+                  <X size={24} />
+                </Button>
+              </div>
+              
+              <form onSubmit={handleSaveFlight} className="p-8 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Tipo de Trayecto</label>
+                    <select 
+                      className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none"
+                      value={editingFlight.type}
+                      onChange={e => setEditingFlight({...editingFlight, type: e.target.value})}
+                    >
+                      <option value="outbound">Vuelo Ida</option>
+                      <option value="return">Vuelo Vuelta</option>
+                    </select>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Estado de Verificación</label>
+                    <div className="flex gap-2">
+                      <button 
+                        type="button"
+                        onClick={() => setEditingFlight({...editingFlight, is_verified: true})}
+                        className={`flex-1 p-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${editingFlight.is_verified ? 'bg-green-500/10 border-green-500 text-green-600' : 'bg-background border-border text-muted'}`}
+                      >
+                        Verificado
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setEditingFlight({...editingFlight, is_verified: false})}
+                        className={`flex-1 p-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${!editingFlight.is_verified ? 'bg-orange-500/10 border-orange-500 text-orange-600' : 'bg-background border-border text-muted'}`}
+                      >
+                        Pendiente
+                      </button>
+                    </div>
+                  </div>
+
+                  <FieldReview 
+                    label="Origen (IATA)" 
+                    value={editingFlight.departure_location} 
+                    onChange={(v:string) => setEditingFlight({...editingFlight, departure_location: v, origin: v})} 
+                  />
+                  <FieldReview 
+                    label="Destino (IATA)" 
+                    value={editingFlight.arrival_location} 
+                    onChange={(v:string) => setEditingFlight({...editingFlight, arrival_location: v, destination: v})} 
+                  />
+                  
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Salida (Fecha/Hora)</label>
+                    <input 
+                      type="datetime-local" 
+                      className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent"
+                      value={editingFlight.departure_time?.slice(0, 16)}
+                      onChange={e => setEditingFlight({...editingFlight, departure_time: e.target.value})}
+                    />
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Llegada (Fecha/Hora)</label>
+                    <input 
+                      type="datetime-local" 
+                      className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent"
+                      value={editingFlight.arrival_time?.slice(0, 16)}
+                      onChange={e => setEditingFlight({...editingFlight, arrival_time: e.target.value})}
+                    />
+                  </div>
+
+                  <FieldReview label="Aerolínea" value={editingFlight.airline} onChange={(v:any) => setEditingFlight({...editingFlight, airline: v})} />
+                  <FieldReview label="Nº Vuelo" value={editingFlight.flight_number} onChange={(v:any) => setEditingFlight({...editingFlight, flight_number: v})} />
+                  <FieldReview label="Localizador" value={editingFlight.reservation_code} onChange={(v:any) => setEditingFlight({...editingFlight, reservation_code: v})} />
+                  <FieldReview label="Asiento" value={editingFlight.seat} onChange={(v:any) => setEditingFlight({...editingFlight, seat: v})} />
+                  
+                  <div className="col-span-2">
+                    <FieldReview label="Información de Equipaje" value={editingFlight.baggage_info} onChange={(v:any) => setEditingFlight({...editingFlight, baggage_info: v})} />
+                  </div>
+                </div>
+
+                <div className="pt-6 border-t border-border flex gap-4">
+                  <Button variant="ghost" type="button" className="flex-1 rounded-2xl py-6 font-bold" onClick={() => setEditingFlight(null)}>Cancelar</Button>
+                  <Button type="submit" className="flex-2 rounded-2xl py-6 font-black uppercase tracking-widest text-xs" disabled={isSubmitting}>
+                    {isSubmitting ? <Loader2 className="animate-spin" /> : 'Guardar Cambios'}
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
+
+const FieldReview = ({ label, value, onChange, type = "text" }: any) => (
+  <div className="space-y-2">
+    <label className="text-[9px] font-black uppercase text-muted tracking-widest px-1 flex justify-between">
+      {label}
+      {!value && <span className="text-red-500 font-bold">Faltante</span>}
+    </label>
+    <input 
+      type={type}
+      className={`w-full bg-background border rounded-xl p-3 text-xs outline-none transition-all ${!value ? 'border-red-500/50 bg-red-500/5' : 'border-border focus:border-accent'}`} 
+      value={type === 'datetime-local' ? value?.slice(0, 16) || '' : value || ''} 
+      onChange={e => onChange(e.target.value)}
+      placeholder={`Ingresar ${label.toLowerCase()}...`}
+    />
+  </div>
+);

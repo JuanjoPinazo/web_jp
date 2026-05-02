@@ -23,17 +23,26 @@ export interface Flight {
   id: string;
   plan_id: string;
   flight_number?: string;
-  origin?: string;
-  destination?: string;
+  departure_location: string;
+  arrival_location: string;
   departure_time: string;
   arrival_time: string;
   terminal?: string;
   booking_reference?: string;
+  reservation_code?: string;
+  passengers?: string;
+  baggage_info?: string;
+  provider?: string;
   type?: string;
   airline?: string;
+  seat?: string;
+  check_in_url?: string;
+  check_in_info?: string;
+  manage_url?: string;
   notes?: string;
   status: string;
   source: string;
+  is_verified: boolean;
   external_id?: string;
   last_updated_at?: string;
   last_updated_by?: string;
@@ -48,9 +57,17 @@ export interface Hotel {
   check_in: string;
   check_out: string;
   booking_reference?: string;
+  confirmation_number?: string;
+  traveler_name?: string;
+  pin_code?: string;
+  breakfast_included?: boolean;
+  cancellation_policy?: string;
+  provider?: string;
   phone?: string;
   map_url?: string;
   voucher_url?: string;
+  check_in_url?: string;
+  manage_url?: string;
   notes?: string;
   room_type?: string;
   status: string;
@@ -70,7 +87,7 @@ export interface Transfer {
   dropoff_location: string;
   driver_name?: string;
   driver_phone?: string;
-  vehicle?: string;
+  vehicle_info?: string;
   booking_reference?: string;
   notes?: string;
   status: string;
@@ -103,6 +120,8 @@ export interface Document {
   document_type?: string;
   title: string;
   file_url: string;
+  related_entity?: string;
+  related_entity_id?: string;
   notes?: string;
   status: string;
   source: string;
@@ -282,12 +301,30 @@ export const useTravelPlans = () => {
     if (error) throw error;
   };
 
+  const saveTravelDocument = async (payload: any) => {
+    const { data: { user } } = await supabase.auth.getUser();
+    
+    const { data, error } = await supabase
+      .from('travel_documents')
+      .upsert({
+        ...payload,
+        last_updated_by: user?.id,
+        last_updated_at: new Date().toISOString(),
+        source: payload.source || 'manual'
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  };
+
   return {
     loading,
     getMyActivePlan,
     getAdminPlanForUser,
     createOrUpdatePlan,
     saveItem,
-    deleteItem
+    deleteItem,
+    saveTravelDocument
   };
 };

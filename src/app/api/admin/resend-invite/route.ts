@@ -138,6 +138,15 @@ export async function POST(request: Request) {
       `
     });
 
+    // 5. Update Profile Status
+    await getSupabaseAdmin()
+      .from('profiles')
+      .update({ 
+        onboarding_status: 'invited',
+        invitation_sent_at: new Date().toISOString()
+      })
+      .eq('id', userId);
+
     return NextResponse.json({ success: true });
   } catch (error: any) {
     console.error('API Error:', error);

@@ -10,6 +10,8 @@ export interface User {
   client_id?: string;
   context_users?: { context_id: string }[];
   clients?: any;
+  onboarding_status?: 'draft' | 'invited' | 'active';
+  invitation_sent_at?: string;
   password?: string; // Only for mock auth
 }
 
