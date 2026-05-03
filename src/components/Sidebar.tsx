@@ -48,8 +48,8 @@ export const Sidebar = ({ role, userName }: SidebarProps) => {
           >
             <Logo className="w-12 h-12" />
             <div className="flex flex-col">
-              <span className="font-bold text-base tracking-tight text-foreground transition-colors group-hover:text-accent">JP Intelligence</span>
-              <span className="text-[10px] text-muted font-bold tracking-[0.3em] uppercase opacity-60">Platform</span>
+              <span className="font-bold text-base tracking-tight text-foreground transition-colors group-hover:text-accent leading-none">JP Intelligence</span>
+              <span className="text-[10px] text-accent font-black tracking-[0.3em] uppercase">Platform</span>
             </div>
           </button>
         </div>
@@ -66,7 +66,7 @@ export const Sidebar = ({ role, userName }: SidebarProps) => {
                 "flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group",
                 isActive 
                   ? "bg-accent/10 border border-accent/20 text-accent" 
-                  : "text-muted hover:text-foreground hover:bg-foreground/5 border border-transparent"
+                  : "text-muted hover:text-foreground hover:bg-surface-subtle border border-transparent"
               )}
             >
               <item.icon size={18} className={cn(isActive ? "text-accent" : "text-muted group-hover:text-foreground")} />
@@ -92,7 +92,7 @@ export const Sidebar = ({ role, userName }: SidebarProps) => {
       </nav>
 
       {/* User Info & Actions */}
-      <div className="p-4 border-t border-border bg-background/50">
+      <div className="p-4 border-t border-border bg-surface-subtle/50">
         <div className="p-4 rounded-2xl border border-border bg-surface flex flex-col gap-4">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 rounded-full bg-accent/20 border border-accent/20 flex items-center justify-center text-accent text-[10px] font-black uppercase">
@@ -113,8 +113,8 @@ export const Sidebar = ({ role, userName }: SidebarProps) => {
             </div>
           </div>
           
-          <div className="flex items-center gap-2 pt-2 border-t border-border/50">
-             <button className="flex-1 p-2 rounded-lg hover:bg-foreground/5 border border-transparent hover:border-border transition-all flex items-center justify-center text-muted hover:text-foreground">
+          <div className="flex items-center gap-2 pt-2 border-t border-border">
+             <button className="flex-1 p-2 rounded-lg hover:bg-surface-subtle border border-transparent hover:border-border transition-all flex items-center justify-center text-muted hover:text-foreground">
                 <Settings size={14} />
              </button>
              <button 

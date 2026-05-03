@@ -4,6 +4,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Clock, MapPin, CheckCircle2, Info, Phone, Download, User, Ticket, Briefcase, Coffee, ShieldCheck } from 'lucide-react';
 import { Button } from './Button';
+import { FlightCard } from './FlightCard';
 
 interface OutcomeDrawerProps {
   isOpen: boolean;
@@ -34,23 +35,23 @@ export function OutcomeDrawer({ isOpen, onClose, card }: OutcomeDrawerProps) {
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="fixed bottom-0 left-0 right-0 z-[101] bg-surface border-t border-white/10 rounded-t-[2.5rem] p-8 md:p-10 md:max-w-md md:left-auto md:top-0 md:h-full md:rounded-l-[2.5rem] md:rounded-tr-none md:border-l md:border-t-0 shadow-2xl"
+            className="fixed bottom-0 left-0 right-0 z-[101] bg-surface border-t border-border rounded-t-[2.5rem] p-8 md:p-10 md:max-w-md md:left-auto md:top-0 md:h-full md:rounded-l-[2.5rem] md:rounded-tr-none md:border-l md:border-t-0 shadow-2xl"
           >
             <div className="space-y-8 flex flex-col h-full">
               <div className="flex justify-between items-start">
                 <div className="space-y-1">
-                  <h3 className="text-2xl font-black text-white">{title}</h3>
+                  <h3 className="text-2xl font-black text-foreground">{title}</h3>
                   <div className="flex items-center gap-2 text-accent">
                     <CheckCircle2 size={14} />
                     <span className="text-[10px] font-black uppercase tracking-widest">{status}</span>
                   </div>
                 </div>
-                <button 
-                  onClick={onClose}
-                  className="p-2 rounded-full bg-white/5 border border-white/10 text-white hover:bg-white/10 transition-colors"
-                >
-                  <X size={20} />
-                </button>
+                  <button 
+                    onClick={onClose}
+                    className="p-2 rounded-full bg-surface-subtle border border-border text-foreground/60 hover:text-foreground transition-colors"
+                  >
+                    <X size={20} />
+                  </button>
               </div>
 
               <div className="space-y-6 flex-1 overflow-y-auto custom-scrollbar pr-2">
@@ -61,7 +62,7 @@ export function OutcomeDrawer({ isOpen, onClose, card }: OutcomeDrawerProps) {
                     </div>
                     <div>
                       <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1">Hora Programada</p>
-                      <p className="text-white font-bold">{details.hora}</p>
+                      <p className="text-foreground font-bold">{details.hora}</p>
                     </div>
                   </div>
                 )}
@@ -73,7 +74,7 @@ export function OutcomeDrawer({ isOpen, onClose, card }: OutcomeDrawerProps) {
                     </div>
                     <div>
                       <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1">Ubicación</p>
-                      <p className="text-white font-bold">{details.ubicacion}</p>
+                      <p className="text-foreground font-bold">{details.ubicacion}</p>
                       {(actionType === 'hotel' || actionType === 'restaurant') && (
                         <a 
                           href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(details.ubicacion)}`}
@@ -95,7 +96,7 @@ export function OutcomeDrawer({ isOpen, onClose, card }: OutcomeDrawerProps) {
                     </div>
                     <div>
                       <p className="text-[10px] font-black uppercase tracking-widest text-muted mb-1">Notas del Concierge</p>
-                      <p className="text-white/80 text-sm leading-relaxed">{details.observaciones}</p>
+                      <p className="text-foreground/80 text-sm leading-relaxed">{details.observaciones}</p>
                     </div>
                   </div>
                 )}
@@ -109,24 +110,24 @@ export function OutcomeDrawer({ isOpen, onClose, card }: OutcomeDrawerProps) {
                       {payload.traveler_name && (
                         <div className="flex items-center gap-3">
                           <User size={14} className="text-muted" />
-                          <p className="text-xs text-white"><span className="text-muted">Titular:</span> {payload.traveler_name}</p>
+                          <p className="text-xs text-foreground"><span className="text-muted">Titular:</span> {payload.traveler_name}</p>
                         </div>
                       )}
                       {payload.confirmation_number && (
                         <div className="flex items-center gap-3">
                           <Ticket size={14} className="text-muted" />
-                          <p className="text-xs text-white"><span className="text-muted">Confirmación:</span> <span className="font-mono">{payload.confirmation_number}</span></p>
+                          <p className="text-xs text-foreground"><span className="text-muted">Confirmación:</span> <span className="font-mono">{payload.confirmation_number}</span></p>
                         </div>
                       )}
                       {payload.pin_code && (
                         <div className="flex items-center gap-3">
                           <ShieldCheck size={14} className="text-muted" />
-                          <p className="text-xs text-white"><span className="text-muted">Código Acceso:</span> <span className="font-mono bg-white/10 px-1.5 py-0.5 rounded">{payload.pin_code}</span></p>
+                          <p className="text-xs text-foreground"><span className="text-muted">Código Acceso:</span> <span className="font-mono bg-surface-subtle px-1.5 py-0.5 rounded border border-border">{payload.pin_code}</span></p>
                         </div>
                       )}
                       <div className="flex items-center gap-3">
                         <Coffee size={14} className={payload.breakfast_included ? "text-emerald-500" : "text-muted"} />
-                        <p className="text-xs text-white">{payload.breakfast_included ? "Desayuno Incluido" : "Solo Alojamiento"}</p>
+                        <p className="text-xs text-foreground">{payload.breakfast_included ? "Desayuno Incluido" : "Solo Alojamiento"}</p>
                       </div>
                     </div>
                   </div>
@@ -134,42 +135,15 @@ export function OutcomeDrawer({ isOpen, onClose, card }: OutcomeDrawerProps) {
 
                 {/* Structured Flight Details */}
                 {actionType === 'flight' && (
-                  <div className="pt-4 space-y-4 border-t border-white/5">
-                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-accent">Detalles del Vuelo</p>
-                    
-                    <div className="grid grid-cols-1 gap-4">
-                      {payload.reservation_code && (
-                        <div className="flex items-center gap-3">
-                          <Ticket size={14} className="text-muted" />
-                          <p className="text-xs text-white"><span className="text-muted">Localizador:</span> <span className="font-mono">{payload.reservation_code}</span></p>
-                        </div>
-                      )}
-                      {payload.passengers && (
-                        <div className="flex items-center gap-3">
-                          <User size={14} className="text-muted" />
-                          <p className="text-xs text-white"><span className="text-muted">Pasajeros:</span> {payload.passengers}</p>
-                        </div>
-                      )}
-                      {payload.seat && (
-                        <div className="flex items-center gap-3">
-                          <MapPin size={14} className="text-muted" />
-                          <p className="text-xs text-white"><span className="text-muted">Asiento:</span> {payload.seat}</p>
-                        </div>
-                      )}
-                      {payload.baggage_info && (
-                        <div className="flex items-center gap-3">
-                          <Briefcase size={14} className="text-muted" />
-                          <p className="text-xs text-white"><span className="text-muted">Equipaje:</span> {payload.baggage_info}</p>
-                        </div>
-                      )}
-                    </div>
+                  <div className="pt-4 border-t border-border">
+                    <FlightCard flight={payload} role="client" />
                   </div>
                 )}
                 
                 {/* Dynamic Actions */}
                 <div className="pt-6 space-y-3">
                   {(actionType === 'hotel' || actionType === 'flight') && payload.voucher_url && (
-                    <a href={payload.voucher_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-3 w-full p-5 rounded-2xl bg-accent text-background font-black text-xs uppercase tracking-widest hover:scale-[1.02] transition-all shadow-xl shadow-accent/20">
+                    <a href={payload.voucher_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-3 w-full p-5 rounded-2xl bg-accent text-white font-black text-xs uppercase tracking-widest hover:scale-[1.02] transition-all shadow-xl shadow-accent/20">
                       <Download size={18} /> {actionType === 'hotel' ? 'Descargar Reserva' : 'Descargar Billete'}
                     </a>
                   )}

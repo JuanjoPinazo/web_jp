@@ -12,6 +12,7 @@ export interface User {
   clients?: any;
   onboarding_status?: 'draft' | 'invited' | 'active';
   invitation_sent_at?: string;
+  avatar_url?: string;
   password?: string; // Only for mock auth
 }
 

@@ -4,11 +4,25 @@ import { useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
 
+export interface LogisticContact {
+  id: string;
+  name: string;
+  role?: string;
+  company?: string;
+  email?: string;
+  phone?: string;
+  whatsapp?: string;
+  avatar_url?: string;
+  is_default: boolean;
+  created_at: string;
+}
+
 export interface TravelPlan {
   id: string;
   user_id: string;
   context_id: string;
   support_phone?: string;
+  logistic_contact_id?: string;
   status: string;
   source: string;
   external_source?: string;
@@ -27,7 +41,12 @@ export interface Flight {
   arrival_location: string;
   departure_time: string;
   arrival_time: string;
-  terminal?: string;
+  departure_terminal?: string;
+  arrival_terminal?: string;
+  duration_minutes?: number;
+  distance_km?: number;
+  checkin_deadline?: string;
+  terminal?: string; // Legacy
   booking_reference?: string;
   reservation_code?: string;
   passengers?: string;
@@ -153,6 +172,7 @@ export interface FullTravelPlan extends TravelPlan {
   registrations: Registration[];
   profiles?: any;
   contexts?: any;
+  logistic_contact?: LogisticContact;
 }
 
 export const useTravelPlans = () => {
@@ -190,6 +210,22 @@ export const useTravelPlans = () => {
         supabase.from('travel_registrations').select('*').eq('plan_id', plan.id).is('deleted_at', null)
       ]);
 
+      // Fetch Logistic Contact
+      let coordinator = null;
+      try {
+        if (plan.logistic_contact_id) {
+          const { data } = await supabase.from('logistic_contacts').select('*').eq('id', plan.logistic_contact_id).single();
+          coordinator = data;
+        }
+        
+        if (!coordinator) {
+          const { data } = await supabase.from('logistic_contacts').select('*').eq('is_default', true).limit(1).maybeSingle();
+          coordinator = data;
+        }
+      } catch (err) {
+        console.warn('Logistic contacts table not ready or accessible:', err);
+      }
+
       return {
         ...plan,
         flights: flights.data || [],
@@ -197,7 +233,8 @@ export const useTravelPlans = () => {
         transfers: transfers.data || [],
         restaurants: restaurants.data || [],
         documents: docs.data || [],
-        registrations: regs.data || []
+        registrations: regs.data || [],
+        logistic_contact: coordinator
       };
     } catch (err) {
       console.error('Error fetching travel plan:', err);
@@ -233,6 +270,22 @@ export const useTravelPlans = () => {
         supabase.from('travel_documents').select('*').eq('plan_id', plan.id).is('deleted_at', null),
         supabase.from('travel_registrations').select('*').eq('plan_id', plan.id).is('deleted_at', null)
       ]);
+      
+      // Fetch Logistic Contact
+      let coordinator = null;
+      try {
+        if (plan.logistic_contact_id) {
+          const { data } = await supabase.from('logistic_contacts').select('*').eq('id', plan.logistic_contact_id).single();
+          coordinator = data;
+        }
+        
+        if (!coordinator) {
+          const { data } = await supabase.from('logistic_contacts').select('*').eq('is_default', true).limit(1).maybeSingle();
+          coordinator = data;
+        }
+      } catch (err) {
+        console.warn('Logistic contacts table not ready or accessible:', err);
+      }
 
       return {
         ...plan,
@@ -241,7 +294,8 @@ export const useTravelPlans = () => {
         transfers: transfers.data || [],
         restaurants: restaurants.data || [],
         documents: docs.data || [],
-        registrations: regs.data || []
+        registrations: regs.data || [],
+        logistic_contact: coordinator
       };
     } catch (err) {
       console.error(err);
@@ -318,6 +372,25 @@ export const useTravelPlans = () => {
     return data;
   };
 
+  const getLogisticContacts = useCallback(async () => {
+    const { data, error } = await supabase.from('logistic_contacts').select('*').order('name');
+    if (error) {
+      console.error('Supabase error fetching logistic_contacts:', error);
+      throw error;
+    }
+    return data;
+  }, []);
+
+  const saveLogisticContact = async (payload: any) => {
+    const { data, error } = await supabase
+      .from('logistic_contacts')
+      .upsert(payload)
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  };
+
   return {
     loading,
     getMyActivePlan,
@@ -325,6 +398,8 @@ export const useTravelPlans = () => {
     createOrUpdatePlan,
     saveItem,
     deleteItem,
-    saveTravelDocument
+    saveTravelDocument,
+    getLogisticContacts,
+    saveLogisticContact
   };
 };

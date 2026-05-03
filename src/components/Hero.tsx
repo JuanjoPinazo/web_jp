@@ -45,7 +45,7 @@ export function Hero() {
             <div className="space-y-8">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent/10 border border-accent/20">
                 <ShieldCheck size={14} className="text-accent" />
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-accent">JP Intelligence v2.0</span>
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-accent">JP Intelligence Platform v2.0</span>
               </div>
               
               <h1 className="text-6xl md:text-8xl lg:text-9xl font-black font-heading leading-[0.9] tracking-tighter text-white">

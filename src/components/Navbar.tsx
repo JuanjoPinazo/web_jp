@@ -18,7 +18,7 @@ export const Navbar = () => {
       <div className="flex items-center justify-between w-full max-w-5xl px-4 md:px-6 py-3 border rounded-2xl bg-surface/80 backdrop-blur-xl border-border shadow-lg shadow-accent/5">
         <Link href="/" className="flex items-center gap-3 transition-opacity hover:opacity-80">
           <Logo className="w-8 h-8" />
-          <span className="text-lg md:text-xl font-bold tracking-tight font-heading">JP Intelligence</span>
+          <span className="text-lg md:text-xl font-bold tracking-tight font-heading">JP Intelligence Platform</span>
         </Link>
         
         <div className="flex items-center gap-3 md:gap-6">

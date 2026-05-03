@@ -169,7 +169,7 @@ export function OutcomeTimeline({ plan }: OutcomeTimelineProps) {
     <div className="space-y-12 py-4">
       <div className="relative">
         {/* Continuous Line */}
-        <div className="absolute left-[21px] top-6 bottom-6 w-0.5 bg-gradient-to-b from-accent/40 via-accent/10 to-transparent" />
+        <div className="absolute left-[21px] top-6 bottom-6 w-0.5 bg-gradient-to-b from-accent/40 via-accent/5 to-transparent" />
 
         <div className="space-y-10">
           {timelineSteps.map((step, i) => {
@@ -177,13 +177,13 @@ export function OutcomeTimeline({ plan }: OutcomeTimelineProps) {
               return (
                 <div key={step.id} className="relative z-10 pt-4 pb-2">
                   <div className="flex items-center gap-4">
-                    <div className={`p-2 rounded-lg bg-surface/50 border border-white/5 ${step.color}`}>
+                    <div className={`p-2 rounded-lg bg-surface border border-border shadow-sm ${step.color}`}>
                       <step.icon size={16} />
                     </div>
-                    <h3 className="text-xs font-black uppercase tracking-[0.3em] text-white/90">
+                    <h3 className="text-xs font-black uppercase tracking-[0.3em] text-foreground/80">
                       {step.title}
                     </h3>
-                    <div className="flex-1 h-px bg-white/5" />
+                    <div className="flex-1 h-px bg-border" />
                   </div>
                 </div>
               );
@@ -199,7 +199,7 @@ export function OutcomeTimeline({ plan }: OutcomeTimelineProps) {
               >
                 {/* Icon Container */}
                 <div className="relative z-10">
-                  <div className={`w-12 h-12 rounded-2xl bg-[#0a0a0a] border border-white/5 flex items-center justify-center ${step.color} shadow-2xl group-hover:scale-110 transition-all duration-500`}>
+                  <div className={`w-12 h-12 rounded-2xl bg-surface border border-border flex items-center justify-center ${step.color} shadow-lg group-hover:scale-110 transition-all duration-500`}>
                     <step.icon size={20} strokeWidth={2.5} />
                   </div>
                 </div>
@@ -207,18 +207,18 @@ export function OutcomeTimeline({ plan }: OutcomeTimelineProps) {
                 {/* Content */}
                 <div className="flex-1 pt-1 space-y-2">
                   <div className="flex flex-col md:flex-row md:justify-between md:items-baseline gap-1">
-                    <h4 className="text-xl font-black text-white tracking-tight">{step.title}</h4>
+                    <h4 className="text-xl font-black text-foreground tracking-tight">{step.title}</h4>
                     {step.timeString && (
                       <span className="text-[10px] font-black uppercase tracking-[0.2em] text-accent">{step.timeString}</span>
                     )}
                   </div>
                   {step.location && (
-                    <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted/60">
+                    <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-muted">
                         {step.location}
                     </div>
                   )}
                   {step.desc && (
-                    <p className="text-xs font-medium text-muted leading-relaxed max-w-sm">
+                    <p className="text-xs font-medium text-muted/80 leading-relaxed max-w-sm">
                       {step.desc}
                     </p>
                   )}
@@ -235,17 +235,17 @@ export function OutcomeTimeline({ plan }: OutcomeTimelineProps) {
               className="relative flex gap-10 group"
             >
               <div className="relative z-10">
-                <div className="w-12 h-12 rounded-2xl bg-[#0a0a0a] border border-white/5 flex items-center justify-center text-muted shadow-lg group-hover:scale-110 transition-transform">
+                <div className="w-12 h-12 rounded-2xl bg-surface border border-border flex items-center justify-center text-muted shadow-md group-hover:scale-110 transition-transform">
                   <Headphones size={20} />
                 </div>
               </div>
 
               <div className="flex-1 pt-1 space-y-2">
                 <div className="flex justify-between items-baseline gap-4">
-                  <h4 className="text-lg font-black text-white">Soporte Continuo</h4>
+                  <h4 className="text-lg font-black text-foreground">Soporte Continuo</h4>
                   <span className="text-[10px] font-black uppercase tracking-[0.2em] text-accent/80">24/7</span>
                 </div>
-                <p className="text-sm text-white/50 leading-relaxed max-w-sm">
+                <p className="text-sm text-muted leading-relaxed max-w-sm">
                   Cualquier imprevisto durante la operativa está cubierto.
                 </p>
               </div>

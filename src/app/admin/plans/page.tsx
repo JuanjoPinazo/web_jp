@@ -4,6 +4,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAdmin } from '@/hooks/useAdmin';
 import { useTravelPlans, FullTravelPlan } from '@/hooks/useTravelPlans';
+import { FlightCard } from '@/components/FlightCard';
+import { CoordinatorSelector } from '@/components/CoordinatorSelector';
 import { 
   Plane, 
   Hotel, 
@@ -185,10 +187,10 @@ export default function AdminPlansPage() {
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
         <div>
-          <h1 className="text-2xl font-black text-primary tracking-tighter flex items-center gap-3">
+          <h1 className="text-2xl font-black text-foreground tracking-tighter flex items-center gap-3">
             <Plane className="text-accent" /> Logística de Viajes
           </h1>
-          <p className="text-muted text-xs font-medium uppercase tracking-widest mt-1">Panel de Control de Itinerarios</p>
+          <p className="text-muted text-[10px] font-black uppercase tracking-[0.2em] mt-1">Panel de Control de Itinerarios</p>
         </div>
         <div className="flex gap-2 w-full md:w-auto">
           <div className="relative flex-1 md:w-64">
@@ -222,23 +224,23 @@ export default function AdminPlansPage() {
             </div>
 
             <div className="flex items-center gap-4 mb-4">
-              <div className="w-12 h-12 rounded-xl bg-accent/10 flex items-center justify-center text-accent">
+              <div className="w-12 h-12 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
                 <UserIcon size={24} />
               </div>
               <div>
-                <h3 className="font-bold text-sm text-primary line-clamp-1">{plan.profiles?.nombre} {plan.profiles?.apellidos}</h3>
+                <h3 className="font-bold text-sm text-foreground line-clamp-1">{plan.profiles?.nombre} {plan.profiles?.apellidos}</h3>
                 <p className="text-[10px] text-muted font-black uppercase tracking-widest">{plan.contexts?.name || 'Evento General'}</p>
               </div>
             </div>
 
             <div className="space-y-3 mb-6">
               <div className="flex items-center gap-2 text-xs text-muted">
-                <ShieldCheck size={14} className={plan.status === 'active' ? 'text-green-500' : 'text-orange-500'} />
-                <span>Estado: <b className="text-primary uppercase text-[10px]">{plan.status === 'active' ? 'Publicado' : 'Borrador'}</b></span>
+                <ShieldCheck size={14} className={plan.status === 'active' ? 'text-emerald-500' : 'text-orange-500'} />
+                <span>Estado: <b className="text-foreground uppercase text-[10px]">{plan.status === 'active' ? 'Publicado' : 'Borrador'}</b></span>
               </div>
               <div className="flex items-center gap-2 text-xs text-muted">
                 <Phone size={14} />
-                <span>Soporte: <b className="text-primary">{plan.support_phone || 'S/N'}</b></span>
+                <span>Soporte: <b className="text-foreground">{plan.support_phone || 'S/N'}</b></span>
               </div>
             </div>
 
@@ -271,7 +273,7 @@ export default function AdminPlansPage() {
               <ArrowLeft size={20} />
             </Button>
             <div>
-              <h2 className="text-xl font-black text-primary tracking-tighter">
+              <h2 className="text-xl font-black text-foreground tracking-tighter">
                 Plan: {selectedPlan.profiles?.nombre} {selectedPlan.profiles?.apellidos}
               </h2>
               <p className="text-[10px] text-muted font-black uppercase tracking-widest">
@@ -286,6 +288,24 @@ export default function AdminPlansPage() {
           </div>
         </div>
 
+        <CoordinatorSelector 
+          planId={selectedPlan.id} 
+          currentContactId={selectedPlan.logistic_contact_id}
+          onAssigned={async (contactId) => {
+            try {
+              const { error } = await supabase
+                .from('contact_travel_plans')
+                .update({ logistic_contact_id: contactId || null })
+                .eq('id', selectedPlan.id);
+              
+              if (error) throw error;
+              handleManagePlan(selectedPlan); // Refresh
+            } catch (err) {
+              console.error(err);
+            }
+          }}
+        />
+
         {/* Summary Bar */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <div className="bg-background border border-border p-4 rounded-2xl flex items-center gap-3">
@@ -294,7 +314,7 @@ export default function AdminPlansPage() {
             </div>
             <div>
               <p className="text-[10px] font-black text-muted uppercase tracking-widest">Vuelos</p>
-              <p className="text-lg font-black text-primary">{flights.length}</p>
+              <p className="text-lg font-black text-foreground">{flights.length}</p>
             </div>
           </div>
           <div className="bg-background border border-border p-4 rounded-2xl flex items-center gap-3">
@@ -303,7 +323,7 @@ export default function AdminPlansPage() {
             </div>
             <div>
               <p className="text-[10px] font-black text-muted uppercase tracking-widest">Hoteles</p>
-              <p className="text-lg font-black text-primary">{hotels.length}</p>
+              <p className="text-lg font-black text-foreground">{hotels.length}</p>
             </div>
           </div>
           <div className="bg-background border border-border p-4 rounded-2xl flex items-center gap-3">
@@ -312,7 +332,7 @@ export default function AdminPlansPage() {
             </div>
             <div>
               <p className="text-[10px] font-black text-muted uppercase tracking-widest">Traslados</p>
-              <p className="text-lg font-black text-primary">{transfers.length}</p>
+              <p className="text-lg font-black text-foreground">{transfers.length}</p>
             </div>
           </div>
           <div className="bg-background border border-border p-4 rounded-2xl flex items-center gap-3">
@@ -321,7 +341,7 @@ export default function AdminPlansPage() {
             </div>
             <div>
               <p className="text-[10px] font-black text-muted uppercase tracking-widest">Documentos</p>
-              <p className="text-lg font-black text-primary">{selectedPlan.documents?.length || 0}</p>
+              <p className="text-lg font-black text-foreground">{selectedPlan.documents?.length || 0}</p>
             </div>
           </div>
         </div>
@@ -338,24 +358,12 @@ export default function AdminPlansPage() {
               const flightDoc = selectedPlan.documents?.find((d: any) => d.related_entity === 'flight' && d.related_entity_id === flight.id);
               
               return (
-                <div key={flight.id} className="bg-background border border-border rounded-2xl overflow-hidden group">
-                  <div className="p-4 border-b border-border flex justify-between items-center bg-muted/30">
-                    <div className="flex items-center gap-3">
-                      <div className="px-2 py-0.5 rounded bg-accent/10 text-accent text-[9px] font-black uppercase tracking-widest">
-                        {flight.type === 'return' ? 'Vuelo Vuelta' : 'Vuelo Ida'}
-                      </div>
-                      {!flight.is_verified && (
-                        <div className="flex items-center gap-1 text-[9px] font-black text-orange-500 uppercase tracking-widest">
-                          <AlertCircle size={10} /> Pendiente
-                        </div>
-                      )}
-                      {flight.is_verified && (
-                        <div className="flex items-center gap-1 text-[9px] font-black text-green-600 uppercase tracking-widest">
-                          <CheckCircle2 size={10} /> Verificado
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                <FlightCard 
+                  key={flight.id} 
+                  flight={flight} 
+                  role="admin"
+                  actions={
+                    <>
                       {flightDoc && (
                         <a href={flightDoc.file_url} target="_blank" rel="noopener noreferrer">
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
@@ -369,35 +377,9 @@ export default function AdminPlansPage() {
                       <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleDelete('flight', flight.id)}>
                         <Trash2 size={14} className="text-red-500" />
                       </Button>
-                    </div>
-                  </div>
-                  <div className="p-5 grid grid-cols-2 gap-6">
-                    <div>
-                      <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1">Origen</p>
-                      <p className="font-bold text-sm">{flight.departure_location || 'S/N'}</p>
-                      <p className="text-xs text-muted">
-                        {flight.departure_time ? new Date(flight.departure_time).toLocaleDateString('es-ES', {day:'2-digit', month:'2-digit'}) : ''} · 
-                        {displayLocalTime(flight.departure_time)}h
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1">Destino</p>
-                      <p className="font-bold text-sm">{flight.arrival_location || 'S/N'}</p>
-                      <p className="text-xs text-muted">
-                        {flight.arrival_time ? new Date(flight.arrival_time).toLocaleDateString('es-ES', {day:'2-digit', month:'2-digit'}) : ''} · 
-                        {displayLocalTime(flight.arrival_time)}h
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1">Aerolínea / Vuelo</p>
-                      <p className="font-bold text-xs uppercase tracking-tight">{flight.airline || 'N/A'} - {flight.flight_number || 'S/N'}</p>
-                    </div>
-                    <div>
-                      <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1">Localizador</p>
-                      <p className="font-mono text-xs font-bold text-accent">{flight.reservation_code || 'S/R'}</p>
-                    </div>
-                  </div>
-                </div>
+                    </>
+                  }
+                />
               );
             })}
             {flights.length === 0 && (
@@ -418,10 +400,10 @@ export default function AdminPlansPage() {
               <div key={hotel.id} className="bg-background border border-border rounded-2xl overflow-hidden group">
                 <div className="p-4 border-b border-border flex justify-between items-center bg-muted/30">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
+                    <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent shrink-0">
                       <Hotel size={16} />
                     </div>
-                    <span className="text-xs font-bold text-primary">{hotel.hotel_name || 'Hotel S/N'}</span>
+                    <span className="text-xs font-bold text-foreground line-clamp-1">{hotel.hotel_name || 'Hotel S/N'}</span>
                   </div>
                   <Button variant="ghost" size="sm" onClick={() => handleDelete('hotel', hotel.id)}>
                     <Trash2 size={14} className="text-red-500" />
@@ -468,7 +450,7 @@ export default function AdminPlansPage() {
                     <FileBadge size={20} />
                   </div>
                   <div>
-                    <p className="text-xs font-bold text-primary">{doc.title}</p>
+                    <p className="text-xs font-bold text-foreground">{doc.title}</p>
                     <p className="text-[9px] text-muted font-black uppercase tracking-widest">Digitalizado el {new Date(doc.created_at).toLocaleDateString()}</p>
                   </div>
                 </div>
@@ -534,8 +516,8 @@ export default function AdminPlansPage() {
               exit={{ scale: 0.9, opacity: 0 }}
               className="bg-background border border-border w-full max-w-lg rounded-3xl overflow-hidden shadow-2xl"
             >
-              <div className="p-6 border-b border-border flex justify-between items-center bg-muted/20">
-                <h3 className="font-black text-lg tracking-tighter text-primary">
+              <div className="p-6 border-b border-border flex justify-between items-center bg-surface-subtle">
+                <h3 className="font-black text-lg tracking-tighter text-foreground">
                   {editingPlan ? 'Configurar Plan Operativo' : 'Nuevo Plan Operativo'}
                 </h3>
                 <Button variant="ghost" className="rounded-xl h-8 w-8 p-0" onClick={() => { setIsCreating(false); setEditingPlan(null); }}>
@@ -657,8 +639,8 @@ export default function AdminPlansPage() {
                <div className="p-8">
                   <div className="flex justify-between items-center mb-8">
                     <div>
-                      <h3 className="text-2xl font-black text-primary tracking-tighter">Motor de Extracción IA</h3>
-                      <p className="text-xs text-muted font-medium uppercase tracking-widest mt-1">Importación de Logística</p>
+                      <h3 className="text-2xl font-black text-foreground tracking-tighter">Motor de Extracción IA</h3>
+                      <p className="text-xs text-muted font-black uppercase tracking-[0.2em] mt-1">Importación de Logística</p>
                     </div>
                     <Button variant="ghost" className="rounded-full h-10 w-10 p-0" onClick={() => { setIsImporting(false); setExtractionResult(null); }}>
                       <X size={24} />
@@ -694,8 +676,8 @@ export default function AdminPlansPage() {
                     <div className="p-20 flex flex-col items-center gap-6">
                       <Loader2 className="animate-spin text-accent" size={60} />
                       <div className="text-center">
-                        <p className="text-sm font-black uppercase tracking-[0.2em] text-primary mb-2">Analizando Documento</p>
-                        <p className="text-xs text-muted font-medium">Nuestra IA está identificando los bloques de viaje...</p>
+                        <p className="text-sm font-black uppercase tracking-[0.2em] text-foreground mb-2">Analizando Documento</p>
+                        <p className="text-xs text-muted font-bold">Nuestra IA está identificando los bloques de viaje...</p>
                       </div>
                     </div>
                   )}
@@ -708,7 +690,7 @@ export default function AdminPlansPage() {
                         </div>
                         <div>
                           <p className="text-[10px] font-black uppercase text-accent tracking-widest">Confianza de Extracción</p>
-                          <p className="text-xs font-medium text-primary">Se han identificado {extractionResult.confidence >= 0.9 ? 'todos' : 'casi todos'} los campos críticos.</p>
+                          <p className="text-xs font-bold text-foreground">Se han identificado {extractionResult.confidence >= 0.9 ? 'todos' : 'casi todos'} los campos críticos.</p>
                         </div>
                       </div>
 
@@ -939,8 +921,15 @@ export default function AdminPlansPage() {
                   <FieldReview label="Localizador" value={editingFlight.reservation_code} onChange={(v:any) => setEditingFlight({...editingFlight, reservation_code: v})} />
                   <FieldReview label="Asiento" value={editingFlight.seat} onChange={(v:any) => setEditingFlight({...editingFlight, seat: v})} />
                   
-                  <div className="col-span-2">
-                    <FieldReview label="Información de Equipaje" value={editingFlight.baggage_info} onChange={(v:any) => setEditingFlight({...editingFlight, baggage_info: v})} />
+                  <FieldReview label="Terminal Salida" value={editingFlight.departure_terminal} onChange={(v:any) => setEditingFlight({...editingFlight, departure_terminal: v})} />
+                  <FieldReview label="Terminal Llegada" value={editingFlight.arrival_terminal} onChange={(v:any) => setEditingFlight({...editingFlight, arrival_terminal: v})} />
+                  
+                  <FieldReview label="Duración (min)" type="number" value={editingFlight.duration_minutes} onChange={(v:any) => setEditingFlight({...editingFlight, duration_minutes: parseInt(v) || 0})} />
+                  <FieldReview label="Distancia (km)" type="number" value={editingFlight.distance_km} onChange={(v:any) => setEditingFlight({...editingFlight, distance_km: parseInt(v) || 0})} />
+                  
+                  <div className="col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <FieldReview label="Cierre Check-in" value={editingFlight.checkin_deadline} onChange={(v:any) => setEditingFlight({...editingFlight, checkin_deadline: v})} />
+                    <FieldReview label="Info. Equipaje" value={editingFlight.baggage_info} onChange={(v:any) => setEditingFlight({...editingFlight, baggage_info: v})} />
                   </div>
                 </div>
 

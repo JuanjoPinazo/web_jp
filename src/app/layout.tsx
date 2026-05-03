@@ -14,7 +14,7 @@ const sora = Sora({
 
 export const metadata: Metadata = {
   title: "JP Intelligence Platform | Sistemas de Decisión Inteligente",
-  description: "Plataforma operacional y sistemas de decisión inteligente de JP Intelligence.",
+  description: "Plataforma operacional y sistemas de decisión inteligente de JP Intelligence Platform.",
 };
 
 import { AuthProvider } from "@/context/AuthContext";

@@ -2,27 +2,36 @@
 
 :root {
   --background: #F9FAFB;
-  --foreground: #111827;
+  --foreground: #0F172A; /* Deeper dark blue/slate for better contrast */
+  --primary: #0F172A;
   --surface: #FFFFFF;
+  --surface-subtle: #F1F5F9;
   --accent: #00AEEF;
-  --muted: #6B7280;
-  --border: #E5E7EB;
+  --accent-subtle: rgba(0, 174, 239, 0.1);
+  --muted: #64748B; /* Better contrast for muted text */
+  --border: #E2E8F0;
 }
 
 html.dark {
-  --background: #111113;
-  --foreground: #F5F5F5;
-  --surface: #1E1E20;
+  --background: #0B0B0C;
+  --foreground: #F8FAFC;
+  --primary: #F8FAFC;
+  --surface: #121214;
+  --surface-subtle: #1E1E20;
   --accent: #00AEEF;
-  --muted: #888888;
-  --border: #2B2B2E;
+  --accent-subtle: rgba(0, 174, 239, 0.15);
+  --muted: #94A3B8;
+  --border: #262629;
 }
 
 @theme {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-primary: var(--primary);
   --color-surface: var(--surface);
+  --color-surface-subtle: var(--surface-subtle);
   --color-accent: var(--accent);
+  --color-accent-subtle: var(--accent-subtle);
   --color-muted: var(--muted);
   --color-border: var(--border);
   
