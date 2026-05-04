@@ -15,14 +15,16 @@ import {
   AlertCircle,
   CheckCircle2,
   ChevronRight,
-  MoreVertical
+  MoreVertical,
+  User as UserIcon,
+  Globe
 } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDialog } from '@/context/DialogContext';
 
-type CatalogType = 'hospitals' | 'departments' | 'roles';
+type CatalogType = 'hospitals' | 'departments' | 'roles' | 'companies';
 
 export default function CatalogsPage() {
   const [activeTab, setActiveTab] = useState<CatalogType>('hospitals');
@@ -49,6 +51,8 @@ export default function CatalogsPage() {
         query = supabase.from('hospitals').select('*').order('name');
       } else if (activeTab === 'departments') {
         query = supabase.from('departments').select('*').order('name');
+      } else if (activeTab === 'companies') {
+        query = supabase.from('companies').select('*').order('name');
       } else {
         query = supabase.from('professional_roles').select('*').order('name');
       }
@@ -80,26 +84,36 @@ export default function CatalogsPage() {
       const table = activeTab === 'roles' ? 'professional_roles' : activeTab;
       let error;
 
+      // Limpiar datos protegidos antes de enviar
+      const { id, created_at, ...updateData } = formData;
+
       if (editingItem) {
         const { error: err } = await supabase
           .from(table)
-          .update(formData)
+          .update(updateData)
           .eq('id', editingItem.id);
         error = err;
       } else {
         const { error: err } = await supabase
           .from(table)
-          .insert([formData]);
+          .insert([updateData]);
         error = err;
       }
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase Error:', error);
+        throw new Error(error.message || 'Error desconocido en la base de datos');
+      }
       
       setIsModalOpen(false);
       fetchData();
-    } catch (err) {
-      console.error('Error saving:', err);
-      await alert({ title: 'Error', message: 'Error al guardar los datos.', type: 'danger' });
+    } catch (err: any) {
+      console.error('Full Error Object:', err);
+      await alert({ 
+        title: 'Error al Guardar', 
+        message: `No se pudo guardar el registro: ${err.message || 'Error de conexión'}`, 
+        type: 'danger' 
+      });
     } finally {
       setIsSaving(false);
     }
@@ -143,7 +157,8 @@ export default function CatalogsPage() {
   const filteredData = data.filter(item => 
     (item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     (item.code || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (item.city || '').toLowerCase().includes(searchTerm.toLowerCase())
+    (item.city || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (item.tax_id || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   return (
@@ -159,17 +174,18 @@ export default function CatalogsPage() {
           className="gap-2 rounded-2xl py-6 px-8 shadow-xl shadow-accent/20"
         >
           <Plus size={18} />
-          {activeTab === 'hospitals' ? 'Nuevo Hospital' : activeTab === 'departments' ? 'Nuevo Servicio' : 'Nuevo Cargo'}
+          {activeTab === 'hospitals' ? 'Nuevo Hospital' : activeTab === 'companies' ? 'Nueva Empresa' : activeTab === 'departments' ? 'Nuevo Servicio' : 'Nuevo Cargo'}
         </Button>
       </div>
 
       {/* Tabs & Search */}
       <div className="flex flex-col lg:flex-row gap-4 justify-between items-center bg-surface/50 p-2 rounded-[2rem] border border-border/50 backdrop-blur-sm">
-        <div className="flex gap-1 p-1 bg-background/50 rounded-2xl w-full lg:w-auto">
+        <div className="flex gap-1 p-1 bg-background/50 rounded-2xl w-full lg:w-auto overflow-x-auto no-scrollbar">
           {[
             { id: 'hospitals', label: 'Hospitales', icon: Building2 },
+            { id: 'companies', label: 'Empresas', icon: Briefcase },
             { id: 'departments', label: 'Servicios', icon: Stethoscope },
-            { id: 'roles', label: 'Cargos', icon: Briefcase },
+            { id: 'roles', label: 'Cargos', icon: UserIcon },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -181,7 +197,7 @@ export default function CatalogsPage() {
                   setSearchTerm('');
                 }}
                 className={cn(
-                  "flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex-1 lg:flex-none",
+                  "flex items-center gap-2 px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all flex-1 lg:flex-none whitespace-nowrap",
                   isActive 
                     ? "bg-accent text-background shadow-lg shadow-accent/20" 
                     : "text-muted hover:bg-white/5 hover:text-white"
@@ -197,7 +213,7 @@ export default function CatalogsPage() {
         <div className="relative w-full lg:w-96">
           <input
             type="text"
-            placeholder={`Buscar en ${activeTab === 'hospitals' ? 'hospitales' : activeTab === 'departments' ? 'servicios' : 'cargos'}...`}
+            placeholder={`Buscar en ${activeTab === 'hospitals' ? 'hospitales' : activeTab === 'companies' ? 'empresas' : activeTab === 'departments' ? 'servicios' : 'cargos'}...`}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full bg-background/50 border border-border rounded-2xl py-3 pl-11 pr-4 text-xs font-bold outline-none focus:border-accent/40 transition-all placeholder:text-muted/50"
@@ -234,15 +250,17 @@ export default function CatalogsPage() {
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
                           {activeTab === 'hospitals' && <Building2 className="text-accent" size={14} />}
+                          {activeTab === 'companies' && <Briefcase className="text-accent" size={14} />}
                           {activeTab === 'departments' && <Stethoscope className="text-accent" size={14} />}
-                          {activeTab === 'roles' && <Briefcase className="text-accent" size={14} />}
+                          {activeTab === 'roles' && <UserIcon className="text-accent" size={14} />}
                           <h3 className="font-bold text-white leading-tight">{item.name}</h3>
                         </div>
-                        {activeTab === 'hospitals' && (
+                        
+                        {(activeTab === 'hospitals' || activeTab === 'companies') && (
                           <div className="flex flex-wrap gap-2 pt-1">
-                            {item.code && (
+                            {(item.code || item.tax_id) && (
                               <span className="px-2 py-0.5 rounded bg-accent/10 border border-accent/20 text-accent text-[8px] font-black uppercase tracking-widest">
-                                [{item.code}]
+                                [{item.code || item.tax_id}]
                               </span>
                             )}
                             {item.city && (
@@ -252,6 +270,7 @@ export default function CatalogsPage() {
                             )}
                           </div>
                         )}
+
                         {activeTab === 'roles' && item.scope && (
                           <span className={cn(
                             "inline-block px-2 py-0.5 rounded border text-[8px] font-black uppercase tracking-widest",
@@ -319,7 +338,7 @@ export default function CatalogsPage() {
               <div className="flex justify-between items-center mb-8">
                 <div className="space-y-1">
                   <h3 className="text-xl font-black font-heading text-white">
-                    {editingItem ? 'Editar' : 'Nuevo'} {activeTab === 'hospitals' ? 'Hospital' : activeTab === 'departments' ? 'Servicio' : 'Cargo'}
+                    {editingItem ? 'Editar' : 'Nuevo'} {activeTab === 'hospitals' ? 'Hospital' : activeTab === 'companies' ? 'Empresa' : activeTab === 'departments' ? 'Servicio' : 'Cargo'}
                   </h3>
                   <p className="text-[10px] font-bold text-muted uppercase tracking-widest">Introduce los datos del registro</p>
                 </div>
@@ -341,20 +360,25 @@ export default function CatalogsPage() {
                       value={formData.name || ''}
                       onChange={(e) => setFormData({...formData, name: e.target.value})}
                       className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all"
-                      placeholder={`Nombre del ${activeTab === 'hospitals' ? 'hospital' : activeTab === 'departments' ? 'servicio' : 'cargo'}`}
+                      placeholder={`Nombre`}
                     />
                   </div>
 
-                  {activeTab === 'hospitals' && (
+                  {(activeTab === 'hospitals' || activeTab === 'companies') && (
                     <>
                       <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">Código</label>
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">
+                          {activeTab === 'hospitals' ? 'Código' : 'CIF / NIF'}
+                        </label>
                         <input
                           type="text"
-                          value={formData.code || ''}
-                          onChange={(e) => setFormData({...formData, code: e.target.value})}
+                          value={activeTab === 'hospitals' ? (formData.code || '') : (formData.tax_id || '')}
+                          onChange={(e) => setFormData({
+                            ...formData, 
+                            [activeTab === 'hospitals' ? 'code' : 'tax_id']: e.target.value
+                          })}
                           className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all uppercase"
-                          placeholder="Código identificativo"
+                          placeholder={activeTab === 'hospitals' ? "Código identificativo" : "CIF o NIF de la empresa"}
                         />
                       </div>
                       <div className="space-y-2">
@@ -364,7 +388,7 @@ export default function CatalogsPage() {
                           value={formData.city || ''}
                           onChange={(e) => setFormData({...formData, city: e.target.value})}
                           className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all"
-                          placeholder="Ciudad del hospital"
+                          placeholder="Ciudad"
                         />
                       </div>
                     </>

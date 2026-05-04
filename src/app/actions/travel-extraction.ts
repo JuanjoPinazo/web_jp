@@ -3,9 +3,10 @@
 import { PDFParse } from 'pdf-parse';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
 import path from 'path';
+import { parseVuelingBoardingPass } from '@/lib/vueling-parser';
 
 export interface ExtractedData {
-  type: 'hotel' | 'flight' | 'transfer' | 'document';
+  type: 'hotel' | 'flight' | 'transfer' | 'document' | 'boarding_pass';
   data: any;
   confidence: number;
   rawText: string;
@@ -70,7 +71,19 @@ export async function extractTravelInfo(formData: FormData): Promise<ExtractedDa
   console.log(`[DEBUG] Proveedor Detectado: ${providerKey}`);
   console.log(`[DEBUG] Texto Limpio Analizado:\n${cleanText.substring(0, 1500)}...\n`);
 
-  let type: 'hotel' | 'flight' | 'transfer' | 'document' = 'document';
+  let type: 'hotel' | 'flight' | 'transfer' | 'document' | 'boarding_pass' = 'document';
+  
+  // 1. Detect Boarding Pass (Vueling Specific)
+  const vuelingData = parseVuelingBoardingPass(rawText);
+  if (vuelingData) {
+    return { 
+      type: 'boarding_pass', 
+      data: vuelingData, 
+      confidence: 0.98, 
+      rawText 
+    };
+  }
+
   if (forcedType && forcedType !== 'auto') {
     type = forcedType as any;
   } else {

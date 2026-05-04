@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Clock, MapPin, CheckCircle2, Info, Phone, Download, User, Ticket, Briefcase, Coffee, ShieldCheck } from 'lucide-react';
+import { X, Clock, MapPin, CheckCircle2, Info, Phone, Download, User, Ticket, Briefcase, Coffee, ShieldCheck, QrCode } from 'lucide-react';
 import { Button } from './Button';
 import { FlightCard } from './FlightCard';
 
@@ -10,9 +10,10 @@ interface OutcomeDrawerProps {
   isOpen: boolean;
   onClose: () => void;
   card?: any;
+  onOpenQR?: (data: any) => void;
 }
 
-export function OutcomeDrawer({ isOpen, onClose, card }: OutcomeDrawerProps) {
+export function OutcomeDrawer({ isOpen, onClose, card, onOpenQR }: OutcomeDrawerProps) {
   if (!card) return null;
   const { title, status, details, actionType, payload } = card;
 
@@ -139,25 +140,92 @@ export function OutcomeDrawer({ isOpen, onClose, card }: OutcomeDrawerProps) {
                     <FlightCard flight={payload} role="client" />
                   </div>
                 )}
+
+                {actionType === 'round_trip' && (
+                  <div className="pt-4 border-t border-border space-y-6">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-accent mb-4 ml-2">Vuelo de Ida</p>
+                      <FlightCard flight={payload.outbound} role="client" />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-accent mb-4 ml-2">Vuelo de Vuelta</p>
+                      <FlightCard flight={payload.returnFlight} role="client" />
+                    </div>
+                  </div>
+                )}
+
+                {actionType === 'flight_confirmation' && (
+                  <div className="pt-4 border-t border-border">
+                     <a 
+                       href={payload.file_url} 
+                       target="_blank" 
+                       rel="noopener noreferrer"
+                       className="flex items-center justify-center gap-3 w-full p-5 rounded-2xl bg-accent text-white font-black text-xs uppercase tracking-widest hover:scale-[1.02] transition-all shadow-xl"
+                     >
+                       <Download size={18} /> Ver Reserva de Vuelo
+                     </a>
+                  </div>
+                )}
                 
-                {/* Dynamic Actions */}
-                <div className="pt-6 space-y-3">
-                  {(actionType === 'hotel' || actionType === 'flight') && payload.voucher_url && (
-                    <a href={payload.voucher_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-3 w-full p-5 rounded-2xl bg-accent text-white font-black text-xs uppercase tracking-widest hover:scale-[1.02] transition-all shadow-xl shadow-accent/20">
-                      <Download size={18} /> {actionType === 'hotel' ? 'Descargar Reserva' : 'Descargar Billete'}
-                    </a>
+                  {actionType === 'boarding_pass' && (
+                    <div className="pt-4 space-y-4 border-t border-border">
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-accent">Detalles del Vuelo</p>
+                      <div className="bg-muted/30 p-4 rounded-2xl border border-border">
+                        <div className="flex justify-between items-center">
+                          <p className="text-xs font-bold text-foreground">
+                            {payload.flight?.airline} {payload.flight?.flight_number}
+                          </p>
+                          <span className="px-2 py-0.5 rounded-full bg-accent/10 text-accent text-[9px] font-black">
+                            {payload.seat_assignment ? `Asiento ${payload.seat_assignment}` : 'S/A'}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-muted font-medium mt-1">
+                          Pasajero: {payload.passenger_name || 'Titular'}
+                        </p>
+                      </div>
+                    </div>
                   )}
-                  {actionType === 'transfer' && payload?.driver_phone && (
-                    <a href={`tel:${payload.driver_phone}`} className="flex items-center justify-center gap-2 w-full p-4 rounded-xl bg-emerald-500/10 text-emerald-500 font-bold hover:bg-emerald-500 hover:text-white transition-colors">
-                      <Phone size={18} /> Llamar Chófer
-                    </a>
-                  )}
-                  {actionType === 'document' && payload?.file_url && (
-                    <a href={payload.file_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 w-full p-4 rounded-xl bg-accent/10 text-accent font-bold hover:bg-accent hover:text-white transition-colors">
-                      <Download size={18} /> Descargar Documento
-                    </a>
-                  )}
-                </div>
+
+                  {/* Dynamic Actions */}
+                  <div className="pt-6 space-y-3">
+                    {actionType === 'boarding_pass' && payload.qr_code && onOpenQR && (
+                      <button 
+                        onClick={() => {
+                          onOpenQR({
+                            qr_code: payload.qr_code,
+                            passenger_name: payload.passenger_name,
+                            display_title: payload.display_title || 'Tarjeta de Embarque'
+                          });
+                          onClose();
+                        }}
+                        className="flex items-center justify-center gap-3 w-full p-5 rounded-2xl bg-foreground text-background font-black text-xs uppercase tracking-widest hover:scale-[1.02] transition-all shadow-xl"
+                      >
+                        <QrCode size={18} /> Mostrar Código QR
+                      </button>
+                    )}
+                    
+                    {(actionType === 'hotel' || actionType === 'flight' || actionType === 'boarding_pass') && (payload.voucher_url || payload.file_url) && (
+                      <a 
+                        href={payload.voucher_url || payload.file_url} 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className={`flex items-center justify-center gap-3 w-full p-5 rounded-2xl font-black text-xs uppercase tracking-widest hover:scale-[1.02] transition-all shadow-xl ${actionType === 'boarding_pass' ? 'bg-surface border border-border text-foreground' : 'bg-accent text-white shadow-accent/20'}`}
+                      >
+                        <Download size={18} /> 
+                        {actionType === 'boarding_pass' ? 'Descargar PDF' : (actionType === 'hotel' ? 'Descargar Reserva' : 'Descargar Billete')}
+                      </a>
+                    )}
+                    {actionType === 'transfer' && payload?.driver_phone && (
+                      <a href={`tel:${payload.driver_phone}`} className="flex items-center justify-center gap-2 w-full p-4 rounded-xl bg-emerald-500/10 text-emerald-500 font-bold hover:bg-emerald-500 hover:text-white transition-colors">
+                        <Phone size={18} /> Llamar Chófer
+                      </a>
+                    )}
+                    {actionType === 'document' && payload?.file_url && (
+                      <a href={payload.file_url} target="_blank" rel="noopener noreferrer" className="flex items-center justify-center gap-2 w-full p-4 rounded-xl bg-accent/10 text-accent font-bold hover:bg-accent hover:text-white transition-colors">
+                        <Download size={18} /> Descargar Documento
+                      </a>
+                    )}
+                  </div>
               </div>
 
               <div className="pt-8 border-t border-white/5 mt-auto">

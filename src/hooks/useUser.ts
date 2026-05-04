@@ -10,6 +10,7 @@ export interface Profile {
   surname: string;
   email: string;
   phone: string;
+  avatar_url?: string | null;
   updated_at?: string;
 }
 
@@ -54,6 +55,7 @@ export const useUser = () => {
           surname: data.apellidos || '',
           email: data.email || '',
           phone: data.telefono || '',
+          avatar_url: data.avatar_url || null,
           updated_at: data.updated_at
         });
       }
@@ -70,15 +72,18 @@ export const useUser = () => {
       setSuccess(false);
       setError(null);
 
-      const dbPayload: any = {
-        id: session.user?.id,
-        updated_at: new Date().toISOString(),
-      };
+      const dbPayload: any = {};
 
       if (updates.name !== undefined) dbPayload.nombre = updates.name;
       if (updates.surname !== undefined) dbPayload.apellidos = updates.surname;
       if (updates.phone !== undefined) dbPayload.telefono = updates.phone;
       if (updates.email !== undefined) dbPayload.email = updates.email;
+
+      // Only send updated_at if we want to force it from client, 
+      // but it's better to let the DB handle it via trigger.
+      // For now, let's remove it to avoid the "column not found" error 
+      // until the user runs the SQL migration.
+      // dbPayload.updated_at = new Date().toISOString();
 
       const { error } = await supabase
         .from('profiles')

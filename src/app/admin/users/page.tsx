@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAdmin } from '@/hooks/useAdmin';
 import { User } from '@/types/platform';
-import { Loader2, UserCircle, Shield, User as UserIcon, Mail, Phone, Calendar, Plus, X, Trash2, Edit2, Search, LayoutGrid, List, Filter, Building2, MoreHorizontal, Send } from 'lucide-react';
+import { Loader2, UserCircle, Shield, User as UserIcon, Mail, Phone, Calendar, Plus, X, Trash2, Edit2, Search, LayoutGrid, List, Filter, Building2, MoreHorizontal, Send, Camera, Briefcase } from 'lucide-react';
 import { useDialog } from '@/context/DialogContext';
 import { Button } from '@/components/Button';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -14,7 +14,8 @@ type ViewMode = 'grid' | 'compact';
 export default function AdminUsersPage() {
   const { getUsers, updateUserRole, getClients } = useAdmin();
   const [users, setUsers] = useState<User[]>([]);
-  const [clients, setClients] = useState<any[]>([]);
+  const [clients, setClients] = useState<any[]>([]); // These are actually Hospitals
+  const [companies, setCompanies] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -29,10 +30,14 @@ export default function AdminUsersPage() {
     name: '',
     surname: '',
     role: 'client',
-    client_id: '',
+    client_id: '', // hospital_id
+    company_id: '',
+    user_type: 'hospital',
     phone: '',
     sendInvite: true
   });
+  const [avatarUploadUserId, setAvatarUploadUserId] = useState<string | null>(null);
+  const [avatarUploading, setAvatarUploading] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -45,20 +50,50 @@ export default function AdminUsersPage() {
         name: editingUser.name || '',
         surname: editingUser.surname || '',
         role: editingUser.role || 'client',
-        client_id: editingUser.client_id || '',
+        client_id: (editingUser as any).client_id || '',
+        company_id: (editingUser as any).company_id || '',
+        user_type: (editingUser as any).user_type || 'hospital',
         phone: editingUser.phone || '',
         sendInvite: false
       });
+      setAvatarUploadUserId(editingUser.id);
       setIsModalOpen(true);
     }
   }, [editingUser]);
 
+  const handleAvatarUploadForUser = async (e: React.ChangeEvent<HTMLInputElement>, userId: string) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setAvatarUploading(true);
+    try {
+      const ext = file.name.split('.').pop();
+      const path = `${userId}/avatar.${ext}`;
+      const { error: uploadErr } = await supabase.storage.from('avatars').upload(path, file, { upsert: true });
+      if (uploadErr) throw uploadErr;
+      const { data } = supabase.storage.from('avatars').getPublicUrl(path);
+      const url = data.publicUrl + '?t=' + Date.now();
+      await supabase.from('profiles').update({ avatar_url: url }).eq('id', userId);
+      // Update local state
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, avatar_url: url } : u));
+      if (editingUser?.id === userId) setEditingUser({ ...editingUser, avatar_url: url });
+    } catch (err: any) {
+      await alert({ title: 'Error', message: err.message, type: 'danger' });
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
   const loadData = async () => {
     try {
       setLoading(true);
-      const [usersData, clientsData] = await Promise.all([getUsers(), getClients()]);
+      const [usersData, clientsData, { data: companiesData }] = await Promise.all([
+        getUsers(), 
+        getClients(),
+        supabase.from('companies').select('*').order('name')
+      ]);
       setUsers(usersData);
       setClients(clientsData);
+      setCompanies(companiesData || []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -99,7 +134,17 @@ export default function AdminUsersPage() {
       
       setIsModalOpen(false);
       setEditingUser(null);
-      setFormData({ email: '', name: '', surname: '', role: 'client', client_id: '', phone: '', sendInvite: true });
+      setFormData({ 
+        email: '', 
+        name: '', 
+        surname: '', 
+        role: 'client', 
+        client_id: '', 
+        company_id: '',
+        user_type: 'hospital',
+        phone: '', 
+        sendInvite: true 
+      });
       loadData();
     } catch (err: any) {
       console.error(err);
@@ -190,16 +235,21 @@ export default function AdminUsersPage() {
     }
   };
 
-  const filteredUsers = users.filter(user => {
-    const matchesSearch = 
-      (user.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (user.surname || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (user.email || '').toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesRole = filterRole === 'all' || user.role === filterRole;
-    
-    return matchesSearch && matchesRole;
-  });
+  const filteredUsers = users
+    .filter(user => {
+      const matchesSearch =
+        (user.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (user.surname || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (user.email || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (user.clients?.name || '').toLowerCase().includes(searchQuery.toLowerCase());
+      const matchesRole = filterRole === 'all' || user.role === filterRole;
+      return matchesSearch && matchesRole;
+    })
+    .sort((a, b) => {
+      const nameA = `${a.name || ''} ${a.surname || ''}`.trim().toLowerCase();
+      const nameB = `${b.name || ''} ${b.surname || ''}`.trim().toLowerCase();
+      return nameA.localeCompare(nameB, 'es');
+    });
 
   return (
     <div className="space-y-10 pb-20 px-4 md:px-0">
@@ -275,8 +325,12 @@ export default function AdminUsersPage() {
                 className="p-8 rounded-[2.5rem] bg-surface border border-border shadow-sm flex flex-col gap-6 group hover:border-accent/30 transition-all relative overflow-hidden"
               >
                 <div className="flex justify-between items-start relative z-10">
-                   <div className="w-14 h-14 rounded-2xl bg-muted/10 border border-border flex items-center justify-center text-muted group-hover:scale-110 transition-transform">
-                     <UserCircle size={32} />
+                   <div className="w-14 h-14 rounded-2xl bg-muted/10 border border-border flex items-center justify-center text-muted group-hover:scale-110 transition-transform overflow-hidden">
+                     {(user as any).avatar_url ? (
+                       <img src={(user as any).avatar_url} alt={user.name} className="w-full h-full object-cover" />
+                     ) : (
+                       <UserCircle size={32} />
+                     )}
                    </div>
                     <div className="flex gap-2">
                       <button onClick={() => handleResendInvite(user)} title="Reenviar Invitación" className="p-2.5 rounded-xl bg-accent/10 border border-accent/20 text-accent hover:bg-accent hover:text-white transition-all"><Send size={16} /></button>
@@ -286,85 +340,107 @@ export default function AdminUsersPage() {
                 </div>
 
                 <div className="space-y-1 relative z-10">
-                   <div className="flex flex-wrap gap-2 pt-1">
-                      <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${user.role === 'admin' ? 'bg-accent/10 border-accent/20 text-accent' : 'bg-muted/10 border-border text-muted'}`}>
-                        {user.role === 'admin' ? <Shield size={10} /> : <UserIcon size={10} />}
-                        {user.role}
-                      </div>
-                      
-                      {/* Onboarding Status Badge */}
-                      <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${
-                        user.onboarding_status === 'active' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 
-                        user.onboarding_status === 'invited' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' : 
-                        'bg-slate-500/10 border-slate-500/20 text-slate-400'
-                      }`}>
-                        <div className={`w-1.5 h-1.5 rounded-full ${
-                          user.onboarding_status === 'active' ? 'bg-emerald-500' : 
-                          user.onboarding_status === 'invited' ? 'bg-blue-500' : 
-                          'bg-slate-500'
-                        }`} />
-                        {user.onboarding_status || 'draft'}
-                      </div>
-                   </div>
+                  {/* Full name */}
+                  <h3 className="text-base font-black text-foreground leading-tight">
+                    {user.name} {user.surname}
+                  </h3>
+                  {/* Client account */}
+                  {user.clients?.name && (
+                    <p className="text-[10px] font-bold text-accent uppercase tracking-widest flex items-center gap-1">
+                      <Building2 size={10} />
+                      {user.clients.name}
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${user.role === 'admin' ? 'bg-accent/10 border-accent/20 text-accent' : 'bg-muted/10 border-border text-muted'}`}>
+                      {user.role === 'admin' ? <Shield size={10} /> : <UserIcon size={10} />}
+                      {user.role}
+                    </div>
+                    <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border ${
+                      user.onboarding_status === 'active' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' :
+                      user.onboarding_status === 'invited' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' :
+                      'bg-slate-500/10 border-slate-500/20 text-slate-400'
+                    }`}>
+                      <div className={`w-1.5 h-1.5 rounded-full ${
+                        user.onboarding_status === 'active' ? 'bg-emerald-500' :
+                        user.onboarding_status === 'invited' ? 'bg-blue-500' :
+                        'bg-slate-500'
+                      }`} />
+                      {user.onboarding_status || 'draft'}
+                    </div>
+                  </div>
                 </div>
 
                 <div className="space-y-3 pt-4 border-t border-border/50 relative z-10">
-                   <div className="flex items-center gap-3 text-muted">
-                      <Mail size={14} className="text-accent" />
-                      <span className="text-[10px] font-bold">{user.email}</span>
-                   </div>
-                   {user.phone && (
-                     <div className="flex items-center gap-3 text-muted">
-                        <Phone size={14} className="text-accent" />
-                        <span className="text-[10px] font-bold">{user.phone}</span>
-                     </div>
-                   )}
-                   {user.invitation_sent_at && user.onboarding_status !== 'active' && (
-                      <div className="flex items-center gap-3 text-muted/60">
-                         <Calendar size={12} />
-                         <span className="text-[9px] font-medium italic">Invitado el {new Date(user.invitation_sent_at).toLocaleDateString()}</span>
-                      </div>
-                   )}
+                  <div className="flex items-center gap-3 text-muted">
+                    <Mail size={14} className="text-accent shrink-0" />
+                    <span className="text-[10px] font-bold truncate">{user.email}</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-muted">
+                    <Phone size={14} className="text-accent shrink-0" />
+                    <span className="text-[10px] font-bold">{user.phone || '—'}</span>
+                  </div>
+                  {user.invitation_sent_at && user.onboarding_status !== 'active' && (
+                    <div className="flex items-center gap-3 text-muted/60">
+                      <Calendar size={12} />
+                      <span className="text-[9px] font-medium italic">Invitado el {new Date(user.invitation_sent_at).toLocaleDateString()}</span>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             ) : (
-              <motion.div 
+              <motion.div
                 layout
-                key={user.id} 
-                className="p-4 rounded-2xl bg-surface border border-border hover:border-accent/30 transition-all flex items-center justify-between gap-4 group"
+                key={user.id}
+                className="p-4 rounded-2xl bg-surface border border-border hover:border-accent/30 transition-all flex items-center gap-4 group"
               >
-                <div className="flex items-center gap-4 flex-1">
-                  <div className="w-10 h-10 rounded-xl bg-muted/10 border border-border flex items-center justify-center text-muted group-hover:scale-110 transition-transform">
+                {/* Avatar */}
+                <div className="w-10 h-10 rounded-xl bg-muted/10 border border-border flex items-center justify-center text-muted shrink-0 overflow-hidden">
+                  {(user as any).avatar_url ? (
+                    <img src={(user as any).avatar_url} alt={user.name} className="w-full h-full object-cover" />
+                  ) : (
                     <UserCircle size={20} />
+                  )}
+                </div>
+
+                {/* Name + email */}
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-sm font-bold truncate">{user.name} {user.surname}</h3>
+                  <p className="text-[10px] text-muted truncate">{user.email}</p>
+                </div>
+
+                {/* Phone */}
+                <div className="hidden md:flex items-center gap-1.5 text-muted/70 w-32 shrink-0">
+                  <Phone size={11} className="shrink-0" />
+                  <span className="text-[10px] font-medium truncate">{user.phone || '—'}</span>
+                </div>
+
+                {/* Client */}
+                <div className="hidden lg:flex items-center gap-1.5 text-muted/70 w-36 shrink-0">
+                  <Building2 size={11} className="shrink-0" />
+                  <span className="text-[10px] font-medium truncate">{user.clients?.name || '—'}</span>
+                </div>
+
+                {/* Badges */}
+                <div className="flex items-center gap-2 shrink-0">
+                  <div className={`px-2 py-0.5 rounded-full text-[7px] font-black uppercase tracking-widest border ${
+                    user.onboarding_status === 'active' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' :
+                    user.onboarding_status === 'invited' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' :
+                    'bg-slate-500/10 border-slate-500/20 text-slate-400'
+                  }`}>
+                    {user.onboarding_status || 'draft'}
                   </div>
-                  <div>
-                    <h3 className="text-sm font-bold">{user.name} {user.surname}</h3>
-                    <p className="text-[10px] text-muted">{user.email}</p>
+                  <div className={`px-2 py-0.5 rounded-full text-[7px] font-black uppercase tracking-widest border ${user.role === 'admin' ? 'bg-accent/10 border-accent/20 text-accent' : 'bg-muted/10 border-border text-muted'}`}>
+                    {user.role}
                   </div>
                 </div>
-                       <div className="flex items-center gap-3">
-                    <div className={`px-2 py-0.5 rounded-full text-[7px] font-black uppercase tracking-widest border ${
-                      user.onboarding_status === 'active' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 
-                      user.onboarding_status === 'invited' ? 'bg-blue-500/10 border-blue-500/20 text-blue-400' : 
-                      'bg-slate-500/10 border-slate-500/20 text-slate-400'
-                    }`}>
-                      {user.onboarding_status || 'draft'}
-                    </div>
 
-                    <div className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest border ${user.role === 'admin' ? 'bg-accent/10 border-accent/20 text-accent' : 'bg-muted/10 border-border text-muted'}`}>
-                      {user.role}
-                    </div>
-                  </div>
-                  
-                  <div className="text-[10px] text-muted font-mono w-24 truncate">
-                    {user.clients?.name || '—'}
-                  </div>
-
-                  <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={() => handleResendInvite(user)} title="Reenviar Invitación" className="p-2 rounded-lg bg-background border border-border text-muted hover:text-accent transition-all"><Send size={14} /></button>
-                    <button onClick={() => setEditingUser(user)} className="p-2 rounded-lg bg-background border border-border text-muted hover:text-accent transition-all"><Edit2 size={14} /></button>
-                    <button onClick={() => handleDeleteUser(user.id)} className="p-2 rounded-lg bg-background border border-border text-muted hover:text-red-500 transition-all"><Trash2 size={14} /></button>
-                  </div>
+                {/* Actions */}
+                <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                  <button onClick={() => handleResendInvite(user)} title="Reenviar Invitación" className="p-2 rounded-lg bg-background border border-border text-muted hover:text-accent transition-all"><Send size={14} /></button>
+                  <button onClick={() => setEditingUser(user)} className="p-2 rounded-lg bg-background border border-border text-muted hover:text-accent transition-all"><Edit2 size={14} /></button>
+                  <button onClick={() => handleDeleteUser(user.id)} className="p-2 rounded-lg bg-background border border-border text-muted hover:text-red-500 transition-all"><Trash2 size={14} /></button>
+                </div>
               </motion.div>
             )
           ))}
@@ -380,9 +456,30 @@ export default function AdminUsersPage() {
                {/* Modal Content */}
                 <div className="flex justify-between items-center mb-10">
                    <h3 className="text-3xl font-black font-heading tracking-tighter uppercase">{editingUser ? 'Actualizar' : 'Invitar'}</h3>
-                   <button onClick={() => { setIsModalOpen(false); setEditingUser(null); setFormData({ email: '', name: '', surname: '', role: 'client', client_id: '', phone: '', sendInvite: true }); }} className="p-3 rounded-full bg-background border border-border text-muted hover:text-accent"><X size={24} /></button>
+                   <button onClick={() => { setIsModalOpen(false); setEditingUser(null); setFormData({ email: '', name: '', surname: '', role: 'client', client_id: '', company_id: '', user_type: 'hospital', phone: '', sendInvite: true }); }} className="p-3 rounded-full bg-background border border-border text-muted hover:text-accent"><X size={24} /></button>
                 </div>
                <form onSubmit={handleCreateUser} className="space-y-6">
+                  {editingUser && (
+                    <div className="flex items-center gap-5 pb-6 border-b border-border">
+                      <div className="relative">
+                        <div className="w-20 h-20 rounded-2xl bg-muted/10 border border-border overflow-hidden flex items-center justify-center">
+                          {(editingUser as any).avatar_url ? (
+                            <img src={(editingUser as any).avatar_url} alt={editingUser.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <UserCircle size={36} className="text-muted" />
+                          )}
+                        </div>
+                        <label className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-accent text-white flex items-center justify-center cursor-pointer hover:scale-110 transition-transform shadow-lg">
+                          {avatarUploading ? <Loader2 size={12} className="animate-spin" /> : <Camera size={12} />}
+                          <input type="file" accept="image/*" className="hidden" onChange={e => handleAvatarUploadForUser(e, editingUser.id)} />
+                        </label>
+                      </div>
+                      <div>
+                        <p className="text-sm font-black">{editingUser.name} {editingUser.surname}</p>
+                        <p className="text-[10px] text-muted font-bold uppercase tracking-widest">Cambiar foto de perfil</p>
+                      </div>
+                    </div>
+                  )}
                   <div className="grid grid-cols-2 gap-6">
                      <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-muted px-1">Nombre</label>
@@ -401,6 +498,26 @@ export default function AdminUsersPage() {
                      <label className="text-[10px] font-black uppercase tracking-widest text-muted px-1">Teléfono</label>
                      <input type="tel" className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none focus:border-accent/40" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} placeholder="+34 ..." />
                   </div>
+                  <div className="space-y-4 p-6 rounded-[2rem] bg-background border border-border">
+                     <label className="text-[10px] font-black uppercase tracking-widest text-muted px-1">Ámbito de Trabajo</label>
+                     <div className="grid grid-cols-2 gap-3">
+                        <button 
+                          type="button"
+                          onClick={() => setFormData({...formData, user_type: 'hospital'})}
+                          className={`flex items-center justify-center gap-2 py-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${formData.user_type === 'hospital' ? 'bg-accent/10 border-accent text-accent shadow-sm' : 'bg-background border-border text-muted opacity-50'}`}
+                        >
+                          <Building2 size={14} /> Hospital
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => setFormData({...formData, user_type: 'company'})}
+                          className={`flex items-center justify-center gap-2 py-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${formData.user_type === 'company' ? 'bg-accent/10 border-accent text-accent shadow-sm' : 'bg-background border-border text-muted opacity-50'}`}
+                        >
+                          <Briefcase size={14} /> Empresa
+                        </button>
+                     </div>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-6">
                      <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-muted px-1">Rol</label>
@@ -410,10 +527,22 @@ export default function AdminUsersPage() {
                         </select>
                      </div>
                      <div className="space-y-2">
-                        <label className="text-[10px] font-black uppercase tracking-widest text-muted px-1">Cuenta</label>
-                        <select className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none" value={formData.client_id} onChange={e => setFormData({...formData, client_id: e.target.value})}>
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted px-1">
+                          {formData.user_type === 'hospital' ? 'Hospital Asignado' : 'Empresa Asignada'}
+                        </label>
+                        <select 
+                          className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none" 
+                          value={formData.user_type === 'hospital' ? formData.client_id : formData.company_id} 
+                          onChange={e => setFormData({
+                            ...formData, 
+                            [formData.user_type === 'hospital' ? 'client_id' : 'company_id']: e.target.value
+                          })}
+                        >
                            <option value="">Ninguna</option>
-                           {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                           {formData.user_type === 'hospital' 
+                             ? clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)
+                             : companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)
+                           }
                         </select>
                      </div>
                   </div>

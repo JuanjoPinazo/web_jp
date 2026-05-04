@@ -5,6 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
 import { BottomNav } from '@/components/BottomNav';
+import { DashboardHeader } from '@/components/DashboardHeader';
 import { Loader2 } from 'lucide-react';
 
 export default function DashboardLayout({
@@ -39,6 +40,7 @@ export default function DashboardLayout({
       />
       
       <main className="md:pl-64 min-h-screen pb-32 md:pb-0 overflow-x-hidden">
+        <DashboardHeader />
         <div className="p-3 md:p-8 max-w-7xl mx-auto animate-in fade-in duration-500">
           {children}
         </div>

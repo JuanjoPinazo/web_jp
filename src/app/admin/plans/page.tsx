@@ -32,11 +32,17 @@ import {
   ShieldCheck,
   History,
   FileBadge,
-  Download
+  Download,
+  QrCode,
+  FileSpreadsheet,
+  Utensils,
+  Smartphone,
+  Milestone
 } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDialog } from '@/context/DialogContext';
+import { HotelImportModal } from '@/components/HotelImportModal';
 
 export default function AdminPlansPage() {
   const { getUsers, getContexts } = useAdmin();
@@ -70,9 +76,13 @@ export default function AdminPlansPage() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPlan, setSelectedPlan] = useState<any>(null);
+  const [enabledModules, setEnabledModules] = useState<Record<string, boolean>>({});
   const [isCreating, setIsCreating] = useState(false);
   const [editingPlan, setEditingPlan] = useState<any>(null);
   const [editingFlight, setEditingFlight] = useState<any>(null);
+  const [editingHotel, setEditingHotel] = useState<any>(null);
+  const [editingDocument, setEditingDocument] = useState<any>(null);
+  const [showHotelImport, setShowHotelImport] = useState(false);
   const [selectedUser, setSelectedUser] = useState('');
   const [selectedContext, setSelectedContext] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -111,7 +121,17 @@ export default function AdminPlansPage() {
   const handleManagePlan = async (plan: any) => {
     setLoading(true);
     try {
-      const fullPlan = await getAdminPlanForUser(plan.user_id, plan.context_id);
+      const [fullPlan, modulesData] = await Promise.all([
+        getAdminPlanForUser(plan.user_id, plan.context_id),
+        supabase.from('plan_modules').select('module_id, is_enabled').eq('plan_id', plan.id)
+      ]);
+
+      const moduleMap: Record<string, boolean> = {};
+      modulesData.data?.forEach(m => {
+        moduleMap[m.module_id] = m.is_enabled;
+      });
+
+      setEnabledModules(moduleMap);
       setSelectedPlan(fullPlan);
       setView('detail');
     } catch (err) {
@@ -175,6 +195,56 @@ export default function AdminPlansPage() {
 
       await alert({ title: 'Éxito', message: 'Vuelo actualizado correctamente.', type: 'success' });
       setEditingFlight(null);
+      handleManagePlan(selectedPlan);
+    } catch (err: any) {
+      alert({ title: 'Error', message: err.message, type: 'danger' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSaveDocument = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingDocument) return;
+
+    try {
+      setIsSubmitting(true);
+      // Build update payload — only include columns that exist in schema.
+      // Run migration_jp_platform.sql to enable full editing.
+      const updatePayload: Record<string, any> = {
+        notes: editingDocument.notes,
+      };
+      // These fields require migration (ADD COLUMN IF NOT EXISTS):
+      if (editingDocument.display_title !== undefined)
+        updatePayload.display_title = editingDocument.display_title;
+      if (editingDocument.document_type !== undefined)
+        updatePayload.document_type = editingDocument.document_type;
+      if (editingDocument.description !== undefined)
+        updatePayload.description = editingDocument.description;
+      if (editingDocument.related_flight_id !== undefined)
+        updatePayload.related_flight_id = editingDocument.related_flight_id || null;
+      if (editingDocument.related_hotel_stay_id !== undefined)
+        updatePayload.related_hotel_stay_id = editingDocument.related_hotel_stay_id || null;
+      if (editingDocument.visible_to_client !== undefined)
+        updatePayload.visible_to_client = editingDocument.visible_to_client;
+      if (editingDocument.qr_code !== undefined)
+        updatePayload.qr_code = editingDocument.qr_code;
+      if (editingDocument.passenger_name !== undefined)
+        updatePayload.passenger_name = editingDocument.passenger_name;
+      if (editingDocument.seat_assignment !== undefined)
+        updatePayload.seat_assignment = editingDocument.seat_assignment;
+      if (editingDocument.boarding_group !== undefined)
+        updatePayload.boarding_group = editingDocument.boarding_group;
+
+      const { error } = await supabase
+        .from('travel_documents')
+        .update(updatePayload)
+        .eq('id', editingDocument.id);
+
+      if (error) throw error;
+
+      await alert({ title: 'Éxito', message: 'Documento actualizado.', type: 'success' });
+      setEditingDocument(null);
       handleManagePlan(selectedPlan);
     } catch (err: any) {
       alert({ title: 'Error', message: err.message, type: 'danger' });
@@ -261,7 +331,7 @@ export default function AdminPlansPage() {
     if (!selectedPlan) return null;
 
     const flights = selectedPlan.flights || [];
-    const hotels = selectedPlan.hotels || [];
+    const hotels = selectedPlan.hotel_stays || [];
     const transfers = selectedPlan.transfers || [];
 
     return (
@@ -281,7 +351,10 @@ export default function AdminPlansPage() {
               </p>
             </div>
           </div>
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
+            <Button variant="outline" className="rounded-xl px-4 flex items-center gap-2 border-accent/20 text-accent hover:bg-accent hover:text-white" onClick={() => setShowHotelImport(true)}>
+              <FileSpreadsheet size={18} /> Importar Alojamientos Excel
+            </Button>
             <Button variant="outline" className="rounded-xl px-4 flex items-center gap-2 border-accent/20 text-accent hover:bg-accent hover:text-white" onClick={() => setIsImporting(true)}>
               <FileBadge size={18} /> Importar PDF de Agencia
             </Button>
@@ -305,6 +378,65 @@ export default function AdminPlansPage() {
             }
           }}
         />
+
+        {/* Módulos Activos */}
+        <section className="space-y-4">
+          <div className="flex items-center gap-2 px-1">
+            <Settings size={14} className="text-accent" />
+            <h3 className="text-xs font-black uppercase text-muted tracking-widest">Funcionalidades Activas</h3>
+          </div>
+          
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 lg:grid-cols-9 gap-3">
+            {[
+              { id: 'flights', label: 'Vuelos', icon: Plane },
+              { id: 'hotels', label: 'Hoteles', icon: Hotel },
+              { id: 'transfers', label: 'Transfers', icon: Car },
+              { id: 'restaurants', label: 'Cenas', icon: Utensils },
+              { id: 'agenda', label: 'Agenda', icon: Calendar },
+              { id: 'documents', label: 'Docs', icon: FileText },
+              { id: 'mobility', label: 'Movilidad', icon: Smartphone },
+              { id: 'map', label: 'Mapa', icon: MapPin },
+              { id: 'distances', label: 'Distancias', icon: Milestone }
+            ].map((mod) => {
+              const isEnabled = enabledModules[mod.id] !== false; // Default to true if not set
+              
+              return (
+                <button
+                  key={mod.id}
+                  onClick={async () => {
+                    const nextState = !isEnabled;
+                    setEnabledModules(prev => ({ ...prev, [mod.id]: nextState }));
+                    try {
+                      const { error } = await supabase
+                        .from('plan_modules')
+                        .upsert({
+                          plan_id: selectedPlan.id,
+                          module_id: mod.id,
+                          is_enabled: nextState
+                        }, { onConflict: 'plan_id,module_id' });
+                      if (error) {
+                        console.error('Supabase Module Error:', error);
+                        throw new Error(error.message);
+                      }
+                    } catch (err: any) {
+                      console.error('Error toggling module:', err);
+                      setEnabledModules(prev => ({ ...prev, [mod.id]: isEnabled })); // Rollback
+                      alert({ title: 'Error de Configuración', message: `No se pudo cambiar el módulo: ${err.message}`, type: 'danger' });
+                    }
+                  }}
+                  className={`flex flex-col items-center justify-center p-3 rounded-2xl border transition-all gap-2 ${
+                    isEnabled 
+                      ? 'bg-accent/5 border-accent/30 text-accent shadow-sm' 
+                      : 'bg-background border-border text-muted hover:border-accent/20'
+                  }`}
+                >
+                  <mod.icon size={18} className={isEnabled ? 'animate-in zoom-in-75 duration-300' : 'opacity-40'} />
+                  <span className="text-[9px] font-bold uppercase tracking-tighter">{mod.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
 
         {/* Summary Bar */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -392,47 +524,144 @@ export default function AdminPlansPage() {
 
         {/* Hoteles Section */}
         <section className="space-y-4">
-          <h3 className="text-xs font-black uppercase text-muted tracking-widest flex items-center gap-2">
-            <Hotel size={14} className="text-accent" /> Alojamiento
-          </h3>
+          <div className="flex justify-between items-center px-1">
+            <h3 className="text-xs font-black uppercase text-muted tracking-widest flex items-center gap-2">
+              <Hotel size={14} className="text-accent" /> Alojamiento
+            </h3>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 gap-1.5 text-[10px] font-black uppercase tracking-widest text-accent hover:bg-accent/10 rounded-xl px-3"
+              onClick={() => setEditingHotel({
+                plan_id: selectedPlan.id,
+                guest_name: `${selectedPlan.profiles?.nombre || ''} ${selectedPlan.profiles?.apellidos || ''}`.trim(),
+                hotel_name: '',
+                booking_reference: '',
+                check_in: '',
+                check_out: '',
+                room_group_id: '',
+                breakfast_included: false,
+                status: 'confirmed',
+                source: 'manual'
+              })}
+            >
+              <Plus size={14} /> Añadir Hotel
+            </Button>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {hotels.map((hotel: any) => (
-              <div key={hotel.id} className="bg-background border border-border rounded-2xl overflow-hidden group">
-                <div className="p-4 border-b border-border flex justify-between items-center bg-muted/30">
-                  <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent shrink-0">
-                      <Hotel size={16} />
+            {/* Agrupación visual por habitación para el admin */}
+            {(() => {
+              const grouped: Record<string, any[]> = {};
+              hotels.forEach((h: any) => {
+                const gid = h.room_group_id || `single-${h.id}`;
+                if (!grouped[gid]) grouped[gid] = [];
+                grouped[gid].push(h);
+              });
+
+              return Object.entries(grouped).map(([gid, stays]: [string, any[]]) => {
+                const hotel = stays[0];
+                const isShared = stays.length > 1 || hotel.room_group_id;
+
+                return (
+                  <div key={gid} className={`bg-background border rounded-2xl overflow-hidden group hover:border-accent/30 transition-all ${isShared ? 'border-accent/20' : 'border-border'}`}>
+                    <div className="p-4 border-b border-border flex justify-between items-center bg-muted/30">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent shrink-0">
+                          <Hotel size={16} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs font-bold text-foreground line-clamp-1">{hotel.hotel_name || 'Hotel S/N'}</span>
+                            {hotel.room_group_id && (
+                              <span className="px-1.5 py-0.5 rounded-md bg-accent/10 text-accent text-[8px] font-black uppercase">Grupo: {hotel.room_group_id}</span>
+                            )}
+                          </div>
+                          <p className="text-[9px] text-muted font-medium">
+                            {stays.map(s => s.guest_name).join(' + ')}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex gap-1">
+                        {stays.map(s => (
+                          <div key={s.id} className="flex gap-1 border-l border-border pl-2 ml-1">
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setEditingHotel(s)}>
+                              <Edit2 size={12} className="text-muted hover:text-accent" />
+                            </Button>
+                            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleDelete('hotel', s.id)}>
+                              <Trash2 size={12} className="text-red-500" />
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <span className="text-xs font-bold text-foreground line-clamp-1">{hotel.hotel_name || 'Hotel S/N'}</span>
+                    <div className="p-5 space-y-3">
+                      {hotel.address && (
+                        <div className="flex items-start gap-3">
+                          <MapPin size={12} className="text-muted mt-0.5 shrink-0" />
+                          <p className="text-[10px] font-medium text-muted">{hotel.address}</p>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-3">
+                        <div>
+                          <p className="text-[9px] font-black text-muted uppercase tracking-widest">Check-in</p>
+                          <p className="text-xs font-bold">{hotel.check_in ? new Date(hotel.check_in).toLocaleDateString('es-ES') : 'S/F'}</p>
+                          {hotel.check_in_time && <p className="text-[9px] text-accent font-bold">Desde {hotel.check_in_time}</p>}
+                        </div>
+                        <div>
+                          <p className="text-[9px] font-black text-muted uppercase tracking-widest">Check-out</p>
+                          <p className="text-xs font-bold">{hotel.check_out ? new Date(hotel.check_out).toLocaleDateString('es-ES') : 'S/F'}</p>
+                          {hotel.check_out_time && <p className="text-[9px] text-accent font-bold">Hasta {hotel.check_out_time}</p>}
+                        </div>
+                        {hotel.room_type && (
+                          <div>
+                            <p className="text-[9px] font-black text-muted uppercase tracking-widest">Habitación</p>
+                            <p className="text-xs font-bold">{hotel.room_type}</p>
+                          </div>
+                        )}
+                        <div>
+                          <p className="text-[9px] font-black text-muted uppercase tracking-widest">Desayuno</p>
+                          <p className={`text-xs font-bold ${hotel.breakfast_included ? 'text-emerald-500' : 'text-muted'}`}>
+                            {hotel.breakfast_included ? 'Incluido' : 'No incluido'}
+                          </p>
+                        </div>
+                      </div>
+                      {hotel.booking_reference && (
+                        <div className="pt-2 border-t border-border/50">
+                          <p className="text-[9px] font-black text-muted uppercase tracking-widest">Localizador</p>
+                          <p className="text-xs font-mono font-bold text-accent">{hotel.booking_reference}</p>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <Button variant="ghost" size="sm" onClick={() => handleDelete('hotel', hotel.id)}>
-                    <Trash2 size={14} className="text-red-500" />
-                  </Button>
-                </div>
-                <div className="p-5 space-y-4">
-                  <div className="flex items-start gap-3">
-                    <MapPin size={14} className="text-muted mt-1" />
-                    <div>
-                      <p className="text-[10px] font-black text-muted uppercase tracking-widest">Ubicación</p>
-                      <p className="text-xs font-medium">{hotel.address || 'Dirección no especificada'}</p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-[10px] font-black text-muted uppercase tracking-widest">Check-in</p>
-                      <p className="text-xs font-bold">{hotel.check_in ? new Date(hotel.check_in).toLocaleDateString('es-ES') : 'S/F'}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black text-muted uppercase tracking-widest">Check-out</p>
-                      <p className="text-xs font-bold">{hotel.check_out ? new Date(hotel.check_out).toLocaleDateString('es-ES') : 'S/F'}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
+                );
+              });
+            })()}
             {hotels.length === 0 && (
-              <div className="col-span-full border border-dashed border-border rounded-2xl p-10 text-center">
-                <p className="text-xs text-muted font-medium">No hay alojamientos registrados.</p>
+              <div className="col-span-full border border-dashed border-border rounded-2xl p-10 text-center space-y-4">
+                <Hotel size={32} className="text-muted/30 mx-auto" />
+                <div>
+                  <p className="text-xs text-muted font-bold">No hay alojamientos registrados.</p>
+                  <p className="text-[10px] text-muted/60 font-medium mt-1">Añade uno manualmente o importa una reserva desde PDF.</p>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2 text-[10px] font-black uppercase tracking-widest text-accent hover:bg-accent/10 rounded-xl mx-auto"
+                  onClick={() => setEditingHotel({
+                    plan_id: selectedPlan.id,
+                    guest_name: `${selectedPlan.profiles?.nombre || ''} ${selectedPlan.profiles?.apellidos || ''}`.trim(),
+                    hotel_name: '',
+                    booking_reference: '',
+                    check_in: '',
+                    check_out: '',
+                    breakfast_included: false,
+                    status: 'confirmed',
+                    source: 'manual'
+                  })}
+                >
+                  <Plus size={14} /> Añadir Primer Hotel
+                </Button>
               </div>
             )}
           </div>
@@ -443,31 +672,39 @@ export default function AdminPlansPage() {
             <FileText size={14} className="text-accent" /> Documentación
           </h3>
           <div className="bg-background border border-border rounded-2xl divide-y divide-border">
-            {selectedPlan.documents?.filter((d: any) => !d.related_entity_id).map((doc: any) => (
+            {selectedPlan.documents?.map((doc: any) => (
               <div key={doc.id} className="p-4 flex items-center justify-between hover:bg-muted/30 transition-all">
                 <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-accent/5 flex items-center justify-center text-accent">
+                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${doc.visible_to_client ? 'bg-accent/5 text-accent' : 'bg-muted text-muted-foreground opacity-50'}`}>
                     <FileBadge size={20} />
                   </div>
                   <div>
-                    <p className="text-xs font-bold text-foreground">{doc.title}</p>
-                    <p className="text-[9px] text-muted font-black uppercase tracking-widest">Digitalizado el {new Date(doc.created_at).toLocaleDateString()}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-xs font-bold text-foreground">{doc.display_title || doc.title}</p>
+                      {!doc.visible_to_client && <span className="text-[8px] font-black uppercase bg-muted px-1.5 py-0.5 rounded text-muted-foreground">Privado</span>}
+                    </div>
+                    <p className="text-[9px] text-muted font-black uppercase tracking-widest">
+                      {doc.document_type || 'General'} {doc.description ? `· ${doc.description}` : ''}
+                    </p>
                   </div>
                 </div>
                 <div className="flex gap-2">
                   <a href={doc.file_url} target="_blank" rel="noopener noreferrer">
-                    <Button variant="ghost" size="sm" className="rounded-lg">
+                    <Button variant="ghost" size="sm" className="rounded-lg h-8 w-8 p-0">
                       <Download size={16} />
                     </Button>
                   </a>
-                  <Button variant="ghost" size="sm" className="rounded-lg" onClick={() => handleDelete('document', doc.id)}>
+                  <Button variant="ghost" size="sm" className="rounded-lg h-8 w-8 p-0" onClick={() => setEditingDocument(doc)}>
+                    <Edit2 size={14} className="text-muted" />
+                  </Button>
+                  <Button variant="ghost" size="sm" className="rounded-lg h-8 w-8 p-0" onClick={() => handleDelete('document', doc.id)}>
                     <Trash2 size={16} className="text-red-500" />
                   </Button>
                 </div>
               </div>
             ))}
-            {!selectedPlan.documents?.filter((d: any) => !d.related_entity_id).length && (
-              <div className="p-10 text-center text-xs text-muted">No hay documentos generales. Los billetes se visualizan en sus tarjetas correspondientes.</div>
+            {!selectedPlan.documents?.length && (
+              <div className="p-10 text-center text-xs text-muted">No hay documentos registrados para este plan.</div>
             )}
           </div>
         </section>
@@ -484,7 +721,7 @@ export default function AdminPlansPage() {
 
     if (isConfirmed) {
       try {
-        const tableMap: any = { flight: 'travel_flights', hotel: 'travel_hotels', transfer: 'travel_transfers', document: 'travel_documents' };
+        const tableMap: any = { flight: 'travel_flights', hotel: 'hotel_stays', transfer: 'travel_transfers', document: 'travel_documents' };
         await deleteItem(tableMap[type], id);
         handleManagePlan(selectedPlan);
       } catch (err) {
@@ -717,6 +954,23 @@ export default function AdminPlansPage() {
                             </div>
                           </>
                         )}
+                        {extractionResult.type === 'boarding_pass' && (
+                          <>
+                            <div className="col-span-2 bg-accent/5 p-4 rounded-xl border border-accent/20 mb-4">
+                              <p className="text-[10px] font-black text-accent uppercase tracking-widest mb-1">Tarjeta Detectada: Vueling</p>
+                              <p className="text-xs font-bold text-foreground">Se han extraído datos operativos para {extractionResult.data.passenger_name}</p>
+                            </div>
+                            <FieldReview label="Pasajero" value={extractionResult.data.passenger_name} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, passenger_name: v}})} />
+                            <FieldReview label="Vuelo" value={extractionResult.data.flight_number} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, flight_number: v}})} />
+                            <FieldReview label="Origen (IATA)" value={extractionResult.data.origin} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, origin: v}})} />
+                            <FieldReview label="Destino (IATA)" value={extractionResult.data.destination} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, destination: v}})} />
+                            <FieldReview label="Salida" value={extractionResult.data.departure_time} type="text" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, departure_time: v}})} />
+                            <FieldReview label="Llegada" value={extractionResult.data.arrival_time} type="text" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, arrival_time: v}})} />
+                            <FieldReview label="Asiento" value={extractionResult.data.seat} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, seat: v}})} />
+                            <FieldReview label="Grupo" value={extractionResult.data.boarding_group} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, boarding_group: v}})} />
+                            <FieldReview label="Localizador" value={extractionResult.data.booking_reference} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, booking_reference: v}})} />
+                          </>
+                        )}
                       </div>
 
                       <div className="pt-8 border-t border-border flex gap-4">
@@ -777,11 +1031,40 @@ export default function AdminPlansPage() {
                             if (sanitizedData.check_in) sanitizedData.check_in = toISO(sanitizedData.check_in);
                             if (sanitizedData.check_out) sanitizedData.check_out = toISO(sanitizedData.check_out);
 
-                            const tableMap: any = { hotel: 'travel_hotels', flight: 'travel_flights' };
-                            const res = await saveItem(tableMap[extractionResult.type], sanitizedData);
-                            
-                            if (!res || !res.id) {
-                              throw new Error('La base de datos rechazó el registro.');
+                            let relatedFlightId = null;
+
+                            if (extractionResult.type === 'boarding_pass') {
+                              // 1. Try to find existing flight
+                              const existingFlight = selectedPlan.flights?.find((f: any) => 
+                                f.flight_number === sanitizedData.flight_number && 
+                                (f.departure_location === sanitizedData.origin || f.origin === sanitizedData.origin)
+                              );
+
+                              if (existingFlight) {
+                                relatedFlightId = existingFlight.id;
+                              } else {
+                                // 2. Create flight if doesn't exist
+                                const newFlight = await saveItem('travel_flights', {
+                                  plan_id: selectedPlan.id,
+                                  airline: sanitizedData.airline || 'Vueling',
+                                  flight_number: sanitizedData.flight_number,
+                                  departure_location: sanitizedData.origin,
+                                  arrival_location: sanitizedData.destination,
+                                  departure_time: sanitizedData.departure_time,
+                                  arrival_time: sanitizedData.arrival_time,
+                                  reservation_code: sanitizedData.booking_reference,
+                                  seat: sanitizedData.seat,
+                                  is_verified: true,
+                                  source: 'boarding_pass_import',
+                                  type: tripType
+                                });
+                                relatedFlightId = newFlight.id;
+                              }
+                            } else {
+                              const tableMap: any = { hotel: 'hotel_stays', flight: 'travel_flights' };
+                              const res = await saveItem(tableMap[extractionResult.type], sanitizedData);
+                              if (!res || !res.id) throw new Error('La base de datos rechazó el registro.');
+                              relatedFlightId = extractionResult.type === 'flight' ? res.id : null;
                             }
 
                             // 2. Upload and link the PDF
@@ -797,13 +1080,29 @@ export default function AdminPlansPage() {
                                 .from('travel-documents')
                                 .getPublicUrl(uploadData.path);
 
-                              await saveTravelDocument({
-                                plan_id: selectedPlan.id,
-                                title: sanitizedData.type === 'return' ? 'Billete Vuelta (PDF)' : 'Billete Ida (PDF)',
-                                file_url: publicUrl,
-                                related_entity: extractionResult.type,
-                                related_entity_id: res.id
-                              });
+                               // Título inteligente
+                               let suggestedTitle = sanitizedData.display_title || `Documento ${extractionResult.type}`;
+                               if (extractionResult.type === 'boarding_pass') {
+                                 suggestedTitle = `Tarjeta de Embarque · ${sanitizedData.airline || 'Vueling'} ${sanitizedData.flight_number}`;
+                               } else if (sanitizedData.airline && sanitizedData.flight_number) {
+                                 suggestedTitle = `Billete · ${sanitizedData.airline} ${sanitizedData.flight_number}`;
+                               }
+
+                               await saveTravelDocument({
+                                 plan_id: selectedPlan.id,
+                                 title: suggestedTitle,
+                                 display_title: suggestedTitle,
+                                 document_type: extractionResult.type === 'boarding_pass' ? 'boarding_pass' : (extractionResult.type === 'flight' ? 'flight_confirmation' : 'general'),
+                                 description: extractionResult.type === 'boarding_pass' 
+                                   ? `${sanitizedData.origin} → ${sanitizedData.destination} · Asiento ${sanitizedData.seat}`
+                                   : (sanitizedData.airline?.toLowerCase().includes('vueling') ? 'Confirmación de reserva' : ''),
+                                 file_url: publicUrl,
+                                 related_flight_id: relatedFlightId,
+                                 passenger_name: sanitizedData.passenger_name,
+                                 seat_assignment: sanitizedData.seat,
+                                 boarding_group: sanitizedData.boarding_group,
+                                 visible_to_client: true
+                               });
                             }
 
                             setImportStep('upload');
@@ -944,6 +1243,300 @@ export default function AdminPlansPage() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Modal de Edición de Hotel */}
+      <AnimatePresence>
+        {editingHotel && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[70] flex items-center justify-center p-4 overflow-y-auto">
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-background border border-border w-full max-w-2xl rounded-[32px] overflow-hidden shadow-2xl my-8"
+            >
+              <div className="p-8 border-b border-border flex justify-between items-center bg-muted/20">
+                <div>
+                  <h3 className="text-2xl font-black text-primary tracking-tighter">Gestionar Alojamiento</h3>
+                  <p className="text-[10px] text-muted font-black uppercase tracking-widest mt-1">Detalles Premium del Hotel</p>
+                </div>
+                <Button variant="ghost" className="rounded-full h-10 w-10 p-0" onClick={() => setEditingHotel(null)}>
+                  <X size={24} />
+                </Button>
+              </div>
+              
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                setIsSubmitting(true);
+                try {
+                  // Validación de campos obligatorios
+                  if (!editingHotel.hotel_name || !editingHotel.check_in || !editingHotel.check_out || !editingHotel.booking_reference) {
+                    throw new Error('Nombre, Fechas y Localizador son obligatorios.');
+                  }
+                  // Save to hotel_stays (primary table)
+                  const hotelPayload = {
+                    ...editingHotel,
+                    // hotel_stays uses guest_name (map from traveler_name if present)
+                    guest_name: editingHotel.guest_name || editingHotel.traveler_name || '',
+                  };
+                  delete hotelPayload.traveler_name; // not a column in hotel_stays
+                  await saveItem('hotel_stays', hotelPayload);
+                  setEditingHotel(null);
+                  handleManagePlan(selectedPlan);
+                } catch (err: any) {
+                  alert({ title: 'Error', message: err.message || 'No se pudo guardar el hotel.', type: 'danger' });
+                } finally {
+                  setIsSubmitting(false);
+                }
+              }} className="p-8 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="col-span-2">
+                    <FieldReview label="Huésped Principal" value={editingHotel.guest_name} onChange={(v:any) => setEditingHotel({...editingHotel, guest_name: v})} />
+                  </div>
+                  
+                  <div className="col-span-2">
+                    <FieldReview label="Nombre del Hotel" value={editingHotel.hotel_name} onChange={(v:any) => setEditingHotel({...editingHotel, hotel_name: v})} />
+                  </div>
+
+                  <div className="col-span-2">
+                    <FieldReview label="Dirección Completa" value={editingHotel.address} onChange={(v:any) => setEditingHotel({...editingHotel, address: v})} />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Entrada (Fecha)</label>
+                    <input 
+                      type="date" 
+                      className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent"
+                      value={editingHotel.check_in?.split('T')[0] || ''}
+                      onChange={e => setEditingHotel({...editingHotel, check_in: e.target.value})}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Salida (Fecha)</label>
+                    <input 
+                      type="date" 
+                      className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent"
+                      value={editingHotel.check_out?.split('T')[0] || ''}
+                      onChange={e => setEditingHotel({...editingHotel, check_out: e.target.value})}
+                    />
+                  </div>
+
+                  <FieldReview label="Check-in (Hora)" value={editingHotel.check_in_time} onChange={(v:any) => setEditingHotel({...editingHotel, check_in_time: v})} placeholder="Ej: 15:00" />
+                  <FieldReview label="Check-out (Hora)" value={editingHotel.check_out_time} onChange={(v:any) => setEditingHotel({...editingHotel, check_out_time: v})} placeholder="Ej: 12:00" />
+
+                  <FieldReview label="Tipo de Habitación" value={editingHotel.room_type} onChange={(v:any) => setEditingHotel({...editingHotel, room_type: v})} />
+                  <FieldReview label="Localizador / Ref" value={editingHotel.booking_reference} onChange={(v:any) => setEditingHotel({...editingHotel, booking_reference: v})} />
+
+                  <div className="col-span-2 space-y-2">
+                    <FieldReview 
+                      label="Grupo de Habitación" 
+                      value={editingHotel.room_group_id} 
+                      onChange={(v:any) => setEditingHotel({...editingHotel, room_group_id: v})} 
+                      placeholder="Ej: GRUPO_A o DOBLE_JUAN_PEDRO"
+                    />
+                    <p className="text-[9px] text-muted font-medium px-1">
+                      Usa el mismo código para agrupar varios huéspedes en la misma habitación.
+                    </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Desayuno</label>
+                    <div className="flex gap-2">
+                      <button 
+                        type="button"
+                        onClick={() => setEditingHotel({...editingHotel, breakfast_included: true})}
+                        className={`flex-1 p-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${editingHotel.breakfast_included ? 'bg-accent/10 border-accent text-accent' : 'bg-background border-border text-muted'}`}
+                      >
+                        Incluido
+                      </button>
+                      <button 
+                        type="button"
+                        onClick={() => setEditingHotel({...editingHotel, breakfast_included: false})}
+                        className={`flex-1 p-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${!editingHotel.breakfast_included ? 'bg-muted/10 border-border text-muted' : 'bg-background border-border text-muted'}`}
+                      >
+                        No Incluido
+                      </button>
+                    </div>
+                  </div>
+
+                  <FieldReview label="Teléfono Hotel" value={editingHotel.phone} onChange={(v:any) => setEditingHotel({...editingHotel, phone: v})} />
+                </div>
+
+                <div className="pt-6 border-t border-border flex gap-4">
+                  <Button variant="ghost" type="button" className="flex-1 rounded-2xl py-6 font-bold" onClick={() => setEditingHotel(null)}>Cancelar</Button>
+                  <Button type="submit" className="flex-2 rounded-2xl py-6 font-black uppercase tracking-widest text-xs" disabled={isSubmitting}>
+                    {isSubmitting ? <Loader2 className="animate-spin" /> : 'Guardar Hotel'}
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal de Edición de Documento */}
+      <AnimatePresence>
+        {editingDocument && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[70] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="bg-background border border-border w-full max-w-lg rounded-[32px] overflow-hidden shadow-2xl"
+            >
+              <div className="p-8 border-b border-border flex justify-between items-center bg-muted/20">
+                <div>
+                  <h3 className="text-2xl font-black text-primary tracking-tighter">Editar Documento</h3>
+                  <p className="text-[10px] text-muted font-black uppercase tracking-widest mt-1">Metadatos y Visibilidad</p>
+                </div>
+                <Button variant="ghost" className="rounded-full h-10 w-10 p-0" onClick={() => setEditingDocument(null)}>
+                  <X size={24} />
+                </Button>
+              </div>
+              
+              <form onSubmit={handleSaveDocument} className="p-8 space-y-6">
+                <div className="space-y-4">
+                  <FieldReview 
+                    label="Título Visible (Cliente)" 
+                    value={editingDocument.display_title} 
+                    onChange={(v:string) => setEditingDocument({...editingDocument, display_title: v})} 
+                  />
+                  
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Tipo de Documento</label>
+                      <select 
+                        className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none"
+                        value={editingDocument.document_type}
+                        onChange={e => setEditingDocument({...editingDocument, document_type: e.target.value})}
+                      >
+                        <option value="general">General</option>
+                        <option value="flight_confirmation">Confirmación Vuelo</option>
+                        <option value="boarding_pass">Tarjeta Embarque</option>
+                        <option value="hotel_booking">Reserva Hotel</option>
+                        <option value="transfer_voucher">Boucher Traslado</option>
+                        <option value="event_registration">Registro Evento</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Visibilidad Cliente</label>
+                      <div className="flex gap-2">
+                        <button 
+                          type="button"
+                          onClick={() => setEditingDocument({...editingDocument, visible_to_client: true})}
+                          className={`flex-1 p-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${editingDocument.visible_to_client ? 'bg-green-500/10 border-green-500 text-green-600' : 'bg-background border-border text-muted'}`}
+                        >
+                          Visible
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => setEditingDocument({...editingDocument, visible_to_client: false})}
+                          className={`flex-1 p-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${!editingDocument.visible_to_client ? 'bg-orange-500/10 border-orange-500 text-orange-600' : 'bg-background border-border text-muted'}`}
+                        >
+                          Oculto
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <FieldReview 
+                    label="Descripción Breve" 
+                    value={editingDocument.description} 
+                    onChange={(v:string) => setEditingDocument({...editingDocument, description: v})} 
+                  />
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Vincular a Vuelo</label>
+                    <select 
+                      className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none"
+                      value={editingDocument.related_flight_id || ''}
+                      onChange={e => setEditingDocument({...editingDocument, related_flight_id: e.target.value || null})}
+                    >
+                      <option value="">No vinculado</option>
+                      {selectedPlan.flights?.map((f: any) => (
+                        <option key={f.id} value={f.id}>{f.type === 'outbound' ? 'Ida' : 'Vuelta'}: {f.airline} {f.flight_number}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Vincular a Hotel</label>
+                    <select 
+                      className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none"
+                      value={editingDocument.related_hotel_stay_id || ''}
+                      onChange={e => setEditingDocument({...editingDocument, related_hotel_stay_id: e.target.value || null})}
+                    >
+                      <option value="">No vinculado</option>
+                      {selectedPlan.hotel_stays?.map((h: any) => (
+                        <option key={h.id} value={h.id}>{h.hotel_name} · {h.booking_reference}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {editingDocument.document_type === 'boarding_pass' && (
+                    <div className="space-y-4 p-5 bg-accent/5 rounded-3xl border border-accent/10">
+                      <div className="flex items-center gap-2 text-accent font-black text-[10px] uppercase tracking-widest px-1">
+                        <QrCode size={14} /> Detalles de la Tarjeta de Embarque
+                      </div>
+                      
+                      <div className="grid grid-cols-2 gap-4">
+                        <FieldReview 
+                          label="Pasajero" 
+                          value={editingDocument.passenger_name} 
+                          onChange={(v:any) => setEditingDocument({...editingDocument, passenger_name: v})} 
+                          placeholder="Nombre en la tarjeta"
+                        />
+                        <FieldReview 
+                          label="Asiento" 
+                          value={editingDocument.seat_assignment} 
+                          onChange={(v:any) => setEditingDocument({...editingDocument, seat_assignment: v})} 
+                          placeholder="Ej: 22C"
+                        />
+                        <FieldReview 
+                          label="Grupo Embarque" 
+                          value={editingDocument.boarding_group} 
+                          onChange={(v:any) => setEditingDocument({...editingDocument, boarding_group: v})} 
+                          placeholder="Ej: 1"
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black uppercase text-muted tracking-widest px-1">Contenido Código QR</label>
+                        <textarea 
+                          className="w-full bg-background border border-accent/20 rounded-xl p-3 text-[10px] outline-none focus:border-accent font-mono h-20 resize-none"
+                          value={editingDocument.qr_code || ''}
+                          onChange={e => setEditingDocument({...editingDocument, qr_code: e.target.value})}
+                          placeholder="M1PINAZO/JUANJO E123456..."
+                        />
+                        <p className="text-[8px] text-muted/60 px-1 italic">Pega aquí el texto plano que genera el código QR.</p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                <div className="pt-6 border-t border-border flex gap-4">
+                  <Button variant="ghost" type="button" className="flex-1 rounded-2xl py-6 font-bold" onClick={() => setEditingDocument(null)}>Cancelar</Button>
+                  <Button type="submit" className="flex-2 rounded-2xl py-6 font-black uppercase tracking-widest text-xs" disabled={isSubmitting}>
+                    {isSubmitting ? <Loader2 className="animate-spin" /> : 'Guardar Cambios'}
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Hotel Import Modal */}
+      {showHotelImport && selectedPlan && (
+        <HotelImportModal
+          planId={selectedPlan.id}
+          planUserName={`${selectedPlan.profiles?.nombre || ''} ${selectedPlan.profiles?.apellidos || ''}`.trim()}
+          onClose={() => setShowHotelImport(false)}
+          onSuccess={() => {
+            setShowHotelImport(false);
+            handleManagePlan(selectedPlan);
+          }}
+        />
+      )}
     </div>
   );
 }

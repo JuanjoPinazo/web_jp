@@ -97,6 +97,37 @@ export interface Hotel {
   deleted_at?: string | null;
 }
 
+export interface HotelStay {
+  id: string;
+  plan_id: string;
+  hotel_id?: string;
+  guest_name: string;
+  guest_email?: string;
+  hotel_name: string;
+  address?: string;
+  phone?: string;
+  check_in: string;
+  check_out: string;
+  check_in_time?: string;
+  check_out_time?: string;
+  nights?: number;
+  adults?: number;
+  room_type?: string;
+  room_group_id?: string;
+  booking_reference: string;
+  breakfast_included?: boolean;
+  cancellation_policy?: string;
+  notes?: string;
+  document_id?: string;
+  status: string;
+  source: string;
+  external_id?: string;
+  last_updated_at?: string;
+  last_updated_by?: string;
+  deleted_at?: string | null;
+  created_at: string;
+}
+
 export interface Transfer {
   id: string;
   plan_id: string;
@@ -124,6 +155,7 @@ export interface Restaurant {
   restaurant_name: string;
   address?: string;
   reservation_name?: string;
+  type?: 'reserved' | 'recommended';
   notes?: string;
   status: string;
   source: string;
@@ -137,10 +169,19 @@ export interface Document {
   id: string;
   plan_id: string;
   document_type?: string;
+  display_title?: string;
   title: string;
   file_url: string;
+  description?: string;
   related_entity?: string;
   related_entity_id?: string;
+  related_flight_id?: string;
+  related_hotel_stay_id?: string;
+  related_transfer_id?: string;
+  passenger_name?: string;
+  seat_assignment?: string;
+  qr_code?: string;
+  visible_to_client: boolean;
   notes?: string;
   status: string;
   source: string;
@@ -148,6 +189,7 @@ export interface Document {
   last_updated_at?: string;
   last_updated_by?: string;
   deleted_at?: string | null;
+  created_at: string;
 }
 
 export interface Registration {
@@ -165,7 +207,8 @@ export interface Registration {
 
 export interface FullTravelPlan extends TravelPlan {
   flights: Flight[];
-  hotels: Hotel[];
+  hotels: Hotel[];         // legacy: travel_hotels
+  hotel_stays: HotelStay[]; // primary: hotel_stays
   transfers: Transfer[];
   restaurants: Restaurant[];
   documents: Document[];
@@ -201,9 +244,10 @@ export const useTravelPlans = () => {
       }
 
       // Fetch related items
-      const [flights, hotels, transfers, restaurants, docs, regs] = await Promise.all([
+      const [flights, hotels, hotelStays, transfers, restaurants, docs, regs] = await Promise.all([
         supabase.from('travel_flights').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('departure_time'),
         supabase.from('travel_hotels').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('check_in'),
+        supabase.from('hotel_stays').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('check_in'),
         supabase.from('travel_transfers').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('pickup_time'),
         supabase.from('travel_restaurants').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('reservation_time'),
         supabase.from('travel_documents').select('*').eq('plan_id', plan.id).is('deleted_at', null),
@@ -230,6 +274,7 @@ export const useTravelPlans = () => {
         ...plan,
         flights: flights.data || [],
         hotels: hotels.data || [],
+        hotel_stays: hotelStays.data || [],
         transfers: transfers.data || [],
         restaurants: restaurants.data || [],
         documents: docs.data || [],
@@ -262,9 +307,10 @@ export const useTravelPlans = () => {
         return null;
       }
 
-      const [flights, hotels, transfers, restaurants, docs, regs] = await Promise.all([
+      const [flights, hotels, hotelStays, transfers, restaurants, docs, regs] = await Promise.all([
         supabase.from('travel_flights').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('departure_time'),
         supabase.from('travel_hotels').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('check_in'),
+        supabase.from('hotel_stays').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('check_in'),
         supabase.from('travel_transfers').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('pickup_time'),
         supabase.from('travel_restaurants').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('reservation_time'),
         supabase.from('travel_documents').select('*').eq('plan_id', plan.id).is('deleted_at', null),
@@ -291,6 +337,7 @@ export const useTravelPlans = () => {
         ...plan,
         flights: flights.data || [],
         hotels: hotels.data || [],
+        hotel_stays: hotelStays.data || [],
         transfers: transfers.data || [],
         restaurants: restaurants.data || [],
         documents: docs.data || [],

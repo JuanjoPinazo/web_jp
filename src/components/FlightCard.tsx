@@ -4,6 +4,12 @@ import React from 'react';
 import { Plane, Clock, MapPin, Ticket, User, Briefcase, Info, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Flight } from '@/hooks/useTravelPlans';
+import { 
+  calculateDistance, 
+  calculateDuration, 
+  formatDuration as formatDurationStr, 
+  calculateCheckinDeadline 
+} from '@/lib/flight-utils';
 
 interface FlightCardProps {
   flight: Flight;
@@ -26,21 +32,19 @@ export function FlightCard({ flight, role, actions, className }: FlightCardProps
     return new Date(dateStr).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
   };
 
-  const formatDuration = (minutes?: number) => {
-    if (!minutes) return null;
-    const h = Math.floor(minutes / 60);
-    const m = minutes % 60;
-    return `${h}h ${m}m`;
-  };
+  // 1. Calculate duration automatically if missing
+  const duration = flight.duration_minutes || (flight.departure_time && flight.arrival_time ? calculateDuration(flight.departure_time, flight.arrival_time) : null);
 
-  const renderField = (label: string, value?: string | number, fallback: string = 'Pendiente') => {
-    if (!value) {
-      if (isAdmin) {
-        return <span className="text-orange-500 italic">{fallback}</span>;
-      }
-      return null;
-    }
-    return value;
+  // 2. Calculate distance automatically if missing
+  const distance = flight.distance_km || (flight.departure_location && flight.arrival_location ? calculateDistance(flight.departure_location, flight.arrival_location) : null);
+
+  // 3. Calculate check-in deadline if missing (45 min before)
+  const checkinDeadline = flight.checkin_deadline || (flight.departure_time ? calculateCheckinDeadline(flight.departure_time) : null);
+
+  const formatCheckinTime = (isoStr?: string | null) => {
+    if (!isoStr) return null;
+    const date = new Date(isoStr);
+    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
   return (
@@ -58,9 +62,9 @@ export function FlightCard({ flight, role, actions, className }: FlightCardProps
             <Plane size={20} />
           </div>
           <div>
-            <p className="text-[10px] font-black uppercase text-muted tracking-[0.2em] leading-none mb-1.5">Tarjeta de Embarque</p>
+            <p className="text-[10px] font-black uppercase text-muted tracking-[0.2em] leading-none mb-1.5">Información de Vuelo</p>
             <p className="text-xs font-black text-foreground uppercase tracking-tight">
-              {flight.airline || (isAdmin ? <span className="text-orange-500 italic">Aerolínea Pendiente</span> : 'N/A')}
+              {flight.airline || (isAdmin ? <span className="text-orange-500 italic text-[10px]">Configurar</span> : 'Confirmado')}
               {flight.flight_number && <span className="text-muted font-bold ml-2">#{flight.flight_number}</span>}
             </p>
           </div>
@@ -68,7 +72,7 @@ export function FlightCard({ flight, role, actions, className }: FlightCardProps
         <div className="flex items-center gap-6">
           <div className="text-right hidden sm:block">
             <p className="text-[10px] font-black uppercase text-muted tracking-[0.2em] leading-none mb-1.5">Localizador</p>
-            <p className="text-sm font-mono font-black text-accent tracking-tighter">{flight.reservation_code || (isAdmin ? <span className="text-orange-500 italic">PENDIENTE</span> : 'S/R')}</p>
+            <p className="text-sm font-mono font-black text-accent tracking-tighter">{flight.reservation_code || (isAdmin ? <span className="text-orange-500 italic text-[10px]">S/L</span> : 'S/R')}</p>
           </div>
           {actions && <div className="flex gap-2 border-l border-border pl-6">{actions}</div>}
         </div>
@@ -81,8 +85,7 @@ export function FlightCard({ flight, role, actions, className }: FlightCardProps
           <div className="flex-1 text-center md:text-left w-full">
             <h3 className="text-5xl md:text-6xl font-black text-foreground tracking-tighter leading-none mb-2">{flight.departure_location}</h3>
             <div className="space-y-1">
-              <p className="text-xs font-black text-foreground/80 uppercase tracking-widest flex items-center justify-center md:justify-start gap-2">
-                <Clock size={14} className="text-accent" />
+              <p className="text-xl font-black text-foreground/90 tracking-tight flex items-center justify-center md:justify-start gap-2">
                 {formatTime(flight.departure_time)}
               </p>
               <p className="text-[10px] font-bold text-muted uppercase tracking-widest">{formatDate(flight.departure_time)}</p>
@@ -94,22 +97,24 @@ export function FlightCard({ flight, role, actions, className }: FlightCardProps
             </div>
           </div>
 
-          {/* Icon & Duration */}
-          <div className="flex flex-col items-center gap-3 w-full md:w-auto">
-             <div className="relative w-full md:w-48 flex items-center justify-center">
+          {/* Airline Path Visual */}
+          <div className="flex flex-col items-center gap-2 w-full md:w-64">
+             <div className="relative w-full flex items-center justify-center">
                 <div className="absolute inset-0 flex items-center">
-                   <div className="w-full border-t-2 border-dashed border-border/60" />
+                   <div className="w-full border-t-2 border-dashed border-border/80" />
                 </div>
-                <div className="relative p-3 rounded-full bg-surface border border-border text-accent shadow-sm group-hover:scale-110 transition-transform duration-500">
-                   <Plane size={20} strokeWidth={2.5} />
+                <div className="relative z-10 px-4 bg-surface">
+                   <div className="p-3 rounded-full bg-accent/10 border border-accent/20 text-accent group-hover:rotate-[45deg] transition-all duration-700">
+                      <Plane size={24} strokeWidth={2.5} />
+                   </div>
                 </div>
              </div>
-             {flight.duration_minutes ? (
-               <div className="px-3 py-1 rounded-full bg-surface-subtle border border-border shadow-sm">
-                 <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">{formatDuration(flight.duration_minutes)}</p>
+             {duration && (
+               <div className="relative">
+                 <p className="text-[11px] font-black text-muted uppercase tracking-[0.2em] bg-surface px-3 py-1">
+                   {formatDurationStr(duration)}
+                 </p>
                </div>
-             ) : (
-               isAdmin && <p className="text-[9px] font-black text-orange-500 uppercase tracking-widest italic">Duración pendiente</p>
              )}
           </div>
 
@@ -117,9 +122,8 @@ export function FlightCard({ flight, role, actions, className }: FlightCardProps
           <div className="flex-1 text-center md:text-right w-full">
             <h3 className="text-5xl md:text-6xl font-black text-foreground tracking-tighter leading-none mb-2">{flight.arrival_location}</h3>
             <div className="space-y-1">
-              <p className="text-xs font-black text-foreground/80 uppercase tracking-widest flex items-center justify-center md:justify-end gap-2">
+              <p className="text-xl font-black text-foreground/90 tracking-tight flex items-center justify-center md:justify-end gap-2">
                 {formatTime(flight.arrival_time)}
-                <Clock size={14} className="text-accent" />
               </p>
               <p className="text-[10px] font-bold text-muted uppercase tracking-widest">{formatDate(flight.arrival_time)}</p>
               {flight.arrival_terminal && (
@@ -134,9 +138,24 @@ export function FlightCard({ flight, role, actions, className }: FlightCardProps
         {/* Details Grid */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8 pt-8 border-t border-border/60">
           <DetailItem icon={User} label="Asiento" value={flight.seat} isAdmin={isAdmin} />
-          <DetailItem icon={Briefcase} label="Equipaje" value={flight.baggage_info} isAdmin={isAdmin} />
-          <DetailItem icon={Ticket} label="Cierre Check-in" value={flight.checkin_deadline} isAdmin={isAdmin} />
-          <DetailItem icon={MapPin} label="Distancia" value={flight.distance_km ? `${flight.distance_km} km` : undefined} isAdmin={isAdmin} />
+          <DetailItem 
+            icon={Briefcase} 
+            label="Equipaje" 
+            value={flight.baggage_info || (isAdmin ? null : 'Equipaje de mano incluido')} 
+            isAdmin={isAdmin} 
+          />
+          <DetailItem 
+            icon={Ticket} 
+            label="Check-in" 
+            value={formatCheckinTime(checkinDeadline)} 
+            isAdmin={isAdmin} 
+          />
+          <DetailItem 
+            icon={MapPin} 
+            label="Distancia" 
+            value={distance ? `${distance} km` : undefined} 
+            isAdmin={isAdmin} 
+          />
         </div>
       </div>
 
@@ -159,7 +178,7 @@ const DetailItem = ({ icon: Icon, label, value, isAdmin }: any) => {
         <span className="text-[10px] font-black uppercase tracking-widest">{label}</span>
       </div>
       <p className="text-sm font-black text-foreground">
-        {value || <span className="text-orange-500 italic text-[10px]">Pendiente</span>}
+        {value || <span className="text-orange-500 italic text-[10px]">Configurar</span>}
       </p>
     </div>
   );

@@ -18,7 +18,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Cuerpo de petición inválido' }, { status: 400 });
     }
 
-    const { email, name, surname, role, client_id, phone, sendInvite = true } = body;
+    const { email, name, surname, role, client_id, company_id, user_type = 'hospital', phone, sendInvite = true } = body;
 
     if (!email) {
       return NextResponse.json({ error: 'El email es obligatorio' }, { status: 400 });
@@ -83,6 +83,8 @@ export async function POST(request: Request) {
         apellidos: surname || '',
         role: role || 'client',
         client_id: client_id || null,
+        company_id: company_id || null,
+        user_type: user_type || 'hospital',
         telefono: phone || null,
         onboarding_status: sendInvite ? 'invited' : 'draft',
         invitation_sent_at: sendInvite ? new Date().toISOString() : null

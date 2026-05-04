@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { userId, name, surname, email, role, client_id, phone } = body;
+    const { userId, name, surname, email, role, client_id, company_id, user_type, phone } = body;
 
     if (!userId) {
       return NextResponse.json({ error: 'ID de usuario es obligatorio' }, { status: 400 });
@@ -62,6 +62,8 @@ export async function POST(request: Request) {
         email: email,
         role: role,
         client_id: client_id || null,
+        company_id: company_id || null,
+        user_type: user_type || 'hospital',
         telefono: phone
       })
       .eq('id', userId);
