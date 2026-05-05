@@ -8,8 +8,10 @@ export interface User {
   phone: string;
   role: UserRole;
   client_id?: string;
+  company_id?: string;
   context_users?: { context_id: string }[];
   clients?: any;
+  companies?: any;
   onboarding_status?: 'draft' | 'invited' | 'active';
   invitation_sent_at?: string;
   avatar_url?: string;

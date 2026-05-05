@@ -31,7 +31,12 @@ export const useAdmin = () => {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('*, context_users(context_id)')
+        .select(`
+          *,
+          clients:client_id (id, name),
+          companies:company_id (id, name),
+          context_users(context_id)
+        `)
         .order('created_at', { ascending: false });
       if (error) throw error;
       

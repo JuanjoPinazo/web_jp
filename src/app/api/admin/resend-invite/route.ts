@@ -48,25 +48,50 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Usuario no encontrado' }, { status: 404 });
     }
 
-    // If user is already confirmed, don't send invitation, just inform
-    if (authUser.email_confirmed_at) {
-      return NextResponse.json({ 
-        success: false,
-        message: 'ESTADO_ACTIVO',
-        info: 'Este usuario ya ha activado su cuenta anteriormente.' 
+    // 2b. Sync email if it has changed
+    if (email && email.toLowerCase() !== authUser.email?.toLowerCase()) {
+      console.log(`Syncing email for user ${userId}: ${authUser.email} -> ${email}`);
+      const { error: updateError } = await getSupabaseAdmin().auth.admin.updateUserById(userId, {
+        email: email,
+        email_confirm: true // Force confirmation of the new email
       });
+      
+      if (updateError) {
+        return NextResponse.json({ error: `Error al actualizar email: ${updateError.message}` }, { status: 400 });
+      }
     }
 
+    // Note: We no longer block if authUser.email_confirmed_at is set, 
+    // as the admin explicitly requested to allow resending for non-active users 
+    // or those who need a new link.
+
     // 3. Generate Invitation Link
-    const { data: inviteData, error: linkError } = await getSupabaseAdmin().auth.admin.generateLink({
-      type: 'invite',
+    // If the user is already confirmed, 'invite' will fail. We use 'magiclink' as fallback.
+    let linkType: 'invite' | 'magiclink' | 'recovery' | 'signup' = authUser.email_confirmed_at ? 'magiclink' : 'invite';
+    
+    let { data: inviteData, error: linkError } = await getSupabaseAdmin().auth.admin.generateLink({
+      type: linkType,
       email,
       options: {
         redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://jpintelligence.vercel.app'}/set-password`
       }
     });
+
+    // Fallback: If invite fails because already registered, try magiclink
+    if (linkError && linkError.message.includes('already been registered')) {
+      linkType = 'magiclink';
+      const retry = await getSupabaseAdmin().auth.admin.generateLink({
+        type: 'magiclink',
+        email,
+        options: {
+          redirectTo: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://jpintelligence.vercel.app'}/set-password`
+        }
+      });
+      inviteData = retry.data;
+      linkError = retry.error;
+    }
     
-    if (linkError || !inviteData) {
+    if (linkError || !inviteData || !inviteData.properties) {
       return NextResponse.json({ error: linkError?.message || 'Error al generar link' }, { status: 400 });
     }
 
@@ -98,6 +123,20 @@ export async function POST(request: Request) {
                 <a href="${invitationLink}" style="display: inline-block; background-color: #00e5ff; color: #000000; padding: 20px 45px; border-radius: 12px; text-decoration: none; font-weight: 900; font-size: 14px; text-transform: uppercase; letter-spacing: 2px; box-shadow: 0 10px 20px rgba(0, 229, 255, 0.2);">
                   Activar mi Cuenta Premium
                 </a>
+              </div>
+            </div>
+
+            <!-- Personal Coordinator / Trust Section -->
+            <div style="padding: 0 40px 50px 40px;">
+              <div style="background-color: #0a0a0a; border: 1px solid #1a1a1a; border-radius: 24px; padding: 30px; text-align: center;">
+                <div style="width: 80px; h-80px; margin: 0 auto 20px auto; border-radius: 50%; overflow: hidden; border: 2px solid #00e5ff;">
+                      <img src="${process.env.NEXT_PUBLIC_SITE_URL || 'https://jpintelligence.vercel.app'}/img_juanjo2.jpg" alt="Juanjo Pinazo" style="width: 100%; height: 100%; object-cover: cover; display: block;" />
+                </div>
+                <p style="font-size: 10px; color: #00e5ff; letter-spacing: 2px; text-transform: uppercase; margin: 0 0 5px 0; font-weight: 900;">Tu Coordinador Personal</p>
+                <p style="font-size: 16px; color: #ffffff; font-weight: 800; margin: 0 0 10px 0;">Juanjo Pinazo</p>
+                <p style="font-size: 12px; color: #666; margin: 0; line-height: 1.5;">
+                  "Estoy a tu disposición para asegurar que tu experiencia logística sea impecable. No dudes en contactarme para cualquier necesidad."
+                </p>
               </div>
             </div>
 

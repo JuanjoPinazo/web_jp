@@ -296,7 +296,11 @@ export const useTravelPlans = () => {
       setLoading(true);
       const { data: plan, error: planError } = await supabase
         .from('contact_travel_plans')
-        .select('*')
+        .select(`
+          *,
+          profiles:user_id (nombre, apellidos, email),
+          contexts:context_id (name)
+        `)
         .eq('user_id', userId)
         .eq('context_id', contextId)
         .is('deleted_at', null)

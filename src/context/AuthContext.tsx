@@ -66,20 +66,31 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     };
 
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session: currentSession }, error }) => {
-      if (error && error.message.includes('Refresh Token')) {
-        console.warn('Session expired or invalid refresh token, signing out...');
-        supabase.auth.signOut();
-        setSession({ user: null, status: 'unauthenticated' });
-      } else {
+    const initSession = async () => {
+      try {
+        const { data: { session: currentSession }, error } = await supabase.auth.getSession();
+        if (error) {
+           if (error.message.includes('Refresh Token') || error.message.includes('not found')) {
+             throw error;
+           }
+        }
         fetchProfile(currentSession?.user);
+      } catch (error: any) {
+        console.warn('Auth Initialization Error:', error.message);
+        await supabase.auth.signOut();
+        setSession({ user: null, status: 'unauthenticated' });
+        if (typeof window !== 'undefined') {
+          const projectRef = process.env.NEXT_PUBLIC_SUPABASE_URL?.split('//')[1].split('.')[0];
+          localStorage.removeItem(`sb-${projectRef}-auth-token`);
+        }
       }
-    });
+    };
+
+    initSession();
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event: any, currentSession) => {
-      if (_event === 'TOKEN_REFRESHED' && !currentSession) {
-         // Potential refresh error
+      if (_event === 'SIGNED_OUT' || (_event === 'TOKEN_REFRESHED' && !currentSession)) {
          setSession({ user: null, status: 'unauthenticated' });
       } else {
         fetchProfile(currentSession?.user);

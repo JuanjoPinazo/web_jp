@@ -87,6 +87,8 @@ export default function AdminPlansPage() {
   const [selectedContext, setSelectedContext] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [supportInfo, setSupportInfo] = useState({ phone: '+34 600 000 000' });
+  const [showQuickUser, setShowQuickUser] = useState(false);
+  const [quickUser, setQuickUser] = useState({ name: '', surname: '', email: '' });
 
   useEffect(() => {
     loadData();
@@ -763,29 +765,69 @@ export default function AdminPlansPage() {
               </div>
               <div className="p-6 space-y-6">
                 {!editingPlan && (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Pasajero / Usuario</label>
-                      <select 
-                        className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none"
-                        value={selectedUser}
-                        onChange={e => setSelectedUser(e.target.value)}
-                      >
-                        <option value="">Seleccionar...</option>
-                        {users.map(u => <option key={u.id} value={u.id}>{u.nombre} {u.apellidos}</option>)}
-                      </select>
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="flex justify-between items-center px-1">
+                          <label className="text-[10px] font-black uppercase text-muted tracking-widest">Pasajero / Usuario</label>
+                          <button 
+                            onClick={() => setShowQuickUser(!showQuickUser)} 
+                            className="text-[9px] font-bold text-accent hover:underline"
+                          >
+                            {showQuickUser ? '- Cancelar' : '+ Alta Rápida'}
+                          </button>
+                        </div>
+                        <select 
+                          disabled={showQuickUser}
+                          className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none disabled:opacity-50"
+                          value={selectedUser}
+                          onChange={e => setSelectedUser(e.target.value)}
+                        >
+                          <option value="">Seleccionar...</option>
+                          {users.map(u => <option key={u.id} value={u.id}>{u.nombre} {u.apellidos}</option>)}
+                        </select>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Contexto / Evento</label>
+                        <select 
+                          className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none"
+                          value={selectedContext}
+                          onChange={e => setSelectedContext(e.target.value)}
+                        >
+                          <option value="">Seleccionar...</option>
+                          {contexts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Contexto / Evento</label>
-                      <select 
-                        className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none"
-                        value={selectedContext}
-                        onChange={e => setSelectedContext(e.target.value)}
+
+                    {showQuickUser && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: 'auto' }}
+                        className="p-5 rounded-2xl bg-accent/5 border border-accent/20 space-y-4"
                       >
-                        <option value="">Seleccionar...</option>
-                        {contexts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                      </select>
-                    </div>
+                        <p className="text-[10px] font-black uppercase text-accent tracking-widest">Datos del Nuevo Contacto</p>
+                        <div className="grid grid-cols-2 gap-4">
+                          <input 
+                            placeholder="Nombre" 
+                            className="bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent"
+                            value={quickUser.name}
+                            onChange={e => setQuickUser({...quickUser, name: e.target.value})}
+                          />
+                          <input 
+                            placeholder="Apellidos" 
+                            className="bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent"
+                            value={quickUser.surname}
+                            onChange={e => setQuickUser({...quickUser, surname: e.target.value})}
+                          />
+                        </div>
+                        <input 
+                          placeholder="Email (Obligatorio)" 
+                          className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent"
+                          value={quickUser.email}
+                          onChange={e => setQuickUser({...quickUser, email: e.target.value})}
+                        />
+                        <p className="text-[9px] text-muted italic">Se creará el perfil en modo borrador y podrás asignarle la logística de inmediato.</p>
+                      </motion.div>
+                    )}
                   </div>
                 )}
                 
@@ -836,26 +878,51 @@ export default function AdminPlansPage() {
                     setIsSubmitting(false);
                   }
                 } : async () => {
-                  if (!selectedUser || !selectedContext) return;
                   try {
                     setIsSubmitting(true);
+                    
+                    let userId = selectedUser;
+                    
+                    // 1. If quick user, create them first
+                    if (showQuickUser) {
+                      const { data: { session: currentSession } } = await supabase.auth.getSession();
+                      const response = await fetch('/api/admin/create-user', {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${currentSession?.access_token}`
+                        },
+                        body: JSON.stringify({
+                          ...quickUser,
+                          sendInvite: false // Create in draft
+                        })
+                      });
+                      const result = await response.json();
+                      if (!response.ok) throw new Error(result.error || 'Error al crear usuario rápido');
+                      userId = result.userId;
+                    }
+
+                    if (!userId || !selectedContext) return;
+
                     const { data, error } = await supabase.from('contact_travel_plans').insert({
-                      user_id: selectedUser,
+                      user_id: userId,
                       context_id: selectedContext,
                       support_phone: supportInfo.phone,
                       status: 'active',
                       source: 'manual'
                     }).select().single();
                     if (error) throw error;
-                    await alert({ title: 'Éxito', message: 'Plan operativo creado.', type: 'success' });
+                    await alert({ title: 'Éxito', message: 'Plan operativo y usuario creados.', type: 'success' });
                     setIsCreating(false);
+                    setShowQuickUser(false);
+                    setQuickUser({ name: '', surname: '', email: '' });
                     loadData();
                   } catch (err: any) {
                     await alert({ title: 'Error', message: err.message, type: 'danger' });
                   } finally {
                     setIsSubmitting(false);
                   }
-                }} disabled={isSubmitting}>
+                }} disabled={isSubmitting || (showQuickUser && !quickUser.email)}>
                   {isSubmitting ? <Loader2 className="animate-spin" size={20} /> : editingPlan ? 'Guardar Cambios' : 'Crear Cabecera del Plan'}
                 </Button>
               </div>
@@ -1006,6 +1073,45 @@ export default function AdminPlansPage() {
                               if (editData[key] !== undefined) sanitizedData[key] = editData[key];
                             });
 
+                            // SMART MATCH LOGIC: Find target plan by passenger name
+                            let targetPlanId = selectedPlan.id;
+                            const guestName = extractionResult.data.passenger_name || (extractionResult.data.passengers ? extractionResult.data.passengers.split(',')[0].trim() : null);
+
+                            if (guestName) {
+                              const { data: matchedProfiles } = await supabase.from('profiles').select('id, nombre, apellidos');
+                              const profile = matchedProfiles?.find(p => {
+                                const fullName = `${p.nombre || ''} ${p.apellidos || ''}`.trim().toLowerCase();
+                                return fullName === guestName.toLowerCase();
+                              });
+
+                              if (profile) {
+                                // Check if user has a plan for this context
+                                const { data: existingPlan } = await supabase
+                                  .from('contact_travel_plans')
+                                  .select('id')
+                                  .eq('user_id', profile.id)
+                                  .eq('context_id', selectedPlan.context_id)
+                                  .is('deleted_at', null)
+                                  .maybeSingle();
+                                
+                                if (existingPlan) {
+                                  targetPlanId = existingPlan.id;
+                                } else {
+                                  const { data: newPlan } = await supabase
+                                    .from('contact_travel_plans')
+                                    .insert({
+                                      user_id: profile.id,
+                                      context_id: selectedPlan.context_id,
+                                      status: 'active',
+                                      source: 'pdf_import_auto'
+                                    })
+                                    .select('id')
+                                    .single();
+                                  if (newPlan) targetPlanId = newPlan.id;
+                                }
+                              }
+                            }
+
                             // Aplicar normalizaciones sobre el objeto limpio
                             sanitizedData.departure_location = depLoc;
                             sanitizedData.arrival_location = arrLoc;
@@ -1013,7 +1119,7 @@ export default function AdminPlansPage() {
                             sanitizedData.destination = arrLoc;
                             sanitizedData.type = tripType;
                             sanitizedData.is_verified = true;
-                            sanitizedData.plan_id = selectedPlan.id;
+                            sanitizedData.plan_id = targetPlanId;
                             
                             // Normalización Crítica de fechas para Supabase (ISO)
                             const toISO = (dateStr: string) => {
@@ -1035,7 +1141,8 @@ export default function AdminPlansPage() {
 
                             if (extractionResult.type === 'boarding_pass') {
                               // 1. Try to find existing flight
-                              const existingFlight = selectedPlan.flights?.find((f: any) => 
+                              const { data: planFlights } = await supabase.from('travel_flights').select('*').eq('plan_id', targetPlanId).is('deleted_at', null);
+                              const existingFlight = planFlights?.find((f: any) => 
                                 f.flight_number === sanitizedData.flight_number && 
                                 (f.departure_location === sanitizedData.origin || f.origin === sanitizedData.origin)
                               );
@@ -1045,7 +1152,7 @@ export default function AdminPlansPage() {
                               } else {
                                 // 2. Create flight if doesn't exist
                                 const newFlight = await saveItem('travel_flights', {
-                                  plan_id: selectedPlan.id,
+                                  plan_id: targetPlanId,
                                   airline: sanitizedData.airline || 'Vueling',
                                   flight_number: sanitizedData.flight_number,
                                   departure_location: sanitizedData.origin,
@@ -1072,7 +1179,7 @@ export default function AdminPlansPage() {
                               const fileName = `${extractionResult.type}_${Date.now()}.pdf`;
                               const { data: uploadData, error: uploadError } = await supabase.storage
                                 .from('travel-documents')
-                                .upload(`${selectedPlan.id}/${fileName}`, extractionResult.file);
+                                .upload(`${targetPlanId}/${fileName}`, extractionResult.file);
 
                               if (uploadError) throw new Error(`Error en storage: ${uploadError.message}`);
 
@@ -1089,7 +1196,7 @@ export default function AdminPlansPage() {
                                }
 
                                await saveTravelDocument({
-                                 plan_id: selectedPlan.id,
+                                 plan_id: targetPlanId,
                                  title: suggestedTitle,
                                  display_title: suggestedTitle,
                                  document_type: extractionResult.type === 'boarding_pass' ? 'boarding_pass' : (extractionResult.type === 'flight' ? 'flight_confirmation' : 'general'),
@@ -1529,6 +1636,7 @@ export default function AdminPlansPage() {
       {showHotelImport && selectedPlan && (
         <HotelImportModal
           planId={selectedPlan.id}
+          contextId={selectedPlan.context_id}
           planUserName={`${selectedPlan.profiles?.nombre || ''} ${selectedPlan.profiles?.apellidos || ''}`.trim()}
           onClose={() => setShowHotelImport(false)}
           onSuccess={() => {

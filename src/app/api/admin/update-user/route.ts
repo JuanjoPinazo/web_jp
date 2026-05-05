@@ -46,6 +46,7 @@ export async function POST(request: Request) {
     if (email) {
       const { error: authUpdateError } = await getSupabaseAdmin().auth.admin.updateUserById(userId, {
         email: email,
+        email_confirm: true,
         user_metadata: { name, surname, role }
       });
       if (authUpdateError) {

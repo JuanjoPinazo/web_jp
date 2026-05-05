@@ -41,6 +41,13 @@ export default function DashboardPage() {
   const { session } = useAuth();
   const { getMyActivePlan, loading: planLoading } = useTravelPlans();
   const { getEnabledModules } = usePlanModules();
+
+  useEffect(() => {
+    if (session.status === 'unauthenticated') {
+      router.replace('/login');
+    }
+  }, [session.status, router]);
+
   const userName = session.user?.name || 'Usuario';
   
   const [availableContexts, setAvailableContexts] = useState<any[]>([]);
@@ -351,9 +358,19 @@ export default function DashboardPage() {
       animate="visible"
       className="max-w-7xl mx-auto px-6 py-12 space-y-16"
     >
-      {/* HEADER / WELCOME */}
       <motion.section variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-end gap-8 border-b border-border/50 pb-12">
-        <div className="space-y-4">
+        <div className="flex items-center gap-6">
+          {/* User Profile Photo */}
+          <div className="w-16 h-16 md:w-20 md:h-20 rounded-3xl bg-accent/10 border border-accent/20 overflow-hidden shadow-lg group hover:scale-105 transition-transform duration-500 shrink-0">
+            {session.user?.avatar_url ? (
+              <img src={session.user.avatar_url} alt={userName} className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-accent/40 bg-surface">
+                <User size={32} />
+              </div>
+            )}
+          </div>
+          
           <div className="space-y-2">
             <h1 className="text-3xl md:text-4xl font-black font-heading tracking-tight text-foreground leading-none">
               Hola, {userName.split(' ')[0]}.
@@ -371,6 +388,53 @@ export default function DashboardPage() {
           <p className="text-[10px] font-black text-muted uppercase tracking-widest">
             {selectedContext?.start_date ? new Date(selectedContext.start_date).toLocaleDateString([], {day:'2-digit', month:'short'}) : 'Fecha por confirmar'}
           </p>
+        </div>
+      </motion.section>
+
+      {/* FEATURED VIDEO SECTION */}
+      <motion.section variants={itemVariants} className="relative rounded-[3rem] overflow-hidden border border-border bg-surface shadow-2xl group">
+        <div className="absolute inset-0 bg-gradient-to-r from-background via-transparent to-transparent z-10" />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center min-h-[300px]">
+          <div className="p-8 md:p-12 space-y-6 relative z-20 lg:max-w-xl">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent/10 border border-accent/20 text-accent">
+              <Trophy size={12} />
+              <span className="text-[10px] font-black uppercase tracking-widest text-accent">Exclusivo JP Intelligence</span>
+            </div>
+            <h2 className="text-3xl md:text-4xl font-black font-heading tracking-tight text-foreground">
+              Descubre la Nueva Dimensión de la Logística
+            </h2>
+            <p className="text-sm md:text-base font-medium text-muted">
+              Visualiza el vídeo de presentación oficial y descubre cómo JP Intelligence está transformando la experiencia de viaje profesional.
+            </p>
+            <button 
+              className="px-8 py-4 rounded-2xl bg-accent text-white font-black uppercase tracking-widest text-xs hover:bg-accent/90 transition-all shadow-xl shadow-accent/20 flex items-center gap-3 w-fit"
+              onClick={() => {
+                const videoElement = document.getElementById('platform-video') as HTMLVideoElement;
+                if (videoElement) {
+                  videoElement.muted = false;
+                  if (videoElement.requestFullscreen) videoElement.requestFullscreen();
+                }
+              }}
+            >
+              <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
+                <div className="w-0 h-0 border-t-[4px] border-t-transparent border-l-[7px] border-l-white border-b-[4px] border-b-transparent ml-1" />
+              </div>
+              Ver Presentación
+            </button>
+          </div>
+          <div className="relative h-full min-h-[300px] lg:min-h-full overflow-hidden">
+            <video 
+              id="platform-video"
+              autoPlay 
+              muted 
+              loop 
+              playsInline
+              className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:scale-105 transition-transform duration-[2000ms]"
+            >
+              <source src="/JP Intelligence Platform Video.mp4" type="video/mp4" />
+            </video>
+            <div className="absolute inset-0 bg-gradient-to-l from-background/40 to-transparent" />
+          </div>
         </div>
       </motion.section>
 

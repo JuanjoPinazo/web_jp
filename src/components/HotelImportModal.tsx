@@ -25,7 +25,7 @@ interface ImportResult {
   errors: number;
 }
 
-export function HotelImportModal({ planId, planUserName, onClose, onSuccess }: HotelImportModalProps) {
+export function HotelImportModal({ planId, contextId, planUserName, onClose, onSuccess }: HotelImportModalProps & { contextId?: string }) {
   const [step, setStep] = useState<Step>('upload');
   const [rows, setRows] = useState<ImportRow[]>([]);
   const [importing, setImporting] = useState(false);
@@ -180,32 +180,94 @@ export function HotelImportModal({ planId, planUserName, onClose, onSuccess }: H
     let updated = 0;
     let errors = 0;
 
-    for (const row of validRows) {
-      try {
-        const payload = rowToHotelStayPayload(row, planId);
+    try {
+      // 1. Fetch all profiles for matching
+      const { data: allProfiles } = await supabase.from('profiles').select('id, nombre, apellidos');
+      const profileMap: Record<string, string> = {};
+      allProfiles?.forEach(p => {
+        const fullName = `${p.nombre || ''} ${p.apellidos || ''}`.trim().toLowerCase();
+        profileMap[fullName] = p.id;
+      });
 
-        // Anti-duplicate: check by booking_reference + guest_name + plan_id
-        const { data: existing } = await supabase
-          .from('hotel_stays')
-          .select('id')
-          .eq('plan_id', planId)
-          .eq('booking_reference', row.booking_reference!)
-          .eq('guest_name', row.guest_name!)
-          .is('deleted_at', null)
-          .maybeSingle();
-
-        if (existing?.id) {
-          // Update existing
-          await supabase.from('hotel_stays').update(payload).eq('id', existing.id);
-          updated++;
-        } else {
-          // Insert new
-          await supabase.from('hotel_stays').insert(payload);
-          imported++;
-        }
-      } catch {
-        errors++;
+      // 2. Fetch or prepare plan cache for this context
+      const planCache: Record<string, string> = {}; // userId -> planId
+      if (contextId) {
+        const { data: existingPlans } = await supabase
+          .from('contact_travel_plans')
+          .select('id, user_id')
+          .eq('context_id', contextId)
+          .is('deleted_at', null);
+        
+        existingPlans?.forEach(p => {
+          planCache[p.user_id] = p.id;
+        });
       }
+
+      for (const row of validRows) {
+        try {
+          let targetPlanId = planId; // Default to current managed plan
+
+          // Try to match guest to a user
+          if (row.guest_name && contextId) {
+            const guestNameNorm = row.guest_name.trim().toLowerCase();
+            const matchedUserId = profileMap[guestNameNorm];
+
+            if (matchedUserId) {
+              // Check if plan exists for this user/context
+              let userPlanId = planCache[matchedUserId];
+              
+              if (!userPlanId) {
+                // Create plan for this user
+                const { data: newPlan, error: createError } = await supabase
+                  .from('contact_travel_plans')
+                  .insert({
+                    user_id: matchedUserId,
+                    context_id: contextId,
+                    status: 'active',
+                    source: 'excel_import_auto'
+                  })
+                  .select('id')
+                  .single();
+                
+                if (!createError && newPlan) {
+                  userPlanId = newPlan.id;
+                  planCache[matchedUserId] = userPlanId;
+                }
+              }
+
+              if (userPlanId) {
+                targetPlanId = userPlanId;
+              }
+            }
+          }
+
+          const payload = rowToHotelStayPayload(row, targetPlanId);
+
+          // Anti-duplicate: check by booking_reference + guest_name + plan_id
+          const { data: existing } = await supabase
+            .from('hotel_stays')
+            .select('id')
+            .eq('plan_id', targetPlanId)
+            .eq('booking_reference', row.booking_reference!)
+            .eq('guest_name', row.guest_name!)
+            .is('deleted_at', null)
+            .maybeSingle();
+
+          if (existing?.id) {
+            await supabase.from('hotel_stays').update(payload).eq('id', existing.id);
+            updated++;
+          } else {
+            await supabase.from('hotel_stays').insert(payload);
+            imported++;
+          }
+        } catch (err) {
+          console.error('Error importing row:', err);
+          errors++;
+        }
+      }
+    } catch (err) {
+      console.error('Global import error:', err);
+      errors += validRows.length;
     }
 
     setResult({ imported, updated, errors: errors + errorRows.length });

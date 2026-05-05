@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAdmin } from '@/hooks/useAdmin';
 import { User } from '@/types/platform';
-import { Loader2, UserCircle, Shield, User as UserIcon, Mail, Phone, Calendar, Plus, X, Trash2, Edit2, Search, LayoutGrid, List, Filter, Building2, MoreHorizontal, Send, Camera, Briefcase } from 'lucide-react';
+import { Loader2, UserCircle, Shield, User as UserIcon, Mail, Phone, Calendar, Plus, X, Trash2, Edit2, Search, LayoutGrid, List, Filter, Building2, MoreHorizontal, Send, Camera, Briefcase, CheckCircle2 } from 'lucide-react';
 import { useDialog } from '@/context/DialogContext';
 import { Button } from '@/components/Button';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -179,21 +179,33 @@ export default function AdminUsersPage() {
       }
 
       const result = await response.json();
-      
-      if (result.success === false && result.message === 'ESTADO_ACTIVO') {
-        await alert({ 
-          title: 'Usuario ya Activo', 
-          message: 'Este usuario ya ha activado su cuenta anteriormente. No necesita una nueva invitación.', 
-          type: 'warning' 
-        });
-        return;
-      }
 
       await alert({ 
         title: 'Invitación Enviada', 
         message: `Se ha enviado un nuevo email de acceso a ${user.email} con el formato premium.`, 
         type: 'success' 
       });
+    } catch (err: any) {
+      console.error(err);
+      await alert({ title: 'Error', message: err.message, type: 'danger' });
+    }
+  };
+
+  const handleActivateUser = async (userId: string) => {
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ onboarding_status: 'active' })
+        .eq('id', userId);
+      
+      if (error) throw error;
+      
+      await alert({ 
+        title: 'Usuario Activado', 
+        message: 'El usuario ha sido activado manualmente. Ya puedes gestionar su logística completamente.', 
+        type: 'success' 
+      });
+      loadData();
     } catch (err: any) {
       console.error(err);
       await alert({ title: 'Error', message: err.message, type: 'danger' });
@@ -241,7 +253,8 @@ export default function AdminUsersPage() {
         (user.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (user.surname || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
         (user.email || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (user.clients?.name || '').toLowerCase().includes(searchQuery.toLowerCase());
+        (user.clients?.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (user.companies?.name || '').toLowerCase().includes(searchQuery.toLowerCase());
       const matchesRole = filterRole === 'all' || user.role === filterRole;
       return matchesSearch && matchesRole;
     })
@@ -333,6 +346,9 @@ export default function AdminUsersPage() {
                      )}
                    </div>
                     <div className="flex gap-2">
+                      {user.onboarding_status !== 'active' && (
+                        <button onClick={() => handleActivateUser(user.id)} title="Activar Manualmente" className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all"><CheckCircle2 size={16} /></button>
+                      )}
                       <button onClick={() => handleResendInvite(user)} title="Reenviar Invitación" className="p-2.5 rounded-xl bg-accent/10 border border-accent/20 text-accent hover:bg-accent hover:text-white transition-all"><Send size={16} /></button>
                       <button onClick={() => setEditingUser(user)} className="p-2.5 rounded-xl bg-background border border-border text-muted hover:text-accent transition-all"><Edit2 size={16} /></button>
                       <button onClick={() => handleDeleteUser(user.id)} className="p-2.5 rounded-xl bg-background border border-border text-muted hover:text-red-500 transition-all"><Trash2 size={16} /></button>
@@ -344,11 +360,11 @@ export default function AdminUsersPage() {
                   <h3 className="text-base font-black text-foreground leading-tight">
                     {user.name} {user.surname}
                   </h3>
-                  {/* Client account */}
-                  {user.clients?.name && (
+                  {/* Affiliation (Hospital or Company) */}
+                  {(user.clients?.name || user.companies?.name) && (
                     <p className="text-[10px] font-bold text-accent uppercase tracking-widest flex items-center gap-1">
-                      <Building2 size={10} />
-                      {user.clients.name}
+                      {user.clients?.name ? <Building2 size={10} /> : <Briefcase size={10} />}
+                      {user.clients?.name || user.companies?.name}
                     </p>
                   )}
                   <div className="flex flex-wrap gap-2 pt-1">
@@ -415,10 +431,10 @@ export default function AdminUsersPage() {
                   <span className="text-[10px] font-medium truncate">{user.phone || '—'}</span>
                 </div>
 
-                {/* Client */}
+                {/* Affiliation */}
                 <div className="hidden lg:flex items-center gap-1.5 text-muted/70 w-36 shrink-0">
-                  <Building2 size={11} className="shrink-0" />
-                  <span className="text-[10px] font-medium truncate">{user.clients?.name || '—'}</span>
+                  {user.clients?.name ? <Building2 size={11} className="shrink-0" /> : <Briefcase size={11} className="shrink-0" />}
+                  <span className="text-[10px] font-medium truncate">{user.clients?.name || user.companies?.name || '—'}</span>
                 </div>
 
                 {/* Badges */}
@@ -437,6 +453,9 @@ export default function AdminUsersPage() {
 
                 {/* Actions */}
                 <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                  {user.onboarding_status !== 'active' && (
+                    <button onClick={() => handleActivateUser(user.id)} title="Activar Manualmente" className="p-2 rounded-lg bg-background border border-border text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all"><CheckCircle2 size={14} /></button>
+                  )}
                   <button onClick={() => handleResendInvite(user)} title="Reenviar Invitación" className="p-2 rounded-lg bg-background border border-border text-muted hover:text-accent transition-all"><Send size={14} /></button>
                   <button onClick={() => setEditingUser(user)} className="p-2 rounded-lg bg-background border border-border text-muted hover:text-accent transition-all"><Edit2 size={14} /></button>
                   <button onClick={() => handleDeleteUser(user.id)} className="p-2 rounded-lg bg-background border border-border text-muted hover:text-red-500 transition-all"><Trash2 size={14} /></button>
