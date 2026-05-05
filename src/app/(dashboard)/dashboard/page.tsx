@@ -304,19 +304,56 @@ export default function DashboardPage() {
     return cards;
   }, [activePlan, userName, enabledModules]);
 
-  if (loading) {
+  const containerVariants = {
+    hidden: { opacity: 0 },
+    visible: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.15,
+        delayChildren: 0.3
+      }
+    }
+  };
+
+  const itemVariants = {
+    hidden: { opacity: 0, y: 30 },
+    visible: { 
+      opacity: 1, 
+      y: 0,
+      transition: { duration: 0.6, ease: "easeOut" as const }
+    }
+  };
+
+  if (loading || planLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[50vh]">
-        <Loader2 className="animate-spin text-accent" size={40} />
+      <div className="min-h-screen bg-background flex items-center justify-center p-6">
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="flex flex-col items-center gap-6"
+        >
+          <div className="relative">
+            <div className="w-16 h-16 rounded-3xl bg-accent/10 border border-accent/20 flex items-center justify-center">
+              <Loader2 className="animate-spin text-accent" size={32} />
+            </div>
+            <div className="absolute -top-1 -right-1 w-4 h-4 bg-accent rounded-full animate-ping" />
+          </div>
+          <p className="text-[10px] font-black uppercase tracking-[0.4em] text-muted animate-pulse">Iniciando Experiencia...</p>
+        </motion.div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-3xl mx-auto space-y-12 pb-24 px-4 md:px-0">
-      {/* HEADER */}
-      <header className="space-y-6 pt-4">
-        <div className="flex justify-between items-start">
+    <motion.div 
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+      className="max-w-7xl mx-auto px-6 py-12 space-y-16"
+    >
+      {/* HEADER / WELCOME */}
+      <motion.section variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-end gap-8 border-b border-border/50 pb-12">
+        <div className="space-y-4">
           <div className="space-y-2">
             <h1 className="text-3xl md:text-4xl font-black font-heading tracking-tight text-foreground leading-none">
               Hola, {userName.split(' ')[0]}.
@@ -325,20 +362,20 @@ export default function DashboardPage() {
               {selectedContext?.name || 'Tu próximo evento'} · {selectedContext?.location || 'Destino'}
             </p>
           </div>
-          <div className="flex flex-col items-end gap-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500">
-              <CheckCircle2 size={12} />
-              <span className="text-[10px] font-black uppercase tracking-widest">Planificación completa</span>
-            </div>
-            <p className="text-[10px] font-black text-muted uppercase tracking-widest">
-              {selectedContext?.start_date ? new Date(selectedContext.start_date).toLocaleDateString([], {day:'2-digit', month:'short'}) : 'Fecha por confirmar'}
-            </p>
-          </div>
         </div>
-      </header>
+        <div className="flex flex-col items-end gap-2">
+          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500">
+            <CheckCircle2 size={12} />
+            <span className="text-[10px] font-black uppercase tracking-widest">Planificación completa</span>
+          </div>
+          <p className="text-[10px] font-black text-muted uppercase tracking-widest">
+            {selectedContext?.start_date ? new Date(selectedContext.start_date).toLocaleDateString([], {day:'2-digit', month:'short'}) : 'Fecha por confirmar'}
+          </p>
+        </div>
+      </motion.section>
 
       {/* STATS / MODULE SUMMARY - CATEGORIZED HIERARCHY */}
-      <section className="space-y-8">
+      <motion.section variants={itemVariants} className="space-y-8">
         {/* OPERATIVO */}
         {(isModuleEnabled('flights') || isModuleEnabled('hotels') || isModuleEnabled('transfers')) && (
           <div className="space-y-4">
@@ -445,10 +482,10 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
-      </section>
+      </motion.section>
 
       {/* DYNAMIC OPERATIONAL CARDS */}
-      <section className="space-y-6">
+      <motion.section variants={itemVariants} className="space-y-6">
         <div className="flex items-center gap-4">
           <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted ml-2">Próximas Gestiones</h3>
           <div className="flex-1 h-px bg-border" />
@@ -458,9 +495,9 @@ export default function DashboardPage() {
           {outcomeCards.map((card) => (
             <motion.div
               key={card.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              whileHover={{ y: -5 }}
+              variants={itemVariants}
+              whileTap={{ scale: 0.98, opacity: 0.9 }}
+              whileHover={{ y: -5, transition: { duration: 0.2 } }}
               onClick={() => setSelectedCard(card)}
               className="group cursor-pointer"
             >
@@ -508,11 +545,11 @@ export default function DashboardPage() {
             </div>
           )}
         </div>
-      </section>
+      </motion.section>
 
       {/* MAIN CONTENT - HOTEL (If enabled) */}
       {isModuleEnabled('hotels') && activePlan?.hotel_stays?.[0] && (
-        <section className="relative group overflow-hidden rounded-[3rem] border border-border bg-surface shadow-2xl transition-all hover:shadow-accent/5">
+        <motion.section variants={itemVariants} className="relative group overflow-hidden rounded-[3rem] border border-border bg-surface shadow-2xl transition-all hover:shadow-accent/5">
           <div className="p-8 md:p-12 space-y-10 relative z-10">
             <div className="space-y-2">
               <div className="flex items-center gap-1 text-amber-400">
@@ -548,12 +585,12 @@ export default function DashboardPage() {
               </div>
             </div>
           </div>
-        </section>
+        </motion.section>
       )}
 
       {/* TIMELINE (Depends on multiple modules) */}
       {isModuleEnabled('agenda') && (
-        <section className="space-y-8">
+        <motion.section variants={itemVariants} className="space-y-8">
           <div className="flex items-center gap-4">
             <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted ml-2">Tu Itinerario</h3>
             <div className="flex-1 h-px bg-border" />
@@ -561,12 +598,12 @@ export default function DashboardPage() {
           <div className="p-6 md:p-12 rounded-[3rem] bg-surface border border-border shadow-sm">
              <OutcomeTimeline plan={activePlan} />
           </div>
-        </section>
+        </motion.section>
       )}
 
       {/* SUPPORT & COORDINATOR */}
       {activePlan?.logistic_contact && (
-        <section className="p-8 md:p-12 rounded-[3.5rem] bg-surface border border-border shadow-2xl relative overflow-hidden group">
+        <motion.section variants={itemVariants} className="p-8 md:p-12 rounded-[3.5rem] bg-surface border border-border shadow-2xl relative overflow-hidden group">
            {/* Subtle background pattern/glow */}
            <div className="absolute top-0 right-0 w-64 h-64 bg-accent/5 blur-[100px] -mr-32 -mt-32 pointer-events-none group-hover:bg-accent/10 transition-colors duration-700" />
            
@@ -625,7 +662,7 @@ export default function DashboardPage() {
                  </a>
               </div>
            </div>
-        </section>
+        </motion.section>
       )}
 
       <OutcomeDrawer 
@@ -650,6 +687,6 @@ export default function DashboardPage() {
           </div>
         )}
       </AnimatePresence>
-    </div>
+    </motion.div>
   );
 }

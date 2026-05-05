@@ -32,14 +32,19 @@ export function OutcomeDrawer({ isOpen, onClose, card, onOpenQR }: OutcomeDrawer
 
           {/* Drawer / Sheet */}
           <motion.div
-            initial={{ y: '100%' }} // Mobile bottom sheet
+            initial={{ y: '100%' }}
             animate={{ y: 0 }}
             exit={{ y: '100%' }}
             transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-            className="fixed bottom-0 left-0 right-0 z-[101] bg-surface border-t border-border rounded-t-[2.5rem] p-8 md:p-10 md:max-w-md md:left-auto md:top-0 md:h-full md:rounded-l-[2.5rem] md:rounded-tr-none md:border-l md:border-t-0 shadow-2xl"
+            className="fixed bottom-0 left-0 right-0 z-[101] bg-surface border-t border-border rounded-t-[2.5rem] shadow-2xl max-h-[92vh] flex flex-col md:max-w-md md:left-auto md:top-0 md:h-full md:rounded-l-[2.5rem] md:rounded-tr-none md:border-l md:border-t-0"
           >
-            <div className="space-y-8 flex flex-col h-full">
-              <div className="flex justify-between items-start">
+            {/* Mobile Drag Handle */}
+            <div className="md:hidden flex justify-center py-4">
+              <div className="w-12 h-1.5 bg-border rounded-full" />
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-8 pb-12 md:p-10 space-y-8 custom-scrollbar">
+              <div className="flex justify-between items-start sticky top-0 bg-surface pt-2 pb-4 z-10 border-b border-border/50 mb-6">
                 <div className="space-y-1">
                   <h3 className="text-2xl font-black text-foreground">{title}</h3>
                   <div className="flex items-center gap-2 text-accent">
@@ -47,15 +52,15 @@ export function OutcomeDrawer({ isOpen, onClose, card, onOpenQR }: OutcomeDrawer
                     <span className="text-[10px] font-black uppercase tracking-widest">{status}</span>
                   </div>
                 </div>
-                  <button 
-                    onClick={onClose}
-                    className="p-2 rounded-full bg-surface-subtle border border-border text-foreground/60 hover:text-foreground transition-colors"
-                  >
-                    <X size={20} />
-                  </button>
+                <button 
+                  onClick={onClose}
+                  className="p-3 rounded-2xl bg-surface-subtle border border-border text-foreground/60 hover:text-foreground transition-all active:scale-95 shadow-sm"
+                >
+                  <X size={24} />
+                </button>
               </div>
 
-              <div className="space-y-6 flex-1 overflow-y-auto custom-scrollbar pr-2">
+              <div className="space-y-6">
                 {details.hora && (
                   <div className="flex items-start gap-4">
                     <div className="w-10 h-10 rounded-xl bg-white/5 flex items-center justify-center text-muted shrink-0">

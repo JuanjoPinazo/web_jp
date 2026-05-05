@@ -83,7 +83,7 @@ export function FlightCard({ flight, role, actions, className }: FlightCardProps
         <div className="flex flex-col md:flex-row justify-between items-center gap-8 md:gap-4 mb-10">
           {/* Origin */}
           <div className="flex-1 text-center md:text-left w-full">
-            <h3 className="text-5xl md:text-6xl font-black text-foreground tracking-tighter leading-none mb-2">{flight.departure_location}</h3>
+            <h3 className="text-3xl md:text-6xl font-black text-foreground tracking-tighter leading-none mb-2">{flight.departure_location}</h3>
             <div className="space-y-1">
               <p className="text-xl font-black text-foreground/90 tracking-tight flex items-center justify-center md:justify-start gap-2">
                 {formatTime(flight.departure_time)}
@@ -120,7 +120,7 @@ export function FlightCard({ flight, role, actions, className }: FlightCardProps
 
           {/* Destination */}
           <div className="flex-1 text-center md:text-right w-full">
-            <h3 className="text-5xl md:text-6xl font-black text-foreground tracking-tighter leading-none mb-2">{flight.arrival_location}</h3>
+            <h3 className="text-3xl md:text-6xl font-black text-foreground tracking-tighter leading-none mb-2">{flight.arrival_location}</h3>
             <div className="space-y-1">
               <p className="text-xl font-black text-foreground/90 tracking-tight flex items-center justify-center md:justify-end gap-2">
                 {formatTime(flight.arrival_time)}
