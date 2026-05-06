@@ -38,13 +38,28 @@ export function FlightCard({ flight, role, actions, className }: FlightCardProps
   // 2. Calculate distance automatically if missing
   const distance = flight.distance_km || (flight.departure_location && flight.arrival_location ? calculateDistance(flight.departure_location, flight.arrival_location) : null);
 
-  // 3. Calculate check-in deadline if missing (45 min before)
-  const checkinDeadline = flight.checkin_deadline || (flight.departure_time ? calculateCheckinDeadline(flight.departure_time) : null);
+  // 3. Calculate check-in deadline
+  let checkinISO = flight.checkin_deadline;
+  
+  // Detect if it's a descriptive string instead of ISO
+  const isDescription = checkinISO?.includes('minutos');
+  
+  if (!checkinISO || isDescription) {
+    const offset = isDescription && checkinISO?.includes('40') ? 40 : (isDescription && checkinISO?.includes('45') ? 45 : 40);
+    if (flight.departure_time) {
+      checkinISO = calculateCheckinDeadline(flight.departure_time, offset);
+    }
+  }
 
   const formatCheckinTime = (isoStr?: string | null) => {
     if (!isoStr) return null;
-    const date = new Date(isoStr);
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    // If it's a naive ISO string (contains T), just extract the time part
+    // This avoids timezone shifts from Date.toLocaleTimeString
+    if (isoStr.includes('T')) {
+      const timePart = isoStr.split('T')[1];
+      return timePart ? timePart.substring(0, 5) : isoStr;
+    }
+    return isoStr;
   };
 
   return (
@@ -147,7 +162,7 @@ export function FlightCard({ flight, role, actions, className }: FlightCardProps
           <DetailItem 
             icon={Ticket} 
             label="Check-in" 
-            value={formatCheckinTime(checkinDeadline)} 
+            value={formatCheckinTime(checkinISO)} 
             isAdmin={isAdmin} 
           />
           <DetailItem 

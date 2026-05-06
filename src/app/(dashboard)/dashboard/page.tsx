@@ -12,29 +12,24 @@ import {
   Plane, 
   Car, 
   Utensils, 
-  Coffee,
-  Milestone,
-  ArrowRight,
-  ShieldCheck,
-  ChevronDown,
   Loader2,
   FileText,
   Calendar,
-  Trophy,
-  ArrowLeftRight,
   User,
   QrCode,
-  Maximize2,
   X,
   Clock,
   Smartphone,
   Phone,
-  Mail
+  ArrowRight,
+  Download,
+  Navigation,
+  MessageSquare,
+  AlertCircle
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import { OutcomeDrawer } from '@/components/OutcomeDrawer';
-import { OutcomeTimeline } from '@/components/OutcomeTimeline';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -54,7 +49,6 @@ export default function DashboardPage() {
   const [selectedContextId, setSelectedContextId] = useState<string | null>(null);
   const [activePlan, setActivePlan] = useState<FullTravelPlan | null>(null);
   const [enabledModules, setEnabledModules] = useState<Record<string, boolean>>({});
-  const [selectedCard, setSelectedCard] = useState<any>(null);
   const [selectedQR, setSelectedQR] = useState<any>(null);
   const [showTimeline, setShowTimeline] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -119,234 +113,195 @@ export default function DashboardPage() {
     return enabledModules[moduleId] === true;
   };
 
-  const outcomeCards = useMemo(() => {
+  // --- UNIFIED TIMELINE LOGIC ---
+  const timelineEvents = useMemo(() => {
     if (!activePlan) return [];
-    const cards: any[] = [];
+    const events: any[] = [];
 
-    // 1. FLIGHTS (GROUPED)
-    if (isModuleEnabled('flights')) {
-      const sortedFlights = [...activePlan.flights]
-        .filter(f => f.is_verified)
-        .sort((a, b) => new Date(a.departure_time).getTime() - new Date(b.departure_time).getTime());
-      
-      const formatRawTime = (dateStr: string) => {
-        if (!dateStr) return '';
-        const timePart = dateStr.split('T')[1];
-        return timePart ? timePart.substring(0, 5) : '';
-      };
+    // 1. FLIGHTS
+    activePlan.flights.filter(f => f.is_verified).forEach(f => {
+      const depTime = new Date(f.departure_time);
+      events.push({
+        id: `flight-dep-${f.id}`,
+        type: 'flight_departure',
+        datetime: depTime,
+        title: `Vuelo ${f.departure_location} → ${f.arrival_location}`,
+        location: f.departure_location || 'Aeropuerto',
+        description: `${f.airline} ${f.flight_number} | Puerta: ${f.gate || 'S/N'}`,
+        icon: Plane,
+        color: 'text-purple-500',
+        cta: { label: 'Tarjeta de Embarque', type: 'boarding_pass' },
+        payload: f
+      });
 
-      // Detect Round Trip Grouping
-      const outbound = sortedFlights.find(f => f.type === 'outbound' || !f.type);
-      const returnFlight = sortedFlights.find(f => f.type === 'return' || (outbound && f.departure_location === outbound.arrival_location));
-
-      if (outbound && returnFlight && sortedFlights.length === 2) {
-        // Unified Round Trip Card
-        cards.push({
-          id: `trip-${activePlan.id}`,
-          title: 'Viaje Completo',
-          status: `${outbound.departure_location} ➔ ${outbound.arrival_location} (R.T.)`,
-          icon: Plane,
-          actionType: 'round_trip',
-          payload: { outbound, returnFlight },
-          details: {
-            hora: `${formatRawTime(outbound.departure_time)} (Ida) · ${formatRawTime(returnFlight.departure_time)} (Vuelta)`,
-            ubicacion: `${outbound.departure_location} ➔ ${outbound.arrival_location} ➔ ${outbound.departure_location}`,
-            estado: 'Confirmado',
-            observaciones: 'Vuelos de ida y vuelta vinculados.'
-          }
-        });
-      } else {
-        // Individual Flights
-        sortedFlights.forEach((f) => {
-          const flightDoc = activePlan.documents.find(d => d.related_entity === 'flight' && d.related_entity_id === f.id);
-          const depDate = new Date(f.departure_time);
-          cards.push({
-            id: `flight-${f.id}`,
-            title: f.type === 'return' ? 'Vuelo de Vuelta' : 'Vuelo de Ida',
-            status: `${f.departure_location || '---'} ➔ ${f.arrival_location || '---'}`,
-            icon: Plane,
-            actionType: 'flight',
-            payload: { ...f, voucher_url: flightDoc?.file_url },
-            details: {
-              hora: `${formatRawTime(f.departure_time)}${f.arrival_time ? ` ➔ ${formatRawTime(f.arrival_time)}` : ''}`,
-              ubicacion: `${depDate.toLocaleDateString('es-ES', {weekday: 'short', day: 'numeric', month: 'long'})}`,
-              estado: 'Confirmado',
-              observaciones: `${f.airline || ''} ${f.flight_number || ''} | Reserva: ${f.reservation_code || 'S/R'}`
-            }
-          });
+      if (f.arrival_time) {
+        events.push({
+          id: `flight-arr-${f.id}`,
+          type: 'flight_arrival',
+          datetime: new Date(f.arrival_time),
+          title: `Llegada a ${f.arrival_location}`,
+          location: f.arrival_location || 'Aeropuerto',
+          description: 'Aterrizaje y recogida de equipaje.',
+          icon: MapPin,
+          color: 'text-blue-500',
+          payload: f
         });
       }
-    }
+    });
 
-    // 2. HOTELS (HUMANIZED)
-    if (isModuleEnabled('hotels')) {
-      const groupedStays: Record<string, any[]> = {};
-      activePlan.hotel_stays?.forEach(h => {
-        const groupId = h.room_group_id || h.id;
-        if (!groupedStays[groupId]) groupedStays[groupId] = [];
-        groupedStays[groupId].push(h);
+    // 2. HOTELS
+    activePlan.hotel_stays?.forEach(h => {
+      // Check-in (usually 15:00)
+      const checkInDate = new Date(h.check_in);
+      checkInDate.setHours(15, 0, 0);
+      events.push({
+        id: `hotel-in-${h.id}`,
+        type: 'hotel_checkin',
+        datetime: checkInDate,
+        title: `Check-in ${h.hotel_name}`,
+        location: h.address || h.hotel_name,
+        description: `Habitación: ${h.room_type || 'Estándar'}. Ref: ${h.booking_reference}`,
+        icon: Building2,
+        color: 'text-emerald-500',
+        cta: { label: 'Ver Reserva', type: 'document' },
+        payload: h
       });
 
-      const mapRoomType = (type?: string) => {
-        if (!type) return 'Alojamiento';
-        const t = type.toUpperCase();
-        if (t === 'DUI') return 'Habitación Individual';
-        if (t === 'DOBLE' || t === 'DBL') return 'Habitación Doble';
-        return type;
-      };
-
-      Object.values(groupedStays).forEach((stays) => {
-        const h = stays[0];
-        const guestNames = stays.map(s => s.guest_name).join(', ');
-        const hotelDoc = activePlan.documents.find(d => d.related_hotel_stay_id === h.id);
-        cards.push({
-          id: `hotel-${h.id}`,
-          title: stays.length > 1 ? 'Habitación Compartida' : mapRoomType(h.room_type),
-          status: h.hotel_name,
-          icon: Building2,
-          actionType: 'hotel',
-          payload: { ...h, voucher_url: hotelDoc?.file_url, all_guests: stays.map(s => s.guest_name) },
-          details: {
-            hora: `Entrada: ${h.check_in_time || '15:00'} · Salida: ${h.check_out_time || '12:00'}`,
-            ubicacion: h.address || h.hotel_name,
-            estado: 'Confirmado',
-            observaciones: `Huéspedes: ${guestNames}. ${h.breakfast_included ? 'Desayuno incluido.' : 'Solo alojamiento.'}`
-          }
-        });
+      // Check-out (usually 12:00)
+      const checkOutDate = new Date(h.check_out);
+      checkOutDate.setHours(12, 0, 0);
+      events.push({
+        id: `hotel-out-${h.id}`,
+        type: 'hotel_checkout',
+        datetime: checkOutDate,
+        title: `Check-out ${h.hotel_name}`,
+        location: h.hotel_name,
+        description: 'Recuerda entregar las llaves en recepción.',
+        icon: Building2,
+        color: 'text-slate-500',
+        payload: h
       });
-    }
+    });
 
     // 3. TRANSFERS
-    if (isModuleEnabled('transfers')) {
-      activePlan.transfers.forEach((t) => {
-        cards.push({
-          id: `transfer-${t.id}`,
-          title: 'Traslado Privado',
-          status: t.pickup_location,
-          icon: Car,
-          actionType: 'transfer',
-          payload: t,
-          details: {
-            hora: `${new Date(t.pickup_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} (Recogida)`,
-            ubicacion: t.pickup_location,
-            estado: 'Programado',
-            observaciones: `Destino: ${t.dropoff_location}. Chófer: ${t.driver_name || 'Asignado'}.`
-          }
-        });
+    activePlan.transfers.forEach(t => {
+      events.push({
+        id: `transfer-${t.id}`,
+        type: 'transfer',
+        datetime: new Date(t.pickup_time),
+        title: 'Traslado Privado',
+        location: t.pickup_location,
+        description: `Destino: ${t.dropoff_location}. Chófer: ${t.driver_name || 'Asignado'}.`,
+        icon: Car,
+        color: 'text-amber-500',
+        payload: t
       });
+    });
+
+    // 4. DINNERS / RESTAURANTS
+    activePlan.restaurants.filter(r => r.type === 'reserved' || !r.type).forEach(r => {
+      events.push({
+        id: `dinner-${r.id}`,
+        type: 'dinner',
+        datetime: new Date(r.reservation_time),
+        title: `Cena en ${r.restaurant_name}`,
+        location: r.restaurant_name,
+        description: `Reserva para ${r.reservation_name || userName}. Mesa confirmada.`,
+        icon: Utensils,
+        color: 'text-orange-500',
+        payload: r
+      });
+    });
+
+    return events.sort((a, b) => a.datetime.getTime() - b.datetime.getTime());
+  }, [activePlan, userName]);
+
+  // --- COMPUTE NEXT ACTION ---
+  const nextAction = useMemo(() => {
+    const now = new Date();
+    return timelineEvents.find(e => e.datetime > now);
+  }, [timelineEvents]);
+
+  // --- COMPUTE ACTIVE DAY VIEW ---
+  const activeDayEvents = useMemo(() => {
+    if (timelineEvents.length === 0) return [];
+    
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    
+    // Si hay eventos hoy, mostrar hoy. Si no, mostrar el primer día con eventos.
+    const hasEventsToday = timelineEvents.some(e => e.datetime.toISOString().split('T')[0] === todayStr);
+    const displayDateStr = hasEventsToday ? todayStr : timelineEvents[0].datetime.toISOString().split('T')[0];
+    
+    return timelineEvents.filter(e => e.datetime.toISOString().split('T')[0] === displayDateStr);
+  }, [timelineEvents]);
+
+  // --- AIRPORT MODE LOGIC ---
+  const airportMode = useMemo(() => {
+    if (!activePlan) return null;
+    
+    const now = new Date();
+    const nextFlight = activePlan.flights
+      .filter(f => f.is_verified)
+      .find(f => {
+        const depTime = new Date(f.departure_time);
+        return depTime > now && (depTime.getTime() - now.getTime()) < 4 * 60 * 60 * 1000;
+      });
+
+    if (!nextFlight) return null;
+
+    const depTime = new Date(nextFlight.departure_time);
+    const diffMs = depTime.getTime() - now.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+
+    let state: 'preparation' | 'go_to_airport' | 'boarding_soon' | 'final_call' = 'preparation';
+    let statusText = 'Preparación de viaje';
+    let statusColor = 'bg-accent/10 text-accent border-accent/20';
+
+    if (diffMin < 20) {
+      state = 'final_call';
+      statusText = 'Última llamada';
+      statusColor = 'bg-red-500/10 text-red-500 border-red-500/20';
+    } else if (diffMin < 45) {
+      state = 'boarding_soon';
+      statusText = 'Embarque próximo';
+      statusColor = 'bg-orange-500/10 text-orange-500 border-orange-500/20';
+    } else if (diffMin < 120) {
+      state = 'go_to_airport';
+      statusText = 'Ir al aeropuerto';
+      statusColor = 'bg-blue-500/10 text-blue-500 border-blue-500/20';
     }
 
-    // 4. RESTAURANTS
-    if (isModuleEnabled('restaurants')) {
-      activePlan.restaurants.forEach((r) => {
-        const isReserved = r.type === 'reserved' || !r.type;
-        cards.push({
-          id: `restaurant-${r.id}`,
-          title: isReserved ? 'Cena Organizada' : 'Recomendación Quilpro',
-          status: r.restaurant_name,
-          icon: isReserved ? Utensils : Coffee,
-          actionType: 'restaurant',
-          payload: r,
-          details: {
-            hora: isReserved ? new Date(r.reservation_time).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Sugerencia libre',
-            ubicacion: r.restaurant_name,
-            estado: isReserved ? 'Mesa Confirmada' : 'Seleccionado para ti',
-            observaciones: isReserved 
-              ? `Reserva exclusiva para ${r.reservation_name || userName}. Mesa preparada.`
-              : (r.notes || 'Un lugar excepcional cerca de su ubicación.')
-          }
-        });
-      });
-    }
+    const boardingPass = activePlan.documents.find(d => 
+      d.related_flight_id === nextFlight.id && 
+      (d.document_type === 'boarding_pass' || d.title.toLowerCase().includes('tarjeta'))
+    );
 
-    // 5. OPERATIONAL DOCUMENTS (Boarding Passes & Confirmations)
-    if (isModuleEnabled('flights') || isModuleEnabled('documents')) {
-      const formatRawTime = (dateStr: string) => {
-        if (!dateStr) return '';
-        const timePart = dateStr.split('T')[1];
-        return timePart ? timePart.substring(0, 5) : '';
-      };
+    return {
+      flight: nextFlight,
+      state,
+      statusText,
+      statusColor,
+      diffMin,
+      boardingPass
+    };
+  }, [activePlan]);
 
-      activePlan.documents?.filter(d => d.visible_to_client !== false).forEach((doc) => {
-        const flight = activePlan.flights?.find(f => f.id === doc.related_flight_id);
-        
-        // Define operational object type
-        const isBP = doc.document_type === 'boarding_pass' || doc.title.toLowerCase().includes('tarjeta');
-        const isConf = doc.document_type === 'flight_confirmation' || doc.title.toLowerCase().includes('reserva');
-
-        if (isBP) {
-          cards.push({
-            id: `bp-${doc.id}`,
-            title: 'Tarjeta de Embarque',
-            status: flight ? `${flight.airline} ${flight.flight_number}` : (doc.display_title || doc.title),
-            icon: QrCode,
-            actionType: 'boarding_pass',
-            payload: { ...doc, flight },
-            details: {
-              hora: flight ? `${formatRawTime(flight.departure_time)} (Salida)` : 'Hora confirmada',
-              ubicacion: flight ? `${flight.departure_location} ➔ ${flight.arrival_location}` : 'Ruta confirmada',
-              estado: doc.seat_assignment ? `Asiento ${doc.seat_assignment}` : 'Confirmada',
-              observaciones: `Operado por ${flight?.airline || 'Compañía aérea'}. Recuerde tener el QR a mano.`
-            }
-          });
-        } else if (isConf) {
-          cards.push({
-            id: `conf-${doc.id}`,
-            title: 'Reserva de Vuelo',
-            status: doc.display_title || doc.title,
-            icon: FileText,
-            actionType: 'flight_confirmation',
-            payload: doc,
-            details: {
-              hora: flight ? formatRawTime(flight.departure_time) : 'Ver documento',
-              ubicacion: flight ? `${flight.departure_location} ➔ ${flight.arrival_location}` : 'Información de trayecto',
-              estado: 'Validado',
-              observaciones: 'Detalles completos de su reserva y política de equipaje.'
-            }
-          });
-        }
-      });
-    }
-
-    return cards;
-  }, [activePlan, userName, enabledModules]);
-
+  // --- VARIANTS ---
   const containerVariants = {
     hidden: { opacity: 0 },
-    visible: {
-      opacity: 1,
-      transition: {
-        staggerChildren: 0.15,
-        delayChildren: 0.3
-      }
-    }
+    visible: { opacity: 1, transition: { staggerChildren: 0.1, delayChildren: 0.2 } }
   };
 
-  const itemVariants = {
-    hidden: { opacity: 0, y: 30 },
-    visible: { 
-      opacity: 1, 
-      y: 0,
-      transition: { duration: 0.6, ease: "easeOut" as const }
-    }
+  const itemVariants: Variants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.5, ease: [0.22, 1, 0.36, 1] } }
   };
 
   if (loading || planLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-6">
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="flex flex-col items-center gap-6"
-        >
-          <div className="relative">
-            <div className="w-16 h-16 rounded-3xl bg-accent/10 border border-accent/20 flex items-center justify-center">
-              <Loader2 className="animate-spin text-accent" size={32} />
-            </div>
-            <div className="absolute -top-1 -right-1 w-4 h-4 bg-accent rounded-full animate-ping" />
-          </div>
-          <p className="text-[10px] font-black uppercase tracking-[0.4em] text-muted animate-pulse">Iniciando Experiencia...</p>
-        </motion.div>
+        <Loader2 className="animate-spin text-accent" size={32} />
       </div>
     );
   }
@@ -356,397 +311,602 @@ export default function DashboardPage() {
       variants={containerVariants}
       initial="hidden"
       animate="visible"
-      className="max-w-7xl mx-auto px-6 py-12 space-y-16"
+      className="max-w-xl mx-auto px-6 py-10 space-y-12 pb-32"
     >
-      <motion.section variants={itemVariants} className="flex flex-col md:flex-row justify-between items-start md:items-end gap-8 border-b border-border/50 pb-12">
-        <div className="flex items-center gap-6">
-          {/* User Profile Photo */}
-          <div className="w-16 h-16 md:w-20 md:h-20 rounded-3xl bg-accent/10 border border-accent/20 overflow-hidden shadow-lg group hover:scale-105 transition-transform duration-500 shrink-0">
-            {session.user?.avatar_url ? (
-              <img src={session.user.avatar_url} alt={userName} className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-accent/40 bg-surface">
-                <User size={32} />
-              </div>
-            )}
+      {airportMode ? (
+        /* --- VIEW: AIRPORT MODE --- */
+        <motion.div variants={itemVariants} className="space-y-10 pt-4">
+          {/* Header & Status */}
+          <div className="space-y-6">
+            <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full border ${airportMode.statusColor} animate-pulse`}>
+              <div className="w-2 h-2 rounded-full bg-current" />
+              <span className="text-[10px] font-black uppercase tracking-[0.2em]">Modo Aeropuerto · {airportMode.statusText}</span>
+            </div>
+            
+            <div className="space-y-2">
+              <h1 className="text-5xl font-black tracking-tighter text-foreground leading-none">
+                {airportMode.flight.departure_location} <span className="text-accent">➔</span> {airportMode.flight.arrival_location}
+              </h1>
+              <p className="text-sm font-bold text-muted uppercase tracking-[0.3em]">
+                {airportMode.flight.airline} · {airportMode.flight.flight_number}
+              </p>
+            </div>
           </div>
-          
-          <div className="space-y-2">
-            <h1 className="text-3xl md:text-4xl font-black font-heading tracking-tight text-foreground leading-none">
-              Hola, {userName.split(' ')[0]}.
-            </h1>
-            <p className="text-base md:text-lg font-medium text-muted">
-              {selectedContext?.name || 'Tu próximo evento'} · {selectedContext?.location || 'Destino'}
+
+          {/* Main Card */}
+          <div className="relative">
+            <div className="absolute -inset-1 bg-gradient-to-r from-accent/30 to-purple-500/30 blur-2xl opacity-50" />
+            <div className="relative p-10 rounded-[3rem] bg-surface border border-accent/20 shadow-2xl space-y-8 overflow-hidden">
+               <div className="flex justify-between items-start">
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-black text-muted uppercase tracking-widest">Salida</p>
+                    <p className="text-4xl font-black text-foreground">
+                      {new Date(airportMode.flight.departure_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                  <div className="text-right space-y-1">
+                    <p className="text-[10px] font-black text-muted uppercase tracking-widest">Asiento</p>
+                    <p className="text-4xl font-black text-accent">{airportMode.boardingPass?.seat_assignment || airportMode.flight.seat || '—'}</p>
+                  </div>
+               </div>
+
+               <div className="grid grid-cols-2 gap-6 pt-6 border-t border-border/50">
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-black text-muted uppercase tracking-widest">Puerta</p>
+                    <p className="text-xl font-black text-foreground">{airportMode.flight.gate || '—'}</p>
+                  </div>
+                  <div className="space-y-1 text-right">
+                    <p className="text-[9px] font-black text-muted uppercase tracking-widest">Check-in</p>
+                    <p className="text-xl font-black text-foreground">
+                      {new Date(new Date(airportMode.flight.departure_time).getTime() - 2 * 60 * 60 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+               </div>
+
+               {/* Main CTA */}
+               <div className="pt-4">
+                  {airportMode.boardingPass && airportMode.boardingPass.qr_code ? (
+                    <button 
+                      onClick={() => setSelectedQR(airportMode.boardingPass)}
+                      className="w-full py-6 rounded-[2rem] bg-accent text-white font-black uppercase tracking-widest text-xs flex items-center justify-center gap-3 shadow-2xl shadow-accent/40 active:scale-[0.98] transition-all"
+                    >
+                      <QrCode size={20} /> Mostrar QR de Embarque
+                    </button>
+                  ) : (
+                    <div className="space-y-4">
+                      {airportMode.boardingPass ? (
+                        <button 
+                          onClick={() => window.open(airportMode.boardingPass?.file_url)}
+                          className="w-full py-6 rounded-[2rem] bg-foreground text-background font-black uppercase tracking-widest text-xs flex items-center justify-center gap-3 shadow-2xl active:scale-[0.98] transition-all"
+                        >
+                          <Download size={20} /> Descargar Tarjeta PDF
+                        </button>
+                      ) : (
+                        <div className="p-6 rounded-3xl bg-amber-500/10 border border-amber-500/20 flex gap-4">
+                          <AlertCircle className="text-amber-500 shrink-0" size={20} />
+                          <div className="space-y-1">
+                            <p className="text-xs font-black text-amber-600 uppercase tracking-widest">Tarjeta Pendiente</p>
+                            <p className="text-[10px] font-medium text-amber-700/80 leading-relaxed">Tu coordinador todavía no ha subido la tarjeta de embarque. Puedes consultar la reserva del vuelo.</p>
+                          </div>
+                        </div>
+                      )}
+                      <button 
+                        onClick={() => {
+                          const doc = activePlan?.documents.find(d => d.related_flight_id === airportMode.flight.id && d.document_type !== 'boarding_pass');
+                          if (doc) window.open(doc.file_url);
+                        }}
+                        className="w-full py-5 rounded-2xl bg-surface-subtle border border-border text-foreground font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-3"
+                      >
+                        <FileText size={16} className="text-accent" /> Ver Reserva de Vuelo
+                      </button>
+                    </div>
+                  )}
+               </div>
+            </div>
+          </div>
+
+          {/* Support Actions */}
+          <div className="grid grid-cols-1 gap-4">
+             <button 
+              onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=aeropuerto+${encodeURIComponent(airportMode.flight.departure_location)}`)}
+              className="flex items-center justify-between p-6 rounded-[2rem] bg-surface border border-border group"
+             >
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-blue-500/10 flex items-center justify-center text-blue-500">
+                    <Navigation size={22} />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-black text-foreground">Cómo llegar al aeropuerto</p>
+                    <p className="text-[10px] font-bold text-muted uppercase tracking-widest">Abrir en Google Maps</p>
+                  </div>
+                </div>
+                <ArrowRight size={18} className="text-muted group-hover:translate-x-1 transition-transform" />
+             </button>
+
+             {activePlan?.logistic_contact && (
+               <div className="grid grid-cols-2 gap-4">
+                 <a 
+                  href={`tel:${activePlan.logistic_contact.phone}`}
+                  className="flex flex-col items-center gap-3 p-6 rounded-[2rem] bg-surface border border-border hover:border-accent/40 transition-all"
+                 >
+                    <Phone size={20} className="text-accent" />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-muted">Llamar Coordinador</span>
+                 </a>
+                 <a 
+                  href={`https://wa.me/${activePlan.logistic_contact.whatsapp?.replace(/\+/g, '')}`}
+                  target="_blank"
+                  className="flex flex-col items-center gap-3 p-6 rounded-[2rem] bg-surface border border-border hover:border-emerald-500/40 transition-all"
+                 >
+                    <MessageSquare size={20} className="text-emerald-500" />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-muted">WhatsApp</span>
+                 </a>
+               </div>
+             )}
+          </div>
+        </motion.div>
+      ) : (
+        /* --- VIEW: NORMAL DASHBOARD --- */
+        <>
+          {/* BLOQUE 1: HEADER INTELIGENTE */}
+          <motion.section variants={itemVariants} className="space-y-4">
+        <div className="flex justify-between items-start">
+          <div className="space-y-1">
+            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-accent">
+              {new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
             </p>
+            <h1 className="text-3xl font-black tracking-tight text-foreground">
+              {selectedContext?.name || 'Tu Evento'}
+            </h1>
+          </div>
+          <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 overflow-hidden shrink-0">
+             {session.user?.avatar_url ? (
+               <img src={session.user.avatar_url} alt={userName} className="w-full h-full object-cover" />
+             ) : (
+               <div className="w-full h-full flex items-center justify-center text-accent/40 bg-surface">
+                 <User size={24} />
+               </div>
+             )}
           </div>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500">
-            <CheckCircle2 size={12} />
-            <span className="text-[10px] font-black uppercase tracking-widest">Planificación completa</span>
-          </div>
-          <p className="text-[10px] font-black text-muted uppercase tracking-widest">
-            {selectedContext?.start_date ? new Date(selectedContext.start_date).toLocaleDateString([], {day:'2-digit', month:'short'}) : 'Fecha por confirmar'}
-          </p>
+        <div className="flex items-center gap-2">
+           <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500">
+             <CheckCircle2 size={10} />
+             <span className="text-[9px] font-black uppercase tracking-widest">Día Activo</span>
+           </div>
+           <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400">
+             <Clock size={10} />
+             <span className="text-[9px] font-black uppercase tracking-widest">Todo Planificado</span>
+           </div>
         </div>
       </motion.section>
 
-      {/* FEATURED VIDEO SECTION */}
-      <motion.section variants={itemVariants} className="relative rounded-[3rem] overflow-hidden border border-border bg-surface shadow-2xl group">
-        <div className="absolute inset-0 bg-gradient-to-r from-background via-transparent to-transparent z-10" />
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center min-h-[300px]">
-          <div className="p-8 md:p-12 space-y-6 relative z-20 lg:max-w-xl">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent/10 border border-accent/20 text-accent">
-              <Trophy size={12} />
-              <span className="text-[10px] font-black uppercase tracking-widest text-accent">Exclusivo JP Intelligence</span>
-            </div>
-            <h2 className="text-3xl md:text-4xl font-black font-heading tracking-tight text-foreground">
-              Descubre la Nueva Dimensión de la Logística
-            </h2>
-            <p className="text-sm md:text-base font-medium text-muted">
-              Visualiza el vídeo de presentación oficial y descubre cómo JP Intelligence está transformando la experiencia de viaje profesional.
-            </p>
-            <button 
-              className="px-8 py-4 rounded-2xl bg-accent text-white font-black uppercase tracking-widest text-xs hover:bg-accent/90 transition-all shadow-xl shadow-accent/20 flex items-center gap-3 w-fit"
-              onClick={() => {
-                const videoElement = document.getElementById('platform-video') as HTMLVideoElement;
-                if (videoElement) {
-                  videoElement.muted = false;
-                  if (videoElement.requestFullscreen) videoElement.requestFullscreen();
-                }
-              }}
-            >
-              <div className="w-6 h-6 rounded-full bg-white/20 flex items-center justify-center">
-                <div className="w-0 h-0 border-t-[4px] border-t-transparent border-l-[7px] border-l-white border-b-[4px] border-b-transparent ml-1" />
-              </div>
-              Ver Presentación
-            </button>
+      {/* FEATURED VIDEO SECTION (Temporarily disabled for mobile optimization) */}
+      {/* 
+      <motion.section variants={itemVariants} className="relative rounded-[2.5rem] overflow-hidden border border-border bg-surface shadow-xl group">
+        <div className="p-8 space-y-4 relative z-10">
+          <div className="inline-flex items-center gap-2 text-accent">
+             <div className="w-1 h-1 rounded-full bg-accent" />
+             <span className="text-[8px] font-black uppercase tracking-[0.3em]">JP Intelligence Experience</span>
           </div>
-          <div className="relative h-full min-h-[300px] lg:min-h-full overflow-hidden">
-            <video 
+          <h3 className="text-xl font-black text-foreground leading-tight">
+            Descubre la Plataforma
+          </h3>
+          <p className="text-[10px] font-medium text-muted leading-relaxed max-w-[200px]">
+            Visualiza el vídeo de presentación oficial de tu operativa.
+          </p>
+          <button 
+            onClick={() => {
+              const video = document.getElementById('platform-video') as HTMLVideoElement;
+              if (video) {
+                video.muted = false;
+                if (video.requestFullscreen) video.requestFullscreen();
+                video.play();
+              }
+            }}
+            className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-accent hover:gap-3 transition-all"
+          >
+            Ver vídeo <ArrowRight size={12} />
+          </button>
+        </div>
+        <div className="absolute top-0 right-0 bottom-0 w-1/3 overflow-hidden">
+           <video 
               id="platform-video"
               autoPlay 
               muted 
               loop 
               playsInline
-              className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:scale-105 transition-transform duration-[2000ms]"
+              className="w-full h-full object-cover opacity-40 group-hover:scale-110 transition-transform duration-[3000ms]"
             >
               <source src="/JP Intelligence Platform Video.mp4" type="video/mp4" />
             </video>
-            <div className="absolute inset-0 bg-gradient-to-l from-background/40 to-transparent" />
-          </div>
+            <div className="absolute inset-0 bg-gradient-to-l from-surface via-transparent to-transparent" />
         </div>
       </motion.section>
+      */}
 
-      {/* STATS / MODULE SUMMARY - CATEGORIZED HIERARCHY */}
+      {/* BLOQUE 2: PRÓXIMA ACCIÓN (CRÍTICO) */}
+      {nextAction && (
+        <motion.section variants={itemVariants} className="relative">
+          <div className="absolute -inset-1 bg-gradient-to-r from-accent/20 to-purple-500/20 blur-xl opacity-50" />
+          <div className="relative p-8 rounded-[2.5rem] bg-surface border border-accent/30 shadow-2xl space-y-6 overflow-hidden">
+             {/* Dynamic Decoration */}
+             <div className="absolute top-0 right-0 p-4 opacity-10">
+               <nextAction.icon size={120} strokeWidth={1} />
+             </div>
+
+             <div className="space-y-2 relative z-10">
+                <div className="inline-flex items-center gap-2 text-accent">
+                   <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                   <span className="text-[10px] font-black uppercase tracking-[0.3em]">Próxima Acción</span>
+                </div>
+                <h2 className="text-2xl font-black text-foreground leading-tight">
+                  {nextAction.title}
+                </h2>
+             </div>
+
+             <div className="flex items-center gap-8 py-4 border-y border-border/50 relative z-10">
+                <div className="space-y-1">
+                   <p className="text-[9px] font-black text-muted uppercase tracking-widest">Hora</p>
+                   <p className="text-2xl font-black text-foreground">
+                      {nextAction.datetime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                   </p>
+                </div>
+                <div className="h-10 w-px bg-border" />
+                <div className="space-y-1">
+                   <p className="text-[9px] font-black text-muted uppercase tracking-widest">Ubicación</p>
+                   <p className="text-base font-black text-foreground truncate max-w-[150px]">
+                      {nextAction.location}
+                   </p>
+                </div>
+             </div>
+
+             <div className="flex flex-col gap-3 relative z-10">
+                {nextAction.cta ? (
+                  <button 
+                    onClick={() => {
+                      if (nextAction.cta.type === 'boarding_pass') {
+                        const doc = activePlan?.documents.find(d => d.related_flight_id === nextAction.payload.id);
+                        if (doc) setSelectedQR(doc);
+                      }
+                    }}
+                    className="w-full py-4 rounded-2xl bg-accent text-white font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 shadow-xl shadow-accent/20 hover:scale-[1.02] transition-transform"
+                  >
+                    <nextAction.icon size={14} />
+                    {nextAction.cta.label}
+                  </button>
+                ) : (
+                  <button 
+                    onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(nextAction.location)}`)}
+                    className="w-full py-4 rounded-2xl bg-surface-subtle border border-border text-foreground font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 hover:bg-border transition-colors"
+                  >
+                    <MapPin size={14} />
+                    Cómo llegar
+                  </button>
+                )}
+             </div>
+          </div>
+        </motion.section>
+      )}
+
+      {/* BLOQUE 3: TIMELINE DEL DÍA */}
       <motion.section variants={itemVariants} className="space-y-8">
-        {/* OPERATIVO */}
-        {(isModuleEnabled('flights') || isModuleEnabled('hotels') || isModuleEnabled('transfers')) && (
-          <div className="space-y-4">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted ml-2">Logística Operativa</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {isModuleEnabled('flights') && (
-                <div className="p-6 rounded-3xl bg-surface border border-border flex items-center gap-6 group hover:shadow-md transition-all">
-                   <div className="p-4 rounded-2xl bg-surface-subtle text-purple-400 group-hover:scale-110 transition-transform">
-                     <Plane size={24} />
-                   </div>
-                   <div>
-                     <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">Vuelos</p>
-                     <p className="text-2xl font-black text-foreground">{activePlan?.flights.filter(f => f.is_verified).length || 0}</p>
-                   </div>
-                </div>
-              )}
-              {isModuleEnabled('hotels') && (
-                <div className="p-6 rounded-3xl bg-surface border border-border flex items-center gap-6 group hover:shadow-md transition-all">
-                   <div className="p-4 rounded-2xl bg-surface-subtle text-emerald-400 group-hover:scale-110 transition-transform">
-                     <Building2 size={24} />
-                   </div>
-                   <div>
-                     <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">Alojamiento</p>
-                     <p className="text-2xl font-black text-foreground">{activePlan?.hotel_stays?.length || 0}</p>
-                   </div>
-                </div>
-              )}
-              {isModuleEnabled('transfers') && (
-                <div className="p-6 rounded-3xl bg-surface border border-border flex items-center gap-6 group hover:shadow-md transition-all">
-                   <div className="p-4 rounded-2xl bg-surface-subtle text-amber-400 group-hover:scale-110 transition-transform">
-                     <Car size={24} />
-                   </div>
-                   <div>
-                     <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">Traslados</p>
-                     <p className="text-2xl font-black text-foreground">{activePlan?.transfers.length || 0}</p>
-                   </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* EXPERIENCIA & UTILIDAD (Two-column layout for desktop) */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* EXPERIENCIA */}
-          {(isModuleEnabled('restaurants') || isModuleEnabled('agenda')) && (
-            <div className="space-y-4">
-              <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted ml-2">Experiencia & Agenda</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {isModuleEnabled('restaurants') && (
-                  <div className="p-5 rounded-3xl bg-surface border border-border flex items-center gap-4 group hover:shadow-md transition-all">
-                    <div className="p-3 rounded-xl bg-orange-500/10 text-orange-500 group-hover:rotate-12 transition-transform">
-                      <Utensils size={20} />
-                    </div>
-                    <div>
-                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">Gastronomía</p>
-                      <p className="text-lg font-black text-foreground">{activePlan?.restaurants.length || 0}</p>
-                    </div>
-                  </div>
-                )}
-                {isModuleEnabled('agenda') && (
-                  <div className="p-5 rounded-3xl bg-surface border border-border flex items-center gap-4 group hover:shadow-md transition-all">
-                    <div className="p-3 rounded-xl bg-blue-500/10 text-blue-500 group-hover:rotate-12 transition-transform">
-                      <Calendar size={20} />
-                    </div>
-                    <div>
-                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">Actividades</p>
-                      <p className="text-lg font-black text-foreground">Sincronizada</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* UTILIDAD */}
-          {(isModuleEnabled('documents') || isModuleEnabled('mobility')) && (
-            <div className="space-y-4">
-              <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted ml-2">Utilidades de Viaje</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {isModuleEnabled('documents') && (
-                  <div className="p-5 rounded-3xl bg-surface border border-border flex items-center gap-4 group hover:shadow-md transition-all">
-                    <div className="p-3 rounded-xl bg-slate-500/10 text-slate-500 group-hover:rotate-12 transition-transform">
-                      <FileText size={20} />
-                    </div>
-                    <div>
-                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">Documentos</p>
-                      <p className="text-lg font-black text-foreground">{activePlan?.documents.length || 0}</p>
-                    </div>
-                  </div>
-                )}
-                {isModuleEnabled('mobility') && (
-                  <div className="p-5 rounded-3xl bg-surface border border-border flex items-center gap-4 group hover:shadow-md transition-all">
-                    <div className="p-3 rounded-xl bg-accent/10 text-accent group-hover:rotate-12 transition-transform">
-                      <Smartphone size={20} />
-                    </div>
-                    <div>
-                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">Movilidad</p>
-                      <p className="text-lg font-black text-foreground">Digital</p>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </div>
-      </motion.section>
-
-      {/* DYNAMIC OPERATIONAL CARDS */}
-      <motion.section variants={itemVariants} className="space-y-6">
-        <div className="flex items-center gap-4">
-          <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted ml-2">Próximas Gestiones</h3>
+        <div className="flex items-center gap-4 px-2">
+          <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted">Tu Día</h3>
           <div className="flex-1 h-px bg-border" />
         </div>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {outcomeCards.map((card) => (
-            <motion.div
-              key={card.id}
-              variants={itemVariants}
-              whileTap={{ scale: 0.98, opacity: 0.9 }}
-              whileHover={{ y: -5, transition: { duration: 0.2 } }}
-              onClick={() => setSelectedCard(card)}
-              className="group cursor-pointer"
-            >
-              <div className="p-8 rounded-[2.5rem] bg-surface border border-border hover:border-accent/40 transition-all duration-500 shadow-sm hover:shadow-2xl relative overflow-hidden h-full flex flex-col justify-between">
-                {/* Decoration */}
-                <div className="absolute top-0 right-0 w-32 h-32 bg-accent/5 blur-[40px] -mr-16 -mt-16 group-hover:bg-accent/10 transition-colors" />
-                
-                <div className="space-y-6 relative z-10">
-                  <div className="flex justify-between items-start">
-                    <div className="p-4 rounded-2xl bg-surface-subtle border border-border text-accent group-hover:scale-110 group-hover:bg-accent group-hover:text-white transition-all duration-500">
-                      <card.icon size={24} />
-                    </div>
-                    <div className="px-3 py-1 rounded-full bg-accent/10 border border-accent/20">
-                      <span className="text-[9px] font-black uppercase tracking-widest text-accent">{card.details.estado}</span>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-1">
-                    <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">{card.title}</p>
-                    <h4 className="text-xl font-black text-foreground tracking-tight line-clamp-1">{card.status}</h4>
-                  </div>
-
-                  <div className="space-y-3 pt-4 border-t border-border/50">
-                    <div className="flex items-center gap-3 text-muted">
-                      <Clock size={14} className="text-accent" />
-                      <span className="text-[11px] font-bold">{card.details.hora}</span>
-                    </div>
-                    <div className="flex items-center gap-3 text-muted">
-                      <MapPin size={14} className="text-accent" />
-                      <span className="text-[11px] font-bold truncate">{card.details.ubicacion}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="mt-8 flex items-center justify-between group-hover:translate-x-1 transition-transform">
-                  <span className="text-[9px] font-black uppercase tracking-widest text-accent">Gestionar Detalles</span>
-                  <ArrowRight size={16} className="text-accent" />
+        <div className="relative pl-6 space-y-10">
+          <div className="absolute left-0 top-2 bottom-2 w-px bg-gradient-to-b from-accent via-border to-transparent" />
+          
+          {activeDayEvents.map((event, idx) => {
+            const isPast = event.datetime < new Date();
+            return (
+              <div key={event.id} className={`relative group ${isPast ? 'opacity-40' : ''}`}>
+                <div className={`absolute -left-[28.5px] top-1.5 w-1.5 h-1.5 rounded-full border-2 bg-background transition-all duration-500 ${isPast ? 'border-muted scale-75' : 'border-accent scale-100 group-hover:scale-150'}`} />
+                <div className="space-y-2">
+                   <div className="flex justify-between items-baseline">
+                      <h4 className="text-lg font-black text-foreground leading-tight tracking-tight">
+                        {event.title}
+                      </h4>
+                      <span className="text-[10px] font-black text-accent shrink-0">
+                        {event.datetime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                   </div>
+                   <p className="text-xs font-medium text-muted/80 leading-relaxed">
+                     {event.description}
+                   </p>
                 </div>
               </div>
-            </motion.div>
-          ))}
-          {outcomeCards.length === 0 && (
-            <div className="col-span-full py-20 text-center border border-dashed border-border rounded-[3rem]">
-              <p className="text-xs font-black uppercase tracking-widest text-muted italic">No hay gestiones pendientes para hoy.</p>
-            </div>
+            );
+          })}
+          {activeDayEvents.length === 0 && (
+            <p className="text-xs italic text-muted">Sin eventos programados para hoy.</p>
           )}
         </div>
       </motion.section>
 
-      {/* MAIN CONTENT - HOTEL (If enabled) */}
-      {isModuleEnabled('hotels') && activePlan?.hotel_stays?.[0] && (
-        <motion.section variants={itemVariants} className="relative group overflow-hidden rounded-[3rem] border border-border bg-surface shadow-2xl transition-all hover:shadow-accent/5">
-          <div className="p-8 md:p-12 space-y-10 relative z-10">
-            <div className="space-y-2">
-              <div className="flex items-center gap-1 text-amber-400">
-                {[...Array(5)].map((_, i) => <span key={i} className="text-lg">★</span>)}
-              </div>
-              <h2 className="text-3xl md:text-5xl font-black font-heading text-foreground tracking-tight italic uppercase">
-                {activePlan.hotel_stays[0].hotel_name}
-              </h2>
-              <p className="flex items-center gap-2 text-muted font-bold text-sm">
-                <MapPin size={14} className="text-accent" />
-                {activePlan.hotel_stays[0].address}
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 border-y border-border py-10">
-              <div className="space-y-6">
-                <div>
-                  <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em] mb-1">Check-in</p>
-                  <p className="text-xl font-black text-foreground">
-                    {new Date(activePlan.hotel_stays[0].check_in).toLocaleDateString('es-ES', {day:'numeric', month:'long'})}
-                  </p>
-                </div>
-                <div>
-                  <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em] mb-1">Check-out</p>
-                  <p className="text-xl font-black text-foreground">
-                    {new Date(activePlan.hotel_stays[0].check_out).toLocaleDateString('es-ES', {day:'numeric', month:'long'})}
-                  </p>
-                </div>
-              </div>
-              <div>
-                <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em] mb-1">Localizador</p>
-                <p className="text-xl font-mono font-black text-accent">{activePlan.hotel_stays[0].booking_reference}</p>
-              </div>
-            </div>
-          </div>
-        </motion.section>
-      )}
-
-      {/* TIMELINE (Depends on multiple modules) */}
-      {isModuleEnabled('agenda') && (
-        <motion.section variants={itemVariants} className="space-y-8">
-          <div className="flex items-center gap-4">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted ml-2">Tu Itinerario</h3>
+      {/* BLOQUE 4: EXPERIENCIA CURADA */}
+      {isModuleEnabled('restaurants') && (activePlan?.restaurants?.filter(r => r.type !== 'reserved').length ?? 0) > 0 && (
+        <motion.section variants={itemVariants} className="space-y-6">
+          <div className="flex items-center gap-4 px-2">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted">Recomendado para ti</h3>
             <div className="flex-1 h-px bg-border" />
           </div>
-          <div className="p-6 md:p-12 rounded-[3rem] bg-surface border border-border shadow-sm">
-             <OutcomeTimeline plan={activePlan} />
+          <div className="grid grid-cols-1 gap-4">
+            {activePlan?.restaurants.filter(r => r.type !== 'reserved').map(r => (
+              <div key={r.id} className="p-6 rounded-[2rem] bg-surface border border-border flex items-center gap-6 group hover:border-accent/40 transition-all">
+                <div className="w-14 h-14 rounded-2xl bg-accent/5 border border-accent/10 flex items-center justify-center text-accent group-hover:bg-accent group-hover:text-white transition-all">
+                  <Utensils size={24} />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-base font-black text-foreground">{r.restaurant_name}</h4>
+                  <p className="text-[10px] font-bold text-muted uppercase tracking-widest">{r.notes || 'Selección Premium'}</p>
+                </div>
+              </div>
+            ))}
           </div>
+          <button className="w-full py-5 rounded-2xl border border-dashed border-border text-muted font-black uppercase tracking-widest text-[9px] hover:bg-surface transition-all">
+            Ver Mapa de Experiencias
+          </button>
         </motion.section>
       )}
 
-      {/* SUPPORT & COORDINATOR */}
+      {/* BLOQUE 5: DOCUMENTOS OPERATIVOS */}
+      <motion.section variants={itemVariants} className="space-y-6">
+        <div className="flex items-center gap-4 px-2">
+          <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted">Documentos</h3>
+          <div className="flex-1 h-px bg-border" />
+        </div>
+        <div className="space-y-4">
+          {/* 1. Tarjetas de Embarque Destacadas */}
+          {activePlan?.documents
+            .filter(d => d.visible_to_client !== false && (d.document_type === 'boarding_pass' || d.title.toLowerCase().includes('tarjeta')))
+            .map(doc => {
+              const hasQR = !!doc.qr_code;
+              return (
+                <div key={doc.id} className="p-8 rounded-[2.5rem] bg-surface border border-accent/20 shadow-xl relative overflow-hidden group">
+                  <div className="absolute top-0 right-0 p-6 opacity-5">
+                    <QrCode size={80} />
+                  </div>
+                  
+                  <div className="flex justify-between items-start mb-6">
+                    <div className="space-y-1">
+                      <div className="inline-flex items-center gap-2 px-2 py-0.5 rounded-md bg-accent/10 border border-accent/20 text-[9px] font-black text-accent uppercase tracking-widest">
+                        Tarjeta de Embarque
+                      </div>
+                      <h4 className="text-xl font-black text-foreground uppercase tracking-tight">{doc.passenger_name || userName}</h4>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1">Localizador</p>
+                      <p className="text-sm font-mono font-black text-accent">{doc.qr_raw_payload?.substring(0, 6) || 'Confirmado'}</p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-6 mb-8">
+                    <div className="space-y-1">
+                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">Asiento</p>
+                      <p className="text-2xl font-black text-foreground">{doc.seat_assignment || '—'}</p>
+                    </div>
+                    <div className="space-y-1 text-right">
+                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">Grupo</p>
+                      <p className="text-2xl font-black text-foreground">{doc.boarding_group || '—'}</p>
+                    </div>
+                  </div>
+
+                  <div className="pt-6 border-t border-border/50 flex flex-col gap-3">
+                    {hasQR ? (
+                      <button 
+                        onClick={() => setSelectedQR(doc)}
+                        className="w-full py-5 rounded-2xl bg-accent text-white font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-3 shadow-lg shadow-accent/20 active:scale-95 transition-all"
+                      >
+                        <QrCode size={16} /> Mostrar QR de Embarque
+                      </button>
+                    ) : (
+                      <button 
+                        onClick={() => window.open(doc.file_url)}
+                        className="w-full py-5 rounded-2xl bg-foreground text-background font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-3 active:scale-95 transition-all"
+                      >
+                        <FileText size={16} /> Abrir Tarjeta de Embarque
+                      </button>
+                    )}
+                    
+                    {!hasQR && (
+                      <div className="flex items-center justify-center gap-2 text-[9px] font-black text-muted uppercase tracking-widest">
+                        <CheckCircle2 size={12} className="text-emerald-500" /> PDF Oficial Disponible
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+          {/* 2. Otros Documentos en Grid */}
+          <div className="grid grid-cols-2 gap-4">
+            {activePlan?.documents
+              .filter(d => d.visible_to_client !== false && d.document_type !== 'boarding_pass' && !d.title.toLowerCase().includes('tarjeta'))
+              .slice(0, 4)
+              .map(doc => (
+                <div 
+                  key={doc.id} 
+                  onClick={() => window.open(doc.file_url)}
+                  className="p-5 rounded-[1.5rem] bg-surface-subtle border border-border flex flex-col gap-4 group cursor-pointer hover:border-accent/20"
+                >
+                  <div className="text-accent group-hover:scale-110 transition-transform">
+                     <FileText size={20} />
+                  </div>
+                  <div className="space-y-1">
+                     <p className="text-[9px] font-black text-muted uppercase tracking-widest truncate">{doc.title}</p>
+                     <p className="text-[10px] font-black text-accent uppercase tracking-widest">Ver PDF</p>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      </motion.section>
+
+      {/* BLOQUE 6: SOPORTE */}
       {activePlan?.logistic_contact && (
-        <motion.section variants={itemVariants} className="p-8 md:p-12 rounded-[3.5rem] bg-surface border border-border shadow-2xl relative overflow-hidden group">
-           {/* Subtle background pattern/glow */}
-           <div className="absolute top-0 right-0 w-64 h-64 bg-accent/5 blur-[100px] -mr-32 -mt-32 pointer-events-none group-hover:bg-accent/10 transition-colors duration-700" />
-           
-           <div className="flex flex-col md:flex-row justify-between items-center gap-10 relative z-10">
-              <div className="flex items-center gap-8">
-                 <div className="relative">
-                    <div className="w-24 h-24 rounded-[2rem] bg-accent/10 border border-accent/20 overflow-hidden shadow-inner group-hover:scale-105 transition-transform duration-500">
-                       {activePlan?.logistic_contact.avatar_url ? (
-                         <img src={activePlan.logistic_contact.avatar_url} alt={activePlan.logistic_contact.name} className="w-full h-full object-cover" />
-                       ) : (
-                         <div className="w-full h-full flex items-center justify-center text-accent/40">
-                            <User size={40} />
-                         </div>
-                       )}
-                    </div>
-                    <div className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-emerald-500 border-4 border-surface flex items-center justify-center text-white shadow-lg">
-                       <CheckCircle2 size={12} strokeWidth={3} />
-                    </div>
+        <motion.section variants={itemVariants} className="p-8 rounded-[2.5rem] bg-surface border border-border relative overflow-hidden group shadow-xl">
+           <div className="absolute top-0 right-0 w-32 h-32 bg-accent/5 blur-3xl rounded-full" />
+           <div className="flex items-center gap-6 mb-8">
+              <div className="relative">
+                 <div className="w-16 h-16 rounded-2xl border border-accent/20 overflow-hidden bg-accent/5">
+                    {activePlan.logistic_contact.avatar_url ? (
+                      <img src={activePlan.logistic_contact.avatar_url} alt="Coordinador" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-accent/40"><User size={24} /></div>
+                    )}
                  </div>
-                 <div>
-                    <p className="text-[10px] font-black text-accent uppercase tracking-[0.4em] mb-2">Concierge Personal</p>
-                    <h4 className="text-3xl font-black tracking-tight">{activePlan?.logistic_contact.name}</h4>
-                    <p className="text-xs font-medium text-muted mt-1">{activePlan.logistic_contact.role || 'Coordinador de Logística'}</p>
-                 </div>
+                 <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 border-2 border-surface flex items-center justify-center text-white text-[8px] font-bold">24h</div>
               </div>
-              
-              <div className="grid grid-cols-3 gap-3 w-full md:w-auto">
-                 <a 
-                   href={`tel:${activePlan.logistic_contact.phone}`} 
-                   className="flex flex-col items-center justify-center gap-3 p-5 rounded-3xl bg-surface border border-border hover:border-accent/40 hover:bg-accent/5 transition-all group/btn"
-                 >
-                    <div className="p-3 rounded-2xl bg-surface-subtle text-muted group-hover/btn:bg-accent group-hover/btn:text-white transition-all">
-                       <Phone size={20} />
-                    </div>
-                    <span className="text-[9px] font-black uppercase tracking-widest text-muted">Llamar</span>
-                 </a>
-                 <a 
-                   href={`https://wa.me/${activePlan.logistic_contact.whatsapp?.replace(/\+/g, '')}`} 
-                   target="_blank"
-                   rel="noopener noreferrer"
-                   className="flex flex-col items-center justify-center gap-3 p-5 rounded-3xl bg-surface border border-border hover:border-emerald-500/40 hover:bg-emerald-500/5 transition-all group/btn"
-                 >
-                    <div className="p-3 rounded-2xl bg-surface-subtle text-muted group-hover/btn:bg-emerald-500 group-hover/btn:text-white transition-all">
-                       <Smartphone size={20} />
-                    </div>
-                    <span className="text-[9px] font-black uppercase tracking-widest text-muted">WhatsApp</span>
-                 </a>
-                 <a 
-                   href={`mailto:${activePlan.logistic_contact.email}`} 
-                   className="flex flex-col items-center justify-center gap-3 p-5 rounded-3xl bg-surface border border-border hover:border-blue-500/40 hover:bg-blue-500/5 transition-all group/btn"
-                 >
-                    <div className="p-3 rounded-2xl bg-surface-subtle text-muted group-hover/btn:bg-blue-500 group-hover/btn:text-white transition-all">
-                       <Mail size={20} />
-                    </div>
-                    <span className="text-[9px] font-black uppercase tracking-widest text-muted">Email</span>
-                 </a>
+              <div className="space-y-1">
+                 <p className="text-[10px] font-black text-accent uppercase tracking-[0.2em]">Tu Coordinador</p>
+                 <h4 className="text-xl font-black text-foreground tracking-tight">{activePlan.logistic_contact.name}</h4>
               </div>
+           </div>
+           <div className="grid grid-cols-2 gap-4">
+              <a href={`tel:${activePlan.logistic_contact.phone}`} className="flex items-center justify-center gap-3 py-4 rounded-xl bg-background border border-border text-[10px] font-black uppercase tracking-widest hover:border-accent/40 transition-all">
+                <Phone size={14} className="text-accent" /> Llamar
+              </a>
+              <a href={`https://wa.me/${activePlan.logistic_contact.whatsapp?.replace(/\+/g, '')}`} target="_blank" className="flex items-center justify-center gap-3 py-4 rounded-xl bg-background border border-border text-[10px] font-black uppercase tracking-widest hover:border-emerald-500/40 transition-all">
+                <Smartphone size={14} className="text-emerald-500" /> WhatsApp
+              </a>
            </div>
         </motion.section>
       )}
 
+      {/* BLOQUE 7: ATAJOS */}
+      <motion.section variants={itemVariants} className="space-y-6">
+        <div className="flex items-center gap-4 px-2">
+          <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted">Acciones Rápidas</h3>
+          <div className="flex-1 h-px bg-border" />
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+           <button onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=taxi+transfer+near+me`)} className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-surface border border-border group hover:border-accent/40">
+              <Car size={18} className="text-accent" />
+              <span className="text-[8px] font-black uppercase tracking-widest text-muted">Transporte</span>
+           </button>
+           <button onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedContext?.location || '')}`)} className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-surface border border-border group hover:border-accent/40">
+              <MapPin size={18} className="text-accent" />
+              <span className="text-[8px] font-black uppercase tracking-widest text-muted">Mapa</span>
+           </button>
+           <button className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-surface border border-border group hover:border-accent/40">
+              <Utensils size={18} className="text-accent" />
+              <span className="text-[8px] font-black uppercase tracking-widest text-muted">Gastronomía</span>
+           </button>
+           <button onClick={() => setShowTimeline(true)} className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-surface border border-border group hover:border-accent/40">
+              <Calendar size={18} className="text-accent" />
+              <span className="text-[8px] font-black uppercase tracking-widest text-muted">Agenda Full</span>
+           </button>
+        </div>
+      </motion.section>
+        </>
+      )}
+
+      {/* TIMELINE MODAL */}
       <OutcomeDrawer 
-        isOpen={!!selectedCard}
-        card={selectedCard} 
-        onClose={() => setSelectedCard(null)} 
+        isOpen={showTimeline} 
+        card={{ actionType: 'timeline', title: 'Itinerario Completo' }} 
+        onClose={() => setShowTimeline(false)} 
         onOpenQR={(data) => setSelectedQR(data)}
       />
 
-      {/* QR MODAL */}
+      {/* QR MODAL (Premium Full-Screen Experience) */}
       <AnimatePresence>
         {selectedQR && (
-          <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSelectedQR(null)} className="absolute inset-0 bg-white/95 backdrop-blur-xl" />
-            <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }} className="relative w-full max-w-sm bg-white rounded-[3.5rem] shadow-2xl p-8 flex flex-col items-center">
-              <div className="w-full text-center space-y-2 mb-8 border-b pb-6">
-                <span className="text-2xl font-black">{selectedQR.flight?.departure_location || '---'} ➔ {selectedQR.flight?.arrival_location || '---'}</span>
+          <div className="fixed inset-0 z-[300] flex items-center justify-center">
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              exit={{ opacity: 0 }} 
+              onClick={() => setSelectedQR(null)} 
+              className={`absolute inset-0 ${airportMode ? 'bg-white/95' : 'bg-black/95'} backdrop-blur-3xl`} 
+            />
+            
+            <motion.div 
+              initial={{ y: "100%" }} 
+              animate={{ y: 0 }} 
+              exit={{ y: "100%" }} 
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              className={`relative w-full h-[100dvh] ${airportMode ? 'bg-white' : 'bg-background'} flex flex-col items-center pt-[calc(var(--sat)+2rem)] px-8 pb-[calc(var(--sab)+2rem)] overflow-hidden`}
+            >
+              {/* Close Button */}
+              <button 
+                onClick={() => setSelectedQR(null)} 
+                className={`absolute top-[calc(var(--sat)+1rem)] right-6 w-12 h-12 rounded-full ${airportMode ? 'bg-black/5 border-black/10' : 'bg-surface border-border'} flex items-center justify-center ${airportMode ? 'text-black' : 'text-foreground'} shadow-lg active:scale-90 transition-all z-20`}
+              >
+                <X size={24} />
+              </button>
+
+              <div className="w-full max-w-sm flex flex-col items-center space-y-10 h-full relative z-10">
+                {/* Header Information */}
+                <div className="text-center space-y-3">
+                  <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full ${airportMode ? 'bg-accent/10 border-accent/20' : 'bg-accent/10 border-accent/20'} text-accent mb-2`}>
+                    <Plane size={10} />
+                    <span className="text-[9px] font-black uppercase tracking-widest">Tarjeta de Embarque</span>
+                  </div>
+                  <h2 className={`text-4xl font-black ${airportMode ? 'text-black' : 'text-foreground'} tracking-tighter leading-none`}>
+                    {selectedQR.flight?.departure_location || '—'} <span className="text-accent">➔</span> {selectedQR.flight?.arrival_location || '—'}
+                  </h2>
+                  <p className={`text-xs font-bold ${airportMode ? 'text-black/50' : 'text-muted'} uppercase tracking-[0.3em]`}>
+                    {selectedQR.flight?.airline} · {selectedQR.flight?.flight_number}
+                  </p>
+                </div>
+
+                {/* QR Code Container (High Contrast for Scanning) */}
+                <div className={`w-full aspect-square max-w-[320px] bg-white rounded-[3rem] p-10 ${airportMode ? 'shadow-xl border-2 border-black/5' : 'shadow-[0_0_50px_rgba(0,174,239,0.15)] border-4 border-accent/10'} flex items-center justify-center relative`}>
+                  {!airportMode && <div className="absolute inset-0 bg-accent/5 rounded-[3rem] blur-2xl -z-10" />}
+                  <QRCodeSVG 
+                    value={selectedQR.qr_code || ''} 
+                    size={240} 
+                    level="H" 
+                    includeMargin={false}
+                    fgColor="#000000"
+                  />
+                </div>
+
+                {/* Critical Operational Data (Airport Survival Info) */}
+                <div className="w-full grid grid-cols-3 gap-3">
+                  <div className={`p-5 rounded-[2rem] ${airportMode ? 'bg-black/5 border-black/10' : 'bg-surface border-border'} border flex flex-col items-center gap-1.5 transition-all`}>
+                    <span className={`text-[8px] font-black uppercase ${airportMode ? 'text-black/40' : 'text-muted'} tracking-widest`}>Vuelo</span>
+                    <span className="text-xl font-black text-accent">{selectedQR.flight?.flight_number || '—'}</span>
+                  </div>
+                  <div className="p-5 rounded-[2rem] bg-accent flex flex-col items-center gap-1.5 shadow-xl shadow-accent/20 scale-110 relative z-10">
+                    <span className="text-[8px] font-black uppercase text-white/70 tracking-widest">Asiento</span>
+                    <span className="text-xl font-black text-white">{selectedQR.seat_assignment || selectedQR.flight?.seat || '—'}</span>
+                  </div>
+                  <div className={`p-5 rounded-[2rem] ${airportMode ? 'bg-black/5 border-black/10' : 'bg-surface border-border'} border flex flex-col items-center gap-1.5 transition-all`}>
+                    <span className={`text-[8px] font-black uppercase ${airportMode ? 'text-black/40' : 'text-muted'} tracking-widest`}>Puerta</span>
+                    <span className={`text-xl font-black ${airportMode ? 'text-black' : 'text-foreground'}`}>{selectedQR.flight?.gate || '—'}</span>
+                  </div>
+                </div>
+
+                <div className="flex-1 flex flex-col justify-end w-full pb-4">
+                   <div className={`p-6 rounded-[2.5rem] ${airportMode ? 'bg-black/5 border-black/10' : 'bg-surface-subtle border-border'} border flex items-center justify-between mb-4`}>
+                      <div>
+                        <p className={`text-[9px] font-black ${airportMode ? 'text-black/40' : 'text-muted'} uppercase tracking-widest`}>Pasajero</p>
+                        <p className={`text-sm font-black ${airportMode ? 'text-black' : 'text-foreground'} uppercase`}>{selectedQR.passenger_name || userName}</p>
+                      </div>
+                      <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center text-accent">
+                         <User size={20} />
+                      </div>
+                   </div>
+                  <button 
+                    onClick={() => window.open(selectedQR.file_url)}
+                    className={`w-full py-5 rounded-2xl ${airportMode ? 'bg-black text-white' : 'bg-foreground text-background'} font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-3 active:scale-95 transition-all shadow-xl`}
+                  >
+                    <Download size={16} /> Descargar PDF Original
+                  </button>
+                </div>
               </div>
-              <QRCodeSVG value={selectedQR.qr_code || ''} size={260} level="H" includeMargin={true} />
-              <button onClick={() => setSelectedQR(null)} className="absolute top-4 right-4 p-2 rounded-full bg-black/5 text-black"><X size={20} /></button>
+
+              {/* Decorative background accents */}
+              {!airportMode && (
+                <>
+                  <div className="absolute top-1/4 -right-20 w-64 h-64 bg-accent/10 blur-[120px] rounded-full pointer-events-none" />
+                  <div className="absolute bottom-1/4 -left-20 w-64 h-64 bg-purple-500/5 blur-[120px] rounded-full pointer-events-none" />
+                </>
+              )}
             </motion.div>
           </div>
         )}

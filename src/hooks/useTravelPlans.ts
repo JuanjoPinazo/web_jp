@@ -55,6 +55,8 @@ export interface Flight {
   type?: string;
   airline?: string;
   seat?: string;
+  gate?: string;
+  boarding_group?: string;
   check_in_url?: string;
   check_in_info?: string;
   manage_url?: string;
@@ -180,7 +182,9 @@ export interface Document {
   related_transfer_id?: string;
   passenger_name?: string;
   seat_assignment?: string;
+  boarding_group?: string;
   qr_code?: string;
+  qr_raw_payload?: string;
   visible_to_client: boolean;
   notes?: string;
   status: string;
@@ -298,7 +302,7 @@ export const useTravelPlans = () => {
         .from('contact_travel_plans')
         .select(`
           *,
-          profiles:user_id (nombre, apellidos, email),
+          profiles:user_id (nombre, apellidos, email, avatar_url),
           contexts:context_id (name)
         `)
         .eq('user_id', userId)

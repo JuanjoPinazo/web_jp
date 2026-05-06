@@ -1,0 +1,25 @@
+{
+  "name": "JP Intelligence Platform",
+  "short_name": "JP Intelligence",
+  "description": "Plataforma de gestión logística y coordinación médica premium.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#00aeef",
+  "orientation": "portrait",
+  "scope": "/",
+  "icons": [
+    {
+      "src": "/logo_jp_negro.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo_jp_blanco.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

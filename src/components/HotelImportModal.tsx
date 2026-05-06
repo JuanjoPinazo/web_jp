@@ -36,14 +36,25 @@ export function HotelImportModal({ planId, contextId, planUserName, onClose, onS
 
   const parseFile = useCallback(async (file: File) => {
     setFileName(file.name);
-    const { read, utils } = await import('xlsx');
-    const buffer = await file.arrayBuffer();
-    const wb = read(buffer, { type: 'array', cellDates: false });
-    const ws = wb.Sheets[wb.SheetNames[0]];
-    const raw: Record<string, any>[] = utils.sheet_to_json(ws, { defval: '' });
-    const parsed = parseHotelRows(raw);
-    setRows(parsed);
-    setStep('preview');
+    try {
+      const { read, utils } = await import('xlsx');
+      const buffer = await file.arrayBuffer();
+      const wb = read(buffer, { type: 'array', cellDates: false });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const raw: Record<string, any>[] = utils.sheet_to_json(ws, { defval: '' });
+
+      // Fetch existing stays for update detection
+      const { data: existingStays } = await supabase
+        .from('hotel_stays')
+        .select('booking_reference, guest_name')
+        .is('deleted_at', null);
+
+      const parsed = parseHotelRows(raw, existingStays || []);
+      setRows(parsed);
+      setStep('preview');
+    } catch (err: any) {
+      alert('Error al leer el archivo: ' + err.message);
+    }
   }, []);
 
   const handleFile = useCallback(async (file: File) => {
@@ -61,6 +72,33 @@ export function HotelImportModal({ planId, contextId, planUserName, onClose, onS
     const file = e.dataTransfer.files[0];
     if (file) await handleFile(file);
   }, [handleFile]);
+
+  const downloadErrorCsv = () => {
+    const errorData = rows.map(r => ({
+      Fila: r.rowIndex,
+      Huésped: r.guest_name || '',
+      Hotel: r.hotel_name || '',
+      Localizador: r.booking_reference || '',
+      Errores: r.errors.join(' | '),
+      Avisos: r.warnings.join(' | ')
+    }));
+    
+    const headers = Object.keys(errorData[0]);
+    const csvContent = [
+      headers.join(','),
+      ...errorData.map(row => Object.values(row).map(v => `"${v}"`).join(','))
+    ].join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `errores_importacion_${Date.now()}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   const downloadTemplate = async () => {
     const { utils, writeFile } = await import('xlsx');
@@ -84,84 +122,13 @@ export function HotelImportModal({ planId, contextId, planUserName, onClose, onS
       'notas',
     ];
 
-    const examples = [
-      [
-        'Joan Josep Pinazo',
-        'jj@ejemplo.com',
-        'Hotel Napoléon Paris',
-        '40 Avenue de Friedland, París',
-        '+33 1 56 68 43 43',
-        '20/05/2026',
-        '22/05/2026',
-        '15:00',
-        '12:00',
-        '2',
-        '1',
-        'Superior Room',
-        '419593860',
-        'Sí',
-        'Cancelación gratuita hasta 48h antes',
-        'Preferencia habitación alta',
-      ],
-      [
-        'María García López',
-        'maria@ejemplo.com',
-        'Hotel Arts Barcelona',
-        'Carrer de la Marina, 19-21, Barcelona',
-        '+34 93 221 10 00',
-        '23/05/2026',
-        '25/05/2026',
-        '14:00',
-        '11:00',
-        '2',
-        '2',
-        'Deluxe Double',
-        'BCNART2026',
-        'No',
-        '',
-        '',
-      ],
-      [
-        'Carlos Ruiz Martínez',
-        '',
-        'Meliá Madrid Princesa',
-        'Calle de la Princesa, 27, Madrid',
-        '+34 91 541 82 00',
-        '01/06/2026',
-        '03/06/2026',
-        '16:00',
-        '12:00',
-        '2',
-        '1',
-        'Junior Suite',
-        'MAD88712',
-        'Sí',
-        '',
-        'Cuna solicitada',
-      ],
-    ];
-
-    const wsData = [headers, ...examples];
+    const wsData = [headers];
     const ws = utils.aoa_to_sheet(wsData);
 
-    // Column widths
     ws['!cols'] = [
-      { wch: 25 }, // nombre
-      { wch: 25 }, // email
-      { wch: 28 }, // hotel
-      { wch: 35 }, // dirección
-      { wch: 18 }, // teléfono
-      { wch: 14 }, // fecha llegada
-      { wch: 14 }, // fecha salida
-      { wch: 12 }, // hora entrada
-      { wch: 12 }, // hora salida
-      { wch: 8 },  // noches
-      { wch: 8 },  // adultos
-      { wch: 20 }, // habitación
-      { wch: 16 }, // localizador
-      { wch: 10 }, // desayuno
-      { wch: 30 }, // cancelación
-      { wch: 30 }, // notas
+      { wch: 25 }, { wch: 25 }, { wch: 28 }, { wch: 35 }, { wch: 18 },
+      { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 12 }, { wch: 8 },
+      { wch: 8 },  { wch: 20 }, { wch: 16 }, { wch: 10 }, { wch: 30 }, { wch: 30 },
     ];
 
     const wb = utils.book_new();
@@ -171,17 +138,19 @@ export function HotelImportModal({ planId, contextId, planUserName, onClose, onS
 
   const validRows = rows.filter(r => r.valid);
   const errorRows = rows.filter(r => !r.valid);
+  const warningRows = rows.filter(r => r.valid && r.warnings.length > 0);
+  const updateRows = rows.filter(r => r.valid && r.isUpdate);
+  const newRows = rows.filter(r => r.valid && !r.isUpdate);
 
   const handleImport = async () => {
     if (!validRows.length) return;
     setImporting(true);
 
     let imported = 0;
-    let updated = 0;
-    let errors = 0;
+    let updatedCount = 0;
+    let errorCount = 0;
 
     try {
-      // 1. Fetch all profiles for matching
       const { data: allProfiles } = await supabase.from('profiles').select('id, nombre, apellidos');
       const profileMap: Record<string, string> = {};
       allProfiles?.forEach(p => {
@@ -189,8 +158,7 @@ export function HotelImportModal({ planId, contextId, planUserName, onClose, onS
         profileMap[fullName] = p.id;
       });
 
-      // 2. Fetch or prepare plan cache for this context
-      const planCache: Record<string, string> = {}; // userId -> planId
+      const planCache: Record<string, string> = {};
       if (contextId) {
         const { data: existingPlans } = await supabase
           .from('contact_travel_plans')
@@ -205,20 +173,16 @@ export function HotelImportModal({ planId, contextId, planUserName, onClose, onS
 
       for (const row of validRows) {
         try {
-          let targetPlanId = planId; // Default to current managed plan
+          let targetPlanId = planId;
 
-          // Try to match guest to a user
           if (row.guest_name && contextId) {
             const guestNameNorm = row.guest_name.trim().toLowerCase();
             const matchedUserId = profileMap[guestNameNorm];
 
             if (matchedUserId) {
-              // Check if plan exists for this user/context
               let userPlanId = planCache[matchedUserId];
-              
               if (!userPlanId) {
-                // Create plan for this user
-                const { data: newPlan, error: createError } = await supabase
+                const { data: newPlan } = await supabase
                   .from('contact_travel_plans')
                   .insert({
                     user_id: matchedUserId,
@@ -229,21 +193,17 @@ export function HotelImportModal({ planId, contextId, planUserName, onClose, onS
                   .select('id')
                   .single();
                 
-                if (!createError && newPlan) {
+                if (newPlan) {
                   userPlanId = newPlan.id;
                   planCache[matchedUserId] = userPlanId;
                 }
               }
-
-              if (userPlanId) {
-                targetPlanId = userPlanId;
-              }
+              if (userPlanId) targetPlanId = userPlanId;
             }
           }
 
           const payload = rowToHotelStayPayload(row, targetPlanId);
 
-          // Anti-duplicate: check by booking_reference + guest_name + plan_id
           const { data: existing } = await supabase
             .from('hotel_stays')
             .select('id')
@@ -255,22 +215,22 @@ export function HotelImportModal({ planId, contextId, planUserName, onClose, onS
 
           if (existing?.id) {
             await supabase.from('hotel_stays').update(payload).eq('id', existing.id);
-            updated++;
+            updatedCount++;
           } else {
             await supabase.from('hotel_stays').insert(payload);
             imported++;
           }
         } catch (err) {
           console.error('Error importing row:', err);
-          errors++;
+          errorCount++;
         }
       }
     } catch (err) {
       console.error('Global import error:', err);
-      errors += validRows.length;
+      errorCount += validRows.length;
     }
 
-    setResult({ imported, updated, errors: errors + errorRows.length });
+    setResult({ imported, updated: updatedCount, errors: errorCount + errorRows.length });
     setStep('result');
     setImporting(false);
     onSuccess();
@@ -412,68 +372,78 @@ export function HotelImportModal({ planId, contextId, planUserName, onClose, onS
             {step === 'preview' && (
               <motion.div key="preview" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="space-y-6">
                 {/* Summary counters */}
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                   <div className="p-4 rounded-2xl bg-background border border-border text-center">
-                    <p className="text-2xl font-black">{rows.length}</p>
-                    <p className="text-[9px] font-black text-muted uppercase tracking-widest">Total filas</p>
+                    <p className="text-xl font-black">{rows.length}</p>
+                    <p className="text-[8px] font-black text-muted uppercase tracking-widest">Total</p>
                   </div>
                   <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-center">
-                    <p className="text-2xl font-black text-emerald-500">{validRows.length}</p>
-                    <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">Válidas</p>
+                    <p className="text-xl font-black text-emerald-500">{newRows.length}</p>
+                    <p className="text-[8px] font-black text-emerald-500 uppercase tracking-widest">Nuevos</p>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-center">
+                    <p className="text-xl font-black text-blue-400">{updateRows.length}</p>
+                    <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest">Actualizar</p>
+                  </div>
+                  <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-center">
+                    <p className="text-xl font-black text-amber-500">{warningRows.length}</p>
+                    <p className="text-[8px] font-black text-amber-500 uppercase tracking-widest">Avisos</p>
                   </div>
                   <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-center">
-                    <p className="text-2xl font-black text-red-400">{errorRows.length}</p>
-                    <p className="text-[9px] font-black text-red-400 uppercase tracking-widest">Con error</p>
+                    <p className="text-xl font-black text-red-400">{errorRows.length}</p>
+                    <p className="text-[8px] font-black text-red-400 uppercase tracking-widest">Errores</p>
                   </div>
                 </div>
 
                 {/* Table */}
-                <div className="rounded-2xl border border-border overflow-hidden">
+                <div className="rounded-2xl border border-border overflow-hidden bg-background/50">
                   <div className="overflow-x-auto">
                     <table className="w-full text-[10px]">
                       <thead className="bg-muted/30 border-b border-border">
                         <tr>
                           <th className="text-left p-3 font-black uppercase tracking-widest text-muted">Fila</th>
-                          <th className="text-left p-3 font-black uppercase tracking-widest text-muted">Estado</th>
+                          <th className="text-left p-3 font-black uppercase tracking-widest text-muted">Acción</th>
                           <th className="text-left p-3 font-black uppercase tracking-widest text-muted">Huésped</th>
                           <th className="text-left p-3 font-black uppercase tracking-widest text-muted">Hotel</th>
                           <th className="text-left p-3 font-black uppercase tracking-widest text-muted">Check-in</th>
-                          <th className="text-left p-3 font-black uppercase tracking-widest text-muted">Check-out</th>
                           <th className="text-left p-3 font-black uppercase tracking-widest text-muted">Localizador</th>
-                          <th className="text-left p-3 font-black uppercase tracking-widest text-muted">Habitación</th>
-                          <th className="text-left p-3 font-black uppercase tracking-widest text-muted">Desayuno</th>
+                          <th className="text-left p-3 font-black uppercase tracking-widest text-muted">Estado</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border">
                         {rows.map(row => (
-                          <tr key={row.rowIndex} className={row.valid ? 'hover:bg-emerald-500/3' : 'bg-red-500/5 hover:bg-red-500/8'}>
+                          <tr key={row.rowIndex} className={`
+                            ${!row.valid ? 'bg-red-500/5' : row.isUpdate ? 'bg-blue-500/3' : 'hover:bg-muted/20'}
+                          `}>
                             <td className="p-3 text-muted font-mono">#{row.rowIndex}</td>
                             <td className="p-3">
-                              {row.valid ? (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 font-black">
-                                  <CheckCircle2 size={10} /> OK
-                                </span>
+                              {row.isUpdate ? (
+                                <span className="text-blue-400 font-black uppercase text-[8px] bg-blue-400/10 px-1.5 py-0.5 rounded">Actualizar</span>
                               ) : (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-500/10 text-red-400 font-black" title={row.errors.join(', ')}>
-                                  <AlertCircle size={10} /> Error
-                                </span>
+                                <span className="text-emerald-500 font-black uppercase text-[8px] bg-emerald-500/10 px-1.5 py-0.5 rounded">Nuevo</span>
                               )}
                             </td>
-                            <td className="p-3 font-bold text-foreground">{row.guest_name || <span className="text-red-400 italic">—</span>}</td>
-                            <td className="p-3 font-medium">
-                              <div className="flex items-center gap-1.5">
-                                <Building2 size={10} className="text-accent shrink-0" />
-                                {row.hotel_name || <span className="text-red-400 italic">—</span>}
-                              </div>
+                            <td className="p-3 font-bold">
+                              {row.guest_name}
+                              {row.warnings.includes('Falta email') && <span className="ml-1 text-amber-500">*</span>}
                             </td>
-                            <td className="p-3 font-mono">{row.check_in || <span className="text-red-400 italic">—</span>}</td>
-                            <td className="p-3 font-mono">{row.check_out || <span className="text-red-400 italic">—</span>}</td>
-                            <td className="p-3 font-mono text-accent">{row.booking_reference || <span className="text-red-400 italic">—</span>}</td>
-                            <td className="p-3 text-muted">{row.room_type || '—'}</td>
+                            <td className="p-3 text-muted">{row.hotel_name}</td>
+                            <td className="p-3 font-mono">{row.check_in}</td>
+                            <td className="p-3 font-mono text-accent">{row.booking_reference}</td>
                             <td className="p-3">
-                              {row.breakfast_included
-                                ? <span className="text-emerald-500 font-black">Sí</span>
-                                : <span className="text-muted">No</span>}
+                              {!row.valid ? (
+                                <div className="flex items-center gap-1 text-red-400 font-bold" title={row.errors.join(', ')}>
+                                  <AlertCircle size={12} /> Critico
+                                </div>
+                              ) : row.warnings.length > 0 ? (
+                                <div className="flex items-center gap-1 text-amber-500 font-bold" title={row.warnings.join(', ')}>
+                                  <AlertCircle size={12} /> Aviso
+                                </div>
+                              ) : (
+                                <div className="flex items-center gap-1 text-emerald-500 font-bold">
+                                  <CheckCircle2 size={12} /> Válido
+                                </div>
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -482,19 +452,23 @@ export function HotelImportModal({ planId, contextId, planUserName, onClose, onS
                   </div>
                 </div>
 
-                {/* Error details */}
-                {errorRows.length > 0 && (
-                  <div className="p-5 rounded-2xl bg-red-500/5 border border-red-500/10 space-y-2">
-                    <p className="text-[10px] font-black text-red-400 uppercase tracking-widest flex items-center gap-2">
-                      <AlertCircle size={12} /> Errores encontrados (estas filas no se importarán)
-                    </p>
-                    {errorRows.map(row => (
-                      <p key={row.rowIndex} className="text-[10px] text-muted">
-                        <span className="font-mono text-red-400">Fila {row.rowIndex}:</span> {row.errors.join(' · ')}
-                      </p>
-                    ))}
+                {/* Legend & Error Actions */}
+                <div className="flex items-center justify-between">
+                  <div className="flex gap-4 text-[9px] text-muted">
+                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400"></span> Error (No se importa)</div>
+                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-500"></span> Aviso (Se importa)</div>
+                    <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-400"></span> Actualizar existente</div>
                   </div>
-                )}
+                  
+                  {errorRows.length > 0 && (
+                    <button 
+                      onClick={downloadErrorCsv}
+                      className="flex items-center gap-2 text-red-400 font-black uppercase text-[9px] hover:underline"
+                    >
+                      <Download size={12} /> Descargar reporte de errores (CSV)
+                    </button>
+                  )}
+                </div>
               </motion.div>
             )}
 
@@ -506,12 +480,12 @@ export function HotelImportModal({ planId, contextId, planUserName, onClose, onS
                 </div>
                 <div className="text-center space-y-2">
                   <h3 className="text-3xl font-black font-heading">¡Importación completada!</h3>
-                  <p className="text-muted font-medium">Los alojamientos han sido procesados correctamente.</p>
+                  <p className="text-muted font-medium">Se han procesado {rows.length} registros del archivo.</p>
                 </div>
-                <div className="grid grid-cols-3 gap-4 w-full max-w-sm">
+                <div className="grid grid-cols-3 gap-4 w-full max-w-md">
                   <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-center">
                     <p className="text-2xl font-black text-emerald-500">{result.imported}</p>
-                    <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">Nuevos</p>
+                    <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">Creados</p>
                   </div>
                   <div className="p-4 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-center">
                     <p className="text-2xl font-black text-blue-400">{result.updated}</p>
@@ -519,7 +493,7 @@ export function HotelImportModal({ planId, contextId, planUserName, onClose, onS
                   </div>
                   <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-center">
                     <p className="text-2xl font-black text-red-400">{result.errors}</p>
-                    <p className="text-[9px] font-black text-red-400 uppercase tracking-widest">Errores</p>
+                    <p className="text-[9px] font-black text-red-400 uppercase tracking-widest">No procesados</p>
                   </div>
                 </div>
               </motion.div>

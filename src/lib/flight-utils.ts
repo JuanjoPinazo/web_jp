@@ -75,11 +75,33 @@ export function formatDuration(minutes: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-/**
- * Calculates check-in deadline (default 45 min before departure).
- */
-export function calculateCheckinDeadline(departure: string, offsetMinutes = 45): string {
-  const dep = new Date(departure);
-  const deadline = new Date(dep.getTime() - offsetMinutes * 60 * 1000);
-  return deadline.toISOString();
+export function calculateCheckinDeadline(departure: string, offsetMinutes = 40): string {
+  // We MUST ignore timezones completely. 
+  // If the string says 15:25, we want to subtract minutes from 15:25.
+  
+  try {
+    const parts = departure.split('T');
+    const datePart = parts[0];
+    const timePart = parts[1].substring(0, 5); // HH:mm
+    
+    const [h, m] = timePart.split(':').map(Number);
+    let totalMinutes = h * 60 + m - offsetMinutes;
+    
+    let finalDatePart = datePart;
+    if (totalMinutes < 0) {
+      totalMinutes += 24 * 60;
+      // Subtract one day (simplified)
+      const d = new Date(datePart);
+      d.setDate(d.getDate() - 1);
+      finalDatePart = d.toISOString().split('T')[0];
+    }
+    
+    const finalH = String(Math.floor(totalMinutes / 60)).padStart(2, '0');
+    const finalM = String(totalMinutes % 60).padStart(2, '0');
+    
+    return `${finalDatePart}T${finalH}:${finalM}:00`;
+  } catch (e) {
+    // Fallback just in case
+    return departure;
+  }
 }

@@ -43,7 +43,7 @@ export const BottomNav = () => {
   };
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-surface/70 backdrop-blur-2xl border-t border-border/50 flex items-center justify-around px-2 py-4 pb-8 md:hidden shadow-[0_-8px_30px_rgb(0,0,0,0.04)] dark:shadow-[0_-8px_30px_rgb(0,0,0,0.2)]">
+    <nav className="fixed bottom-0 left-0 right-0 z-50 bg-surface/70 backdrop-blur-2xl border-t border-border/50 flex items-center justify-around px-2 pt-4 pb-[calc(1rem+env(safe-area-inset-bottom))] md:hidden shadow-[0_-8px_30px_rgb(0,0,0,0.04)] dark:shadow-[0_-8px_30px_rgb(0,0,0,0.2)]">
       {items.map((item) => {
         const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
         return (

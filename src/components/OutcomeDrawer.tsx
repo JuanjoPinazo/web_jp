@@ -15,7 +15,7 @@ interface OutcomeDrawerProps {
 
 export function OutcomeDrawer({ isOpen, onClose, card, onOpenQR }: OutcomeDrawerProps) {
   if (!card) return null;
-  const { title, status, details, actionType, payload } = card;
+  const { title, status, details = {}, actionType, payload } = card;
 
   return (
     <AnimatePresence>

@@ -94,6 +94,43 @@ export default function AdminPlansPage() {
     loadData();
   }, []);
 
+  // --- AUTOMATIC FLIGHT CALCULATIONS ---
+  useEffect(() => {
+    if (!editingFlight) return;
+    
+    const { departure_time, arrival_time, departure_location, arrival_location } = editingFlight;
+    let updates: any = {};
+    
+    // 1. Duration Calculation
+    if (departure_time && arrival_time) {
+      const dep = new Date(departure_time);
+      const arr = new Date(arrival_time);
+      const diffMs = arr.getTime() - dep.getTime();
+      const diffMins = Math.max(0, Math.floor(diffMs / 60000));
+      
+      if (diffMins > 0 && diffMins !== editingFlight.duration_minutes) {
+        updates.duration_minutes = diffMins;
+      }
+    }
+
+    // 2. Distance & Terminals Smart Defaults (VLC <-> ORY)
+    const route = `${departure_location?.toUpperCase()}-${arrival_location?.toUpperCase()}`;
+    if (route === 'VLC-ORY' && !editingFlight.distance_km) {
+      updates = { ...updates, distance_km: 1065, departure_terminal: 'T1', arrival_terminal: '1' };
+    } else if (route === 'ORY-VLC' && !editingFlight.distance_km) {
+      updates = { ...updates, distance_km: 1065, departure_terminal: '1', arrival_terminal: 'T1' };
+    }
+
+    // 3. Default Check-in Deadline (Now handled by UI calculation)
+    if (!editingFlight.checkin_deadline) {
+      // Keep empty to let UI calculate default (45 or 40 min)
+    }
+
+    if (Object.keys(updates).length > 0) {
+      setEditingFlight((prev: any) => ({ ...prev, ...updates }));
+    }
+  }, [editingFlight?.departure_time, editingFlight?.arrival_time, editingFlight?.departure_location, editingFlight?.arrival_location]);
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -105,7 +142,7 @@ export default function AdminPlansPage() {
         .from('contact_travel_plans')
         .select(`
           *,
-          profiles:user_id (nombre, apellidos, email),
+          profiles:user_id (nombre, apellidos, email, avatar_url),
           contexts:context_id (name)
         `)
         .order('created_at', { ascending: false });
@@ -189,7 +226,7 @@ export default function AdminPlansPage() {
         .from('travel_flights')
         .update({
           ...flightData,
-          updated_at: new Date().toISOString()
+          last_updated_at: new Date().toISOString()
         })
         .eq('id', editingFlight.id);
 
@@ -296,8 +333,12 @@ export default function AdminPlansPage() {
             </div>
 
             <div className="flex items-center gap-4 mb-4">
-              <div className="w-12 h-12 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent">
-                <UserIcon size={24} />
+              <div className="w-12 h-12 rounded-xl bg-accent/10 border border-accent/20 flex items-center justify-center text-accent overflow-hidden">
+                {plan.profiles?.avatar_url ? (
+                  <img src={plan.profiles.avatar_url} alt={plan.profiles.nombre} className="w-full h-full object-cover" />
+                ) : (
+                  <UserIcon size={24} />
+                )}
               </div>
               <div>
                 <h3 className="font-bold text-sm text-foreground line-clamp-1">{plan.profiles?.nombre} {plan.profiles?.apellidos}</h3>
@@ -836,7 +877,7 @@ export default function AdminPlansPage() {
                   <input 
                     type="text" 
                     className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent"
-                    value={supportInfo.phone}
+                    value={supportInfo.phone || ''}
                     onChange={e => setSupportInfo({ phone: e.target.value })}
                   />
                 </div>
@@ -962,6 +1003,10 @@ export default function AdminPlansPage() {
                            <Hotel size={32} className={importType === 'hotel' ? 'text-accent' : 'text-muted'} />
                            <span className="text-[10px] font-black uppercase tracking-widest">Reserva Hotel</span>
                          </button>
+                         <button onClick={() => setImportType('boarding_pass')} className={`p-6 rounded-3xl border-2 transition-all flex flex-col items-center gap-4 ${importType === 'boarding_pass' ? 'border-accent bg-accent/5' : 'border-border bg-muted/10 opacity-50 hover:opacity-100'}`}>
+                           <QrCode size={32} className={importType === 'boarding_pass' ? 'text-accent' : 'text-muted'} />
+                           <span className="text-[10px] font-black uppercase tracking-widest">Tarjeta Embarque</span>
+                         </button>
                        </div>
                        
                        <label className="block">
@@ -998,8 +1043,31 @@ export default function AdminPlansPage() {
                         </div>
                       </div>
 
+                      {/* DEBUG PANEL TEMPORAL */}
+                      <div className="bg-black/40 border border-white/10 rounded-2xl p-4 space-y-2">
+                        <p className="text-[9px] font-black uppercase text-muted tracking-widest">Panel de Depuración</p>
+                        <div className="grid grid-cols-2 gap-2 text-[8px] font-mono">
+                          <div className="text-muted">Tipo: <span className="text-accent">{extractionResult.type}</span></div>
+                          <div className="text-muted">Raw Length: <span className="text-accent">{extractionResult.rawText?.length || 0}</span></div>
+                          <div className="text-muted">QR Detectado: <span className={extractionResult.qr_detected ? 'text-green-500' : 'text-orange-500'}>{extractionResult.qr_detected ? 'SÍ' : 'NO'}</span></div>
+                          <div className="text-muted">QR Decodificado: <span className={extractionResult.qr_decoded ? 'text-green-500' : 'text-red-500'}>{extractionResult.qr_decoded ? 'SÍ' : 'NO'}</span></div>
+                        </div>
+                        {extractionResult.qr_decoded && (
+                          <div className="text-[7px] font-mono text-green-500/70 overflow-hidden whitespace-nowrap text-ellipsis bg-green-500/5 p-1 rounded">
+                            PAYLOAD: {extractionResult.qr_raw_payload}
+                          </div>
+                        )}
+                        <div className="text-[8px] font-mono text-muted overflow-hidden whitespace-nowrap text-ellipsis">
+                          Campos: {Object.keys(extractionResult.data).filter(k => !!extractionResult.data[k]).join(', ')}
+                        </div>
+                        {(extractionResult as any).error && (
+                          <p className="text-red-500 text-[9px] font-bold">ERROR: {(extractionResult as any).error}</p>
+                        )}
+                      </div>
+
                       <div className="grid grid-cols-2 gap-6">
-                        {extractionResult.type === 'flight' ? (
+                        {/* CASO 1: VUELO (RESERVA/CONFIRMACIÓN) */}
+                        {extractionResult.type === 'flight' && (
                           <>
                             <FieldReview label="Aerolínea" value={extractionResult.data.airline} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, airline: v}})} />
                             <FieldReview label="Nº de Vuelo" value={extractionResult.data.flight_number} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, flight_number: v}})} />
@@ -1010,7 +1078,10 @@ export default function AdminPlansPage() {
                             <FieldReview label="Cód. Reserva" value={extractionResult.data.reservation_code} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, reservation_code: v}})} />
                             <FieldReview label="Asiento" value={extractionResult.data.seat} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, seat: v}})} />
                           </>
-                        ) : (
+                        )}
+
+                        {/* CASO 2: HOTEL */}
+                        {extractionResult.type === 'hotel' && (
                           <>
                             <FieldReview label="Hotel" value={extractionResult.data.hotel_name} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, hotel_name: v}})} />
                             <FieldReview label="Confirmación" value={extractionResult.data.confirmation_number} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, confirmation_number: v}})} />
@@ -1021,21 +1092,27 @@ export default function AdminPlansPage() {
                             </div>
                           </>
                         )}
+
+                        {/* CASO 3: TARJETA DE EMBARQUE */}
                         {extractionResult.type === 'boarding_pass' && (
                           <>
-                            <div className="col-span-2 bg-accent/5 p-4 rounded-xl border border-accent/20 mb-4">
-                              <p className="text-[10px] font-black text-accent uppercase tracking-widest mb-1">Tarjeta Detectada: Vueling</p>
-                              <p className="text-xs font-bold text-foreground">Se han extraído datos operativos para {extractionResult.data.passenger_name}</p>
+                            <div className="col-span-2 bg-accent/5 p-4 rounded-xl border border-accent/20 mb-2">
+                              <p className="text-[10px] font-black text-accent uppercase tracking-widest mb-1">Tarjeta Detectada: {extractionResult.data.airline}</p>
+                              <p className="text-xs font-bold text-foreground">Datos operativos para {extractionResult.data.passenger_name || 'Pasajero'}</p>
                             </div>
                             <FieldReview label="Pasajero" value={extractionResult.data.passenger_name} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, passenger_name: v}})} />
                             <FieldReview label="Vuelo" value={extractionResult.data.flight_number} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, flight_number: v}})} />
-                            <FieldReview label="Origen (IATA)" value={extractionResult.data.origin} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, origin: v}})} />
-                            <FieldReview label="Destino (IATA)" value={extractionResult.data.destination} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, destination: v}})} />
+                            <FieldReview label="Origen (IATA)" value={extractionResult.data.departure_location || extractionResult.data.origin} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, departure_location: v}})} />
+                            <FieldReview label="Destino (IATA)" value={extractionResult.data.arrival_location || extractionResult.data.destination} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, arrival_location: v}})} />
                             <FieldReview label="Salida" value={extractionResult.data.departure_time} type="text" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, departure_time: v}})} />
                             <FieldReview label="Llegada" value={extractionResult.data.arrival_time} type="text" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, arrival_time: v}})} />
                             <FieldReview label="Asiento" value={extractionResult.data.seat} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, seat: v}})} />
+                            <FieldReview label="Puerta (Gate)" value={extractionResult.data.gate} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, gate: v}})} />
                             <FieldReview label="Grupo" value={extractionResult.data.boarding_group} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, boarding_group: v}})} />
                             <FieldReview label="Localizador" value={extractionResult.data.booking_reference} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, booking_reference: v}})} />
+                            <div className="col-span-2">
+                              <FieldReview label="Contenido QR (BCBP)" value={extractionResult.data.qr_code} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, qr_code: v}})} />
+                            </div>
                           </>
                         )}
                       </div>
@@ -1046,8 +1123,8 @@ export default function AdminPlansPage() {
                           try {
                             setIsSubmitting(true);
                             const editData = extractionResult.data;
-                            const depLoc = editData.departure_location === 'VAL' ? 'VLC' : editData.departure_location;
-                            const arrLoc = editData.arrival_location === 'VAL' ? 'VLC' : editData.arrival_location;
+                            const depLoc = (editData.departure_location || editData.origin || '').toUpperCase() === 'VAL' ? 'VLC' : (editData.departure_location || editData.origin);
+                            const arrLoc = (editData.arrival_location || editData.destination || '').toUpperCase() === 'VAL' ? 'VLC' : (editData.arrival_location || editData.destination);
 
                             // Detección de trayecto (Outbound / Return)
                             let tripType = editData.type;
@@ -1064,7 +1141,7 @@ export default function AdminPlansPage() {
                               'id', 'plan_id', 'airline', 'flight_number', 'departure_location', 
                               'arrival_location', 'origin', 'destination', 'departure_time', 
                               'arrival_time', 'reservation_code', 'seat', 'baggage_info', 
-                              'is_verified', 'source', 'type', 'notes',
+                              'is_verified', 'source', 'type', 'notes', 'gate', 'boarding_group', 'qr_code',
                               'hotel_name', 'confirmation_number', 'address', 'check_in', 'check_out'
                             ];
 
@@ -1149,6 +1226,13 @@ export default function AdminPlansPage() {
 
                               if (existingFlight) {
                                 relatedFlightId = existingFlight.id;
+                                // UPDATE flight with new operational data from boarding pass
+                                await supabase.from('travel_flights').update({
+                                   seat: sanitizedData.seat,
+                                   gate: sanitizedData.gate,
+                                   boarding_group: sanitizedData.boarding_group,
+                                   reservation_code: sanitizedData.booking_reference
+                                }).eq('id', relatedFlightId);
                               } else {
                                 // 2. Create flight if doesn't exist
                                 const newFlight = await saveItem('travel_flights', {
@@ -1161,6 +1245,8 @@ export default function AdminPlansPage() {
                                   arrival_time: sanitizedData.arrival_time,
                                   reservation_code: sanitizedData.booking_reference,
                                   seat: sanitizedData.seat,
+                                  gate: sanitizedData.gate,
+                                  boarding_group: sanitizedData.boarding_group,
                                   is_verified: true,
                                   source: 'boarding_pass_import',
                                   type: tripType
@@ -1208,6 +1294,9 @@ export default function AdminPlansPage() {
                                  passenger_name: sanitizedData.passenger_name,
                                  seat_assignment: sanitizedData.seat,
                                  boarding_group: sanitizedData.boarding_group,
+                                 qr_code: extractionResult.qr_raw_payload || sanitizedData.qr_code,
+                                 qr_decoded: extractionResult.qr_decoded || false,
+                                 qr_raw_payload: extractionResult.qr_raw_payload || null,
                                  visible_to_client: true
                                });
                             }
@@ -1217,7 +1306,20 @@ export default function AdminPlansPage() {
                             handleManagePlan(selectedPlan);
                           } catch (err: any) {
                              console.error('Error Crítico:', err);
-                             const errorMsg = err.message || (typeof err === 'object' ? JSON.stringify(err) : String(err));
+                             // Extract a readable message
+                             let errorMsg = 'Error desconocido';
+                             if (err.message) errorMsg = err.message;
+                             else if (err.error_description) errorMsg = err.error_description;
+                             else if (typeof err === 'string') errorMsg = err;
+                             else {
+                               try {
+                                 errorMsg = JSON.stringify(err);
+                                 if (errorMsg === '{}') errorMsg = err.toString();
+                               } catch (e) {
+                                 errorMsg = String(err);
+                               }
+                             }
+
                              await alert({ 
                                title: 'Error de Guardado', 
                                message: `No se pudo guardar: ${errorMsg}`, 
@@ -1649,15 +1751,16 @@ export default function AdminPlansPage() {
   );
 }
 
-const FieldReview = ({ label, value, onChange, type = "text" }: any) => (
+const FieldReview = ({ label, value, onChange, type = "text", optional = false }: any) => (
   <div className="space-y-2">
     <label className="text-[9px] font-black uppercase text-muted tracking-widest px-1 flex justify-between">
       {label}
-      {!value && <span className="text-red-500 font-bold">Faltante</span>}
+      {!value && !optional && <span className="text-red-500 font-bold">Faltante</span>}
+      {!value && optional && <span className="text-muted font-bold">Opcional</span>}
     </label>
     <input 
       type={type}
-      className={`w-full bg-background border rounded-xl p-3 text-xs outline-none transition-all ${!value ? 'border-red-500/50 bg-red-500/5' : 'border-border focus:border-accent'}`} 
+      className={`w-full bg-background border rounded-xl p-3 text-xs outline-none transition-all ${!value && !optional ? 'border-red-500/50 bg-red-500/5' : 'border-border focus:border-accent'}`} 
       value={type === 'datetime-local' ? value?.slice(0, 16) || '' : value || ''} 
       onChange={e => onChange(e.target.value)}
       placeholder={`Ingresar ${label.toLowerCase()}...`}

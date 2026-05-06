@@ -49,7 +49,9 @@ export interface ImportRow {
   room_group_id?: string;
   // Validation
   valid: boolean;
+  isUpdate: boolean;
   errors: string[];
+  warnings: string[];
 }
 
 /** Normalize a column header to a lowercase, trimmed string */
@@ -107,8 +109,32 @@ function parseBreakfast(value: any): boolean {
   return ['sí', 'si', 'yes', 'true', '1', 'incluido', 'included'].includes(s);
 }
 
+/** Parse Excel decimal time or string time to HH:MM */
+function parseTime(value: any): string | undefined {
+  if (value === null || value === undefined || value === '') return undefined;
+  
+  if (typeof value === 'number') {
+    // Excel stores times as decimals (0.625 = 15:00)
+    if (value >= 0 && value <= 1) {
+      const totalMinutes = Math.round(value * 24 * 60);
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+    }
+    return value.toString();
+  }
+
+  const str = value.toString().trim();
+  // Validates HH:MM or HH:MM:SS
+  if (/^([0-1]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/.test(str)) {
+    return str.substring(0, 5);
+  }
+
+  return str;
+}
+
 /** Parse all rows from a raw JSON sheet (array of objects from xlsx) */
-export function parseHotelRows(rawRows: Record<string, any>[]): ImportRow[] {
+export function parseHotelRows(rawRows: Record<string, any>[], existingStays: any[] = []): ImportRow[] {
   if (!rawRows.length) return [];
 
   const headers = Object.keys(rawRows[0]);
@@ -122,18 +148,41 @@ export function parseHotelRows(rawRows: Record<string, any>[]): ImportRow[] {
     }
 
     const errors: string[] = [];
+    const warnings: string[] = [];
 
+    // 1. EXTRACTION
     const guest_name = mapped.guest_name?.toString().trim() || undefined;
     const hotel_name = mapped.hotel_name?.toString().trim() || undefined;
     const check_in   = parseDate(mapped.check_in);
     const check_out  = parseDate(mapped.check_out);
     const booking_reference = mapped.booking_reference?.toString().trim() || undefined;
 
+    // 2. REQUIRED VALIDATION
     if (!guest_name)        errors.push('Falta nombre del huésped');
     if (!hotel_name)        errors.push('Falta nombre del hotel');
     if (!check_in)          errors.push('Fecha de entrada inválida o ausente');
     if (!check_out)         errors.push('Fecha de salida inválida o ausente');
     if (!booking_reference) errors.push('Falta localizador/referencia');
+
+    // 3. DATE LOGIC VALIDATION
+    if (check_in && check_out) {
+      if (new Date(check_out) <= new Date(check_in)) {
+        errors.push('La fecha de salida debe ser posterior a la de entrada');
+      }
+    }
+
+    // 4. RECOMMENDED WARNINGS
+    if (!mapped.guest_email)    warnings.push('Falta email');
+    if (!mapped.room_type)      warnings.push('Falta tipo de habitación');
+    if (!mapped.adults)         warnings.push('Falta nº adultos (por defecto 1)');
+    if (!mapped.check_in_time)  warnings.push('Falta hora de entrada');
+    if (!mapped.check_out_time) warnings.push('Falta hora de salida');
+
+    // 5. UPDATE DETECTION
+    const isUpdate = existingStays.some(s => 
+      s.booking_reference?.toString().toLowerCase() === booking_reference?.toString().toLowerCase() && 
+      s.guest_name?.toString().toLowerCase() === guest_name?.toString().toLowerCase()
+    );
 
     const row: ImportRow = {
       rowIndex: i + 2, // 1-indexed + header row
@@ -145,8 +194,8 @@ export function parseHotelRows(rawRows: Record<string, any>[]): ImportRow[] {
       phone:               mapped.phone?.toString().trim() || undefined,
       check_in,
       check_out,
-      check_in_time:       mapped.check_in_time?.toString().trim() || undefined,
-      check_out_time:      mapped.check_out_time?.toString().trim() || undefined,
+      check_in_time:       parseTime(mapped.check_in_time),
+      check_out_time:      parseTime(mapped.check_out_time),
       nights:              mapped.nights ? parseInt(mapped.nights, 10) : undefined,
       adults:              mapped.adults ? parseInt(mapped.adults, 10) : 1,
       room_type:           mapped.room_type?.toString().trim() || undefined,
@@ -156,7 +205,9 @@ export function parseHotelRows(rawRows: Record<string, any>[]): ImportRow[] {
       notes:               mapped.notes?.toString().trim() || undefined,
       room_group_id:       mapped.room_group_id?.toString().trim() || undefined,
       valid: errors.length === 0,
+      isUpdate,
       errors,
+      warnings,
     };
 
     return row;

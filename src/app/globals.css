@@ -10,6 +10,12 @@
   --accent-subtle: rgba(0, 174, 239, 0.1);
   --muted: #64748B; /* Better contrast for muted text */
   --border: #E2E8F0;
+
+  /* Safe Areas */
+  --sat: env(safe-area-inset-top);
+  --sar: env(safe-area-inset-right);
+  --sab: env(safe-area-inset-bottom);
+  --sal: env(safe-area-inset-left);
 }
 
 html.dark {
@@ -22,6 +28,16 @@ html.dark {
   --accent-subtle: rgba(0, 174, 239, 0.15);
   --muted: #94A3B8;
   --border: #262629;
+}
+
+/* PWA Optimizations */
+@media all and (display-mode: standalone) {
+  body {
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    overscroll-behavior-y: none;
+  }
 }
 
 @theme {

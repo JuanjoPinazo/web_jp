@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAdmin } from '@/hooks/useAdmin';
 import { User } from '@/types/platform';
-import { Loader2, UserCircle, Shield, User as UserIcon, Mail, Phone, Calendar, Plus, X, Trash2, Edit2, Search, LayoutGrid, List, Filter, Building2, MoreHorizontal, Send, Camera, Briefcase, CheckCircle2 } from 'lucide-react';
+import { Loader2, UserCircle, Shield, User as UserIcon, Mail, Phone, Calendar, Plus, X, Trash2, Edit2, Search, LayoutGrid, List, Filter, Building2, MoreHorizontal, Send, Camera, Briefcase, CheckCircle2, Key, Copy, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { useDialog } from '@/context/DialogContext';
 import { Button } from '@/components/Button';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -24,6 +24,14 @@ export default function AdminUsersPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterRole, setFilterRole] = useState<'all' | 'admin' | 'client'>('all');
   const { confirm, alert } = useDialog();
+
+  // Activate with temp password state
+  const [activatingUser, setActivatingUser] = useState<User | null>(null);
+  const [tempPassword, setTempPassword] = useState('');
+  const [showTempPassword, setShowTempPassword] = useState(false);
+  const [isActivating, setIsActivating] = useState(false);
+  const [activationDone, setActivationDone] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const [formData, setFormData] = useState({
     email: '',
@@ -191,25 +199,56 @@ export default function AdminUsersPage() {
     }
   };
 
-  const handleActivateUser = async (userId: string) => {
+  const generatePassword = () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#';
+    let pwd = '';
+    for (let i = 0; i < 12; i++) {
+      pwd += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return pwd;
+  };
+
+  const openActivateModal = (user: User) => {
+    setActivatingUser(user);
+    setTempPassword(generatePassword());
+    setShowTempPassword(true);
+    setActivationDone(false);
+    setCopied(false);
+  };
+
+  const handleActivateUser = async () => {
+    if (!activatingUser || !tempPassword) return;
+    setIsActivating(true);
     try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ onboarding_status: 'active' })
-        .eq('id', userId);
-      
-      if (error) throw error;
-      
-      await alert({ 
-        title: 'Usuario Activado', 
-        message: 'El usuario ha sido activado manualmente. Ya puedes gestionar su logística completamente.', 
-        type: 'success' 
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      const token = currentSession?.access_token;
+
+      const response = await fetch('/api/admin/activate-user', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ userId: activatingUser.id, temporaryPassword: tempPassword })
       });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Error al activar usuario');
+
+      setActivationDone(true);
       loadData();
     } catch (err: any) {
       console.error(err);
-      await alert({ title: 'Error', message: err.message, type: 'danger' });
+      await alert({ title: 'Error de Activación', message: err.message, type: 'danger' });
+    } finally {
+      setIsActivating(false);
     }
+  };
+
+  const handleCopyPassword = () => {
+    navigator.clipboard.writeText(tempPassword);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const handleDeleteUser = async (userId: string) => {
@@ -347,7 +386,7 @@ export default function AdminUsersPage() {
                    </div>
                     <div className="flex gap-2">
                       {user.onboarding_status !== 'active' && (
-                        <button onClick={() => handleActivateUser(user.id)} title="Activar Manualmente" className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all"><CheckCircle2 size={16} /></button>
+                        <button onClick={() => openActivateModal(user)} title="Activar con Contraseña Temporal" className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all"><Key size={16} /></button>
                       )}
                       <button onClick={() => handleResendInvite(user)} title="Reenviar Invitación" className="p-2.5 rounded-xl bg-accent/10 border border-accent/20 text-accent hover:bg-accent hover:text-white transition-all"><Send size={16} /></button>
                       <button onClick={() => setEditingUser(user)} className="p-2.5 rounded-xl bg-background border border-border text-muted hover:text-accent transition-all"><Edit2 size={16} /></button>
@@ -454,7 +493,7 @@ export default function AdminUsersPage() {
                 {/* Actions */}
                 <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                   {user.onboarding_status !== 'active' && (
-                    <button onClick={() => handleActivateUser(user.id)} title="Activar Manualmente" className="p-2 rounded-lg bg-background border border-border text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all"><CheckCircle2 size={14} /></button>
+                    <button onClick={() => openActivateModal(user)} title="Activar con Contraseña Temporal" className="p-2 rounded-lg bg-background border border-border text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all"><Key size={14} /></button>
                   )}
                   <button onClick={() => handleResendInvite(user)} title="Reenviar Invitación" className="p-2 rounded-lg bg-background border border-border text-muted hover:text-accent transition-all"><Send size={14} /></button>
                   <button onClick={() => setEditingUser(user)} className="p-2 rounded-lg bg-background border border-border text-muted hover:text-accent transition-all"><Edit2 size={14} /></button>
@@ -582,6 +621,156 @@ export default function AdminUsersPage() {
                       {isSubmitting ? <Loader2 className="animate-spin" size={20} /> : (editingUser ? 'Guardar Cambios' : formData.sendInvite ? 'Enviar Invitación' : 'Crear en Borrador')}
                    </Button>
                </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* MODAL: ACTIVATE WITH TEMPORARY PASSWORD */}
+      <AnimatePresence>
+        {activatingUser && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => { if (!isActivating) { setActivatingUser(null); } }}
+              className="absolute inset-0 bg-black/70 backdrop-blur-md"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-surface border border-border rounded-[2.5rem] p-10 shadow-2xl"
+            >
+              <button
+                onClick={() => setActivatingUser(null)}
+                className="absolute top-6 right-6 p-2.5 rounded-full bg-background border border-border text-muted hover:text-accent transition-all"
+              >
+                <X size={18} />
+              </button>
+
+              {!activationDone ? (
+                <div className="space-y-8">
+                  {/* Header */}
+                  <div className="space-y-2">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500 mb-4">
+                      <Key size={22} />
+                    </div>
+                    <h3 className="text-2xl font-black tracking-tighter">Activar Cuenta</h3>
+                    <p className="text-xs text-muted font-medium">
+                      Establece una contraseña temporal para{' '}
+                      <span className="font-bold text-foreground">{activatingUser.name} {activatingUser.surname}</span>.
+                      El usuario deberá cambiarla al iniciar sesión.
+                    </p>
+                  </div>
+
+                  {/* Password Field */}
+                  <div className="space-y-3">
+                    <label className="text-[10px] font-black uppercase tracking-widest text-muted px-1">
+                      Contraseña Temporal
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <input
+                          type={showTempPassword ? 'text' : 'password'}
+                          value={tempPassword}
+                          onChange={e => setTempPassword(e.target.value)}
+                          className="w-full bg-background border border-border rounded-2xl px-4 py-4 text-sm font-mono outline-none focus:border-accent/40 pr-12"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowTempPassword(!showTempPassword)}
+                          className="absolute right-4 top-1/2 -translate-y-1/2 text-muted hover:text-accent transition-colors"
+                        >
+                          {showTempPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                        </button>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setTempPassword(generatePassword())}
+                        title="Generar nueva contraseña"
+                        className="p-4 rounded-2xl bg-background border border-border text-muted hover:text-accent hover:border-accent/40 transition-all"
+                      >
+                        <RefreshCw size={16} />
+                      </button>
+                    </div>
+                    <p className="text-[9px] text-muted font-medium px-1">
+                      Mín. 8 caracteres. Comparte esta contraseña con el usuario de forma segura.
+                    </p>
+                  </div>
+
+                  {/* Info box */}
+                  <div className="p-5 rounded-2xl bg-accent/5 border border-accent/10 space-y-1">
+                    <p className="text-[10px] font-black text-accent uppercase tracking-widest">¿Qué ocurrirá?</p>
+                    <ul className="text-[10px] text-muted space-y-1 font-medium">
+                      <li>· El email del usuario se confirmará automáticamente</li>
+                      <li>· La cuenta pasará a estado <span className="text-emerald-500 font-bold">Activo</span></li>
+                      <li>· Al entrar, verá la misma vista que el cliente final</li>
+                      <li>· Puede cambiar la contraseña desde su perfil</li>
+                    </ul>
+                  </div>
+
+                  <Button
+                    onClick={handleActivateUser}
+                    disabled={isActivating || tempPassword.length < 8}
+                    className="w-full py-5 rounded-2xl shadow-xl shadow-emerald-500/10 bg-emerald-500 hover:bg-emerald-600"
+                  >
+                    {isActivating ? (
+                      <Loader2 className="animate-spin" size={20} />
+                    ) : (
+                      <><Key size={16} /> Activar y Establecer Contraseña</>
+                    )}
+                  </Button>
+                </div>
+              ) : (
+                /* SUCCESS STATE */
+                <div className="space-y-8 text-center">
+                  <div className="w-16 h-16 rounded-full bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500 mx-auto">
+                    <CheckCircle2 size={32} />
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-2xl font-black tracking-tighter">¡Cuenta Activada!</h3>
+                    <p className="text-xs text-muted">
+                      <span className="font-bold text-foreground">{activatingUser.name}</span> ya puede iniciar sesión con estas credenciales:
+                    </p>
+                  </div>
+
+                  <div className="p-6 rounded-2xl bg-background border border-border space-y-4 text-left">
+                    <div className="space-y-1">
+                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">Email</p>
+                      <p className="text-sm font-mono font-bold text-foreground">{activatingUser.email}</p>
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">Contraseña Temporal</p>
+                      <div className="flex items-center gap-3">
+                        <p className="text-sm font-mono font-bold text-accent flex-1">{tempPassword}</p>
+                        <button
+                          onClick={handleCopyPassword}
+                          className={`p-2 rounded-xl border transition-all ${
+                            copied
+                              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500'
+                              : 'bg-background border-border text-muted hover:text-accent'
+                          }`}
+                        >
+                          {copied ? <CheckCircle2 size={14} /> : <Copy size={14} />}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <p className="text-[9px] text-muted font-medium">
+                    Comparte estas credenciales de forma segura. El usuario podrá cambiar la contraseña desde su perfil.
+                  </p>
+
+                  <Button
+                    onClick={() => setActivatingUser(null)}
+                    className="w-full py-5 rounded-2xl"
+                  >
+                    Cerrar
+                  </Button>
+                </div>
+              )}
             </motion.div>
           </div>
         )}

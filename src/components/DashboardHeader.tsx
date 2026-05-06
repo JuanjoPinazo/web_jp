@@ -23,7 +23,7 @@ export const DashboardHeader = () => {
   const initials = `${session.user?.name?.[0] || ''}${session.user?.surname?.[0] || ''}`.toUpperCase();
 
   return (
-    <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border/50 py-4 px-6 mb-6">
+    <header className="sticky top-0 z-40 bg-background/80 backdrop-blur-xl border-b border-border/50 pt-[calc(1rem+env(safe-area-inset-top))] pb-4 px-6 mb-6">
       <div className="max-w-7xl mx-auto flex items-center justify-between">
         {/* Mobile Logo / Placeholder for brand info if needed */}
         <div className="md:hidden flex items-center gap-2">
