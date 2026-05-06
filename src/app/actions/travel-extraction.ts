@@ -78,7 +78,14 @@ export async function extractTravelInfo(formData: FormData): Promise<ExtractedDa
 
   console.log(`[DEBUG] Proveedor Detectado: ${providerKey}`);
   
-  // 1. Intentar Parser de Tarjeta de Embarque Vueling
+  // 1. Intentar Parser de Confirmación Vueling (Email/Itinerario)
+  const vuelingConf = parseVuelingFlightConfirmation(rawText);
+  if (vuelingConf) {
+    console.log(`[DEBUG] Parser Vueling Confirmation Exitoso:`, vuelingConf);
+    return { type: 'flight', data: vuelingConf, confidence: vuelingConf.confidence, rawText };
+  }
+
+  // 2. Intentar Parser de Tarjeta de Embarque Vueling
   const vuelingBP = parseVuelingBoardingPass(rawText);
   if (vuelingBP) {
     console.log(`[DEBUG] Parser Vueling BP Exitoso:`, vuelingBP);
@@ -95,7 +102,7 @@ export async function extractTravelInfo(formData: FormData): Promise<ExtractedDa
       qr_detected: barcodeResult.success || vuelingBP.qr_detected,
       qr_decoded: barcodeResult.success,
       qr_raw_payload: barcodeResult.payload || undefined,
-      file // Para que el cliente tenga acceso al archivo si lo necesita para la previsualización
+      file
     };
 
     console.log('[DEBUG Vision Output]:', {
@@ -107,16 +114,10 @@ export async function extractTravelInfo(formData: FormData): Promise<ExtractedDa
     return result;
   }
 
-  // 2. Intentar Parser de Air France / HOP
+  // 3. Intentar Parser de Air France / HOP
   const airFranceData = parseAirFrance(rawText);
   if (airFranceData) {
     return { type: 'flight', data: airFranceData, confidence: airFranceData.confidence, rawText };
-  }
-
-  // 3. Intentar Parser de Confirmación Vueling (Email/Itinerario)
-  const vuelingConf = parseVuelingFlightConfirmation(rawText);
-  if (vuelingConf) {
-    return { type: 'flight', data: vuelingConf, confidence: vuelingConf.confidence, rawText };
   }
 
   // 4. Intentar Parser de Hotel

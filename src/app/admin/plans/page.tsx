@@ -1069,14 +1069,20 @@ export default function AdminPlansPage() {
                         {/* CASO 1: VUELO (RESERVA/CONFIRMACIÓN) */}
                         {extractionResult.type === 'flight' && (
                           <>
+                            <div className="col-span-2 bg-blue-500/5 p-4 rounded-xl border border-blue-500/20 mb-2">
+                              <p className="text-[10px] font-black text-blue-500 uppercase tracking-widest mb-1">Confirmación Detectada: {extractionResult.data.airline}</p>
+                              <p className="text-xs font-bold text-foreground">Reserva logística para {extractionResult.data.passenger_name || 'Pasajero'}</p>
+                            </div>
+                            <FieldReview label="Pasajero" value={extractionResult.data.passenger_name} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, passenger_name: v}})} />
                             <FieldReview label="Aerolínea" value={extractionResult.data.airline} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, airline: v}})} />
                             <FieldReview label="Nº de Vuelo" value={extractionResult.data.flight_number} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, flight_number: v}})} />
+                            <FieldReview label="Cód. Reserva" value={extractionResult.data.booking_reference} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, booking_reference: v}})} />
                             <FieldReview label="Origen" value={extractionResult.data.departure_location} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, departure_location: v}})} />
                             <FieldReview label="Destino" value={extractionResult.data.arrival_location} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, arrival_location: v}})} />
                             <FieldReview label="Salida (Local)" value={extractionResult.data.departure_time} type="text" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, departure_time: v}})} />
                             <FieldReview label="Llegada (Local)" value={extractionResult.data.arrival_time} type="text" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, arrival_time: v}})} />
-                            <FieldReview label="Cód. Reserva" value={extractionResult.data.reservation_code} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, reservation_code: v}})} />
                             <FieldReview label="Asiento" value={extractionResult.data.seat} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, seat: v}})} />
+                            <FieldReview label="Equipaje" value={extractionResult.data.baggage_info} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, baggage_info: v}})} />
                           </>
                         )}
 
