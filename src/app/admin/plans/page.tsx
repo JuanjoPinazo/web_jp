@@ -47,7 +47,8 @@ import { HotelImportModal } from '@/components/HotelImportModal';
 export default function AdminPlansPage() {
   const { getUsers, getContexts } = useAdmin();
   const [isImporting, setIsImporting] = useState(false);
-  const [importType, setImportType] = useState('auto');
+  const [importType, setImportType] = useState('flight_confirmation');
+  const [importProvider, setImportProvider] = useState('auto');
   const [importStep, setImportStep] = useState<'upload' | 'extracting' | 'validating'>('upload');
   const [extractionResult, setExtractionResult] = useState<any>(null);
 
@@ -199,6 +200,7 @@ export default function AdminPlansPage() {
       const formData = new FormData();
       formData.append('file', file);
       formData.append('type', importType);
+      formData.append('provider', importProvider);
       formData.append('userName', `${selectedPlan?.profiles?.nombre} ${selectedPlan?.profiles?.apellidos}`);
 
       const result = await extractTravelInfo(formData);
@@ -530,7 +532,10 @@ export default function AdminPlansPage() {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {flights.sort((a: any, b: any) => (a.type === 'outbound' ? -1 : 1)).map((flight: any) => {
-              const flightDoc = selectedPlan.documents?.find((d: any) => d.related_entity === 'flight' && d.related_entity_id === flight.id);
+              const flightDocs = selectedPlan.documents?.filter((d: any) => 
+                (d.related_entity === 'flight' && d.related_entity_id === flight.id) || 
+                (d.related_flight_id === flight.id)
+              ) || [];
               
               return (
                 <FlightCard 
@@ -539,13 +544,17 @@ export default function AdminPlansPage() {
                   role="admin"
                   actions={
                     <>
-                      {flightDoc && (
-                        <a href={flightDoc.file_url} target="_blank" rel="noopener noreferrer">
+                      {flightDocs.map((doc: any) => (
+                        <a key={doc.id} href={doc.file_url} target="_blank" rel="noopener noreferrer" title={doc.display_title || doc.title}>
                           <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
-                            <FileText size={14} className="text-accent" />
+                            {doc.document_type === 'boarding_pass' ? (
+                              <QrCode size={14} className="text-emerald-500" />
+                            ) : (
+                              <FileText size={14} className="text-accent" />
+                            )}
                           </Button>
                         </a>
-                      )}
+                      ))}
                       <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setEditingFlight(flight)}>
                         <Edit2 size={14} className="text-muted hover:text-accent" />
                       </Button>
@@ -727,7 +736,10 @@ export default function AdminPlansPage() {
                       {!doc.visible_to_client && <span className="text-[8px] font-black uppercase bg-muted px-1.5 py-0.5 rounded text-muted-foreground">Privado</span>}
                     </div>
                     <p className="text-[9px] text-muted font-black uppercase tracking-widest">
-                      {doc.document_type || 'General'} {doc.description ? `· ${doc.description}` : ''}
+                      {doc.document_type === 'boarding_pass' ? 'Tarjeta de Embarque' : 
+                       doc.document_type === 'flight_confirmation' ? 'Reserva de Vuelo' : 
+                       doc.document_type === 'hotel' ? 'Reserva de Hotel' : 
+                       (doc.document_type || 'Documento')} {doc.description ? `· ${doc.description}` : ''}
                     </p>
                   </div>
                 </div>
@@ -994,20 +1006,48 @@ export default function AdminPlansPage() {
 
                   {importStep === 'upload' && (
                     <div className="space-y-8">
-                       <div className="grid grid-cols-2 gap-4">
-                         <button onClick={() => setImportType('flight')} className={`p-6 rounded-3xl border-2 transition-all flex flex-col items-center gap-4 ${importType === 'flight' ? 'border-accent bg-accent/5' : 'border-border bg-muted/10 opacity-50 hover:opacity-100'}`}>
-                           <Plane size={32} className={importType === 'flight' ? 'text-accent' : 'text-muted'} />
-                           <span className="text-[10px] font-black uppercase tracking-widest">Billete de Vuelo</span>
-                         </button>
-                         <button onClick={() => setImportType('hotel')} className={`p-6 rounded-3xl border-2 transition-all flex flex-col items-center gap-4 ${importType === 'hotel' ? 'border-accent bg-accent/5' : 'border-border bg-muted/10 opacity-50 hover:opacity-100'}`}>
-                           <Hotel size={32} className={importType === 'hotel' ? 'text-accent' : 'text-muted'} />
-                           <span className="text-[10px] font-black uppercase tracking-widest">Reserva Hotel</span>
-                         </button>
-                         <button onClick={() => setImportType('boarding_pass')} className={`p-6 rounded-3xl border-2 transition-all flex flex-col items-center gap-4 ${importType === 'boarding_pass' ? 'border-accent bg-accent/5' : 'border-border bg-muted/10 opacity-50 hover:opacity-100'}`}>
-                           <QrCode size={32} className={importType === 'boarding_pass' ? 'text-accent' : 'text-muted'} />
-                           <span className="text-[10px] font-black uppercase tracking-widest">Tarjeta Embarque</span>
-                         </button>
-                       </div>
+                        <div className="space-y-3">
+                          <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Tipo de Documento</label>
+                          <div className="grid grid-cols-3 gap-2">
+                            {[
+                              { id: 'flight_confirmation', label: 'Reserva Vuelo', icon: Plane },
+                              { id: 'boarding_pass', label: 'Tarjeta Embarque', icon: QrCode },
+                              { id: 'hotel_booking', label: 'Reserva Hotel', icon: Hotel },
+                            ].map((item) => (
+                              <button 
+                                key={item.id}
+                                onClick={() => setImportType(item.id)} 
+                                className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center gap-2 ${importType === item.id ? 'border-accent bg-accent/5' : 'border-border bg-muted/10 opacity-60 hover:opacity-100'}`}
+                              >
+                                <item.icon size={20} className={importType === item.id ? 'text-accent' : 'text-muted'} />
+                                <span className="text-[8px] font-black uppercase tracking-widest text-center">{item.label}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Proveedor / Aerolínea</label>
+                          <div className="grid grid-cols-4 gap-2">
+                            {[
+                              { id: 'auto', label: 'Auto' },
+                              { id: 'vueling', label: 'Vueling' },
+                              { id: 'air_france', label: 'Air France' },
+                              { id: 'iberia', label: 'Iberia' },
+                              { id: 'volotea', label: 'Volotea' },
+                              { id: 'booking', label: 'Booking' },
+                              { id: 'hoteles_com', label: 'Hotels.com' },
+                            ].map((item) => (
+                              <button 
+                                key={item.id}
+                                onClick={() => setImportProvider(item.id)} 
+                                className={`p-3 rounded-xl border-2 transition-all text-center ${importProvider === item.id ? 'border-accent bg-accent/10 text-accent font-black' : 'border-border bg-muted/5 text-muted text-[9px] font-bold uppercase'}`}
+                              >
+                                <span className={importProvider === item.id ? 'text-[9px]' : ''}>{item.label}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                        
                        <label className="block">
                          <div className="border-2 border-dashed border-border rounded-[32px] p-12 flex flex-col items-center justify-center gap-4 hover:border-accent/50 cursor-pointer transition-all bg-muted/5 group">
@@ -1079,8 +1119,8 @@ export default function AdminPlansPage() {
                             <FieldReview label="Cód. Reserva" value={extractionResult.data.booking_reference} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, booking_reference: v}})} />
                             <FieldReview label="Origen" value={extractionResult.data.departure_location} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, departure_location: v}})} />
                             <FieldReview label="Destino" value={extractionResult.data.arrival_location} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, arrival_location: v}})} />
-                            <FieldReview label="Salida (Local)" value={extractionResult.data.departure_time} type="text" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, departure_time: v}})} />
-                            <FieldReview label="Llegada (Local)" value={extractionResult.data.arrival_time} type="text" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, arrival_time: v}})} />
+                            <FieldReview label="Salida (Local)" value={extractionResult.data.departure_time} type="datetime-local" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, departure_time: v}})} />
+                            <FieldReview label="Llegada (Local)" value={extractionResult.data.arrival_time} type="datetime-local" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, arrival_time: v}})} />
                             <FieldReview label="Asiento" value={extractionResult.data.seat} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, seat: v}})} />
                             <FieldReview label="Equipaje" value={extractionResult.data.baggage_info} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, baggage_info: v}})} />
                           </>
@@ -1091,8 +1131,8 @@ export default function AdminPlansPage() {
                           <>
                             <FieldReview label="Hotel" value={extractionResult.data.hotel_name} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, hotel_name: v}})} />
                             <FieldReview label="Confirmación" value={extractionResult.data.confirmation_number} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, confirmation_number: v}})} />
-                            <FieldReview label="Check-in" value={extractionResult.data.check_in} type="text" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, check_in: v}})} />
-                            <FieldReview label="Check-out" value={extractionResult.data.check_out} type="text" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, check_out: v}})} />
+                            <FieldReview label="Check-in" value={extractionResult.data.check_in} type="datetime-local" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, check_in: v}})} />
+                            <FieldReview label="Check-out" value={extractionResult.data.check_out} type="datetime-local" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, check_out: v}})} />
                             <div className="col-span-2">
                               <FieldReview label="Dirección" value={extractionResult.data.address} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, address: v}})} />
                             </div>
@@ -1110,8 +1150,8 @@ export default function AdminPlansPage() {
                             <FieldReview label="Vuelo" value={extractionResult.data.flight_number} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, flight_number: v}})} />
                             <FieldReview label="Origen (IATA)" value={extractionResult.data.departure_location || extractionResult.data.origin} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, departure_location: v}})} />
                             <FieldReview label="Destino (IATA)" value={extractionResult.data.arrival_location || extractionResult.data.destination} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, arrival_location: v}})} />
-                            <FieldReview label="Salida" value={extractionResult.data.departure_time} type="text" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, departure_time: v}})} />
-                            <FieldReview label="Llegada" value={extractionResult.data.arrival_time} type="text" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, arrival_time: v}})} />
+                            <FieldReview label="Salida" value={extractionResult.data.departure_time} type="datetime-local" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, departure_time: v}})} />
+                            <FieldReview label="Llegada" value={extractionResult.data.arrival_time} type="datetime-local" onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, arrival_time: v}})} />
                             <FieldReview label="Asiento" value={extractionResult.data.seat} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, seat: v}})} />
                             <FieldReview label="Puerta (Gate)" value={extractionResult.data.gate} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, gate: v}})} />
                             <FieldReview label="Grupo" value={extractionResult.data.boarding_group} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, boarding_group: v}})} />
@@ -1204,15 +1244,29 @@ export default function AdminPlansPage() {
                             sanitizedData.is_verified = true;
                             sanitizedData.plan_id = targetPlanId;
                             
-                            // Normalización Crítica de fechas para Supabase (ISO)
                             const toISO = (dateStr: string) => {
-                              if (!dateStr) return null;
-                              const match = dateStr.match(/(\d{2})\/(\d{2})\/(\d{4})\s+(\d{2}:\d{2})/);
-                              if (match) {
-                                const [, day, month, year, time] = match;
-                                return `${year}-${month}-${day}T${time}:00`;
-                              }
-                              return dateStr;
+                               if (!dateStr) return null;
+                               // 1. Si ya es ISO parcial (YYYY-MM-DDTHH:mm), completar
+                               if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(dateStr)) return `${dateStr}:00`;
+                               if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(dateStr)) return dateStr;
+                               
+                               // 2. Formato DD/MM/YYYY con o sin hora
+                               const match = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s+(\d{1,2}:\d{2}))?/);
+                               if (match) {
+                                 const day = match[1].padStart(2, '0');
+                                 const month = match[2].padStart(2, '0');
+                                 const year = match[3];
+                                 const time = match[4] || '12:00';
+                                 return `${year}-${month}-${day}T${time}:00`;
+                               }
+
+                               // 3. Si solo es hora HH:mm (fallo de extracción de fecha)
+                               if (/^\d{1,2}:\d{2}$/.test(dateStr)) {
+                                 const today = new Date().toISOString().split('T')[0];
+                                 return `${today}T${dateStr.padStart(5, '0')}:00`;
+                               }
+
+                               return dateStr;
                             };
 
                             if (sanitizedData.departure_time) sanitizedData.departure_time = toISO(sanitizedData.departure_time);
@@ -1222,7 +1276,7 @@ export default function AdminPlansPage() {
 
                             let relatedFlightId = null;
 
-                            if (extractionResult.type === 'boarding_pass') {
+                            if (extractionResult.type === 'boarding_pass' || extractionResult.type === 'flight') {
                               // 1. Try to find existing flight
                               const { data: planFlights } = await supabase.from('travel_flights').select('*').eq('plan_id', targetPlanId).is('deleted_at', null);
                               const existingFlight = planFlights?.find((f: any) => 
@@ -1232,13 +1286,21 @@ export default function AdminPlansPage() {
 
                               if (existingFlight) {
                                 relatedFlightId = existingFlight.id;
-                                // UPDATE flight with new operational data from boarding pass
-                                await supabase.from('travel_flights').update({
-                                   seat: sanitizedData.seat,
-                                   gate: sanitizedData.gate,
-                                   boarding_group: sanitizedData.boarding_group,
-                                   reservation_code: sanitizedData.booking_reference
-                                }).eq('id', relatedFlightId);
+                                // UPDATE flight with new data
+                                const updatePayload: any = {
+                                   reservation_code: sanitizedData.booking_reference || existingFlight.reservation_code,
+                                   last_updated_at: new Date().toISOString()
+                                };
+                                if (sanitizedData.seat) updatePayload.seat = sanitizedData.seat;
+                                if (sanitizedData.gate) updatePayload.gate = sanitizedData.gate;
+                                if (sanitizedData.boarding_group) updatePayload.boarding_group = sanitizedData.boarding_group;
+                                if (sanitizedData.baggage_info) updatePayload.baggage_info = sanitizedData.baggage_info;
+                                if (sanitizedData.departure_time) updatePayload.departure_time = sanitizedData.departure_time;
+                                if (sanitizedData.arrival_time) updatePayload.arrival_time = sanitizedData.arrival_time;
+                                if (extractionResult.type === 'boarding_pass') updatePayload.source = 'boarding_pass_import';
+                                
+                                const { error: updateError } = await supabase.from('travel_flights').update(updatePayload).eq('id', relatedFlightId);
+                                if (updateError) throw updateError;
                               } else {
                                 // 2. Create flight if doesn't exist
                                 const newFlight = await saveItem('travel_flights', {
@@ -1253,17 +1315,17 @@ export default function AdminPlansPage() {
                                   seat: sanitizedData.seat,
                                   gate: sanitizedData.gate,
                                   boarding_group: sanitizedData.boarding_group,
+                                  baggage_info: sanitizedData.baggage_info,
                                   is_verified: true,
-                                  source: 'boarding_pass_import',
+                                  source: extractionResult.type === 'boarding_pass' ? 'boarding_pass_import' : 'flight_confirmation_import',
                                   type: tripType
                                 });
                                 relatedFlightId = newFlight.id;
                               }
                             } else {
-                              const tableMap: any = { hotel: 'hotel_stays', flight: 'travel_flights' };
+                              const tableMap: any = { hotel: 'hotel_stays' };
                               const res = await saveItem(tableMap[extractionResult.type], sanitizedData);
                               if (!res || !res.id) throw new Error('La base de datos rechazó el registro.');
-                              relatedFlightId = extractionResult.type === 'flight' ? res.id : null;
                             }
 
                             // 2. Upload and link the PDF
@@ -1311,29 +1373,38 @@ export default function AdminPlansPage() {
                             setExtractionResult(null);
                             handleManagePlan(selectedPlan);
                           } catch (err: any) {
-                             console.error('Error Crítico:', err);
-                             // Extract a readable message
-                             let errorMsg = 'Error desconocido';
-                             if (err.message) errorMsg = err.message;
-                             else if (err.error_description) errorMsg = err.error_description;
-                             else if (typeof err === 'string') errorMsg = err;
-                             else {
-                               try {
-                                 errorMsg = JSON.stringify(err);
-                                 if (errorMsg === '{}') errorMsg = err.toString();
-                               } catch (e) {
-                                 errorMsg = String(err);
-                               }
-                             }
+                              console.error('Error Crítico Detallado:', err);
+                              
+                              let errorMsg = 'Error desconocido';
+                              
+                              // Extraer mensaje de error de forma robusta
+                              if (typeof err === 'string') {
+                                errorMsg = err;
+                              } else if (err?.message) {
+                                errorMsg = err.message;
+                              } else if (err?.error_description) {
+                                errorMsg = err.error_description;
+                              } else if (err?.details) {
+                                errorMsg = err.details;
+                              } else if (err?.code) {
+                                errorMsg = `Error code: ${err.code}`;
+                              } else {
+                                try {
+                                  const stringified = JSON.stringify(err);
+                                  errorMsg = stringified !== '{}' ? stringified : String(err);
+                                } catch (e) {
+                                  errorMsg = String(err);
+                                }
+                              }
 
-                             await alert({ 
-                               title: 'Error de Guardado', 
-                               message: `No se pudo guardar: ${errorMsg}`, 
-                               type: 'danger' 
-                             });
-                          } finally {
-                             setIsSubmitting(false);
-                          }
+                              await alert({ 
+                                title: 'Error de Guardado', 
+                                message: `No se pudo guardar: ${errorMsg}`, 
+                                type: 'danger' 
+                              });
+                           } finally {
+                              setIsSubmitting(false);
+                           }
                         }}>
                            {isSubmitting ? <Loader2 className="animate-spin" /> : 'Confirmar y Guardar'}
                         </Button>
@@ -1757,19 +1828,35 @@ export default function AdminPlansPage() {
   );
 }
 
-const FieldReview = ({ label, value, onChange, type = "text", optional = false }: any) => (
-  <div className="space-y-2">
-    <label className="text-[9px] font-black uppercase text-muted tracking-widest px-1 flex justify-between">
-      {label}
-      {!value && !optional && <span className="text-red-500 font-bold">Faltante</span>}
-      {!value && optional && <span className="text-muted font-bold">Opcional</span>}
-    </label>
-    <input 
-      type={type}
-      className={`w-full bg-background border rounded-xl p-3 text-xs outline-none transition-all ${!value && !optional ? 'border-red-500/50 bg-red-500/5' : 'border-border focus:border-accent'}`} 
-      value={type === 'datetime-local' ? value?.slice(0, 16) || '' : value || ''} 
-      onChange={e => onChange(e.target.value)}
-      placeholder={`Ingresar ${label.toLowerCase()}...`}
-    />
-  </div>
-);
+const FieldReview = ({ label, value, onChange, type = "text", optional = false }: any) => {
+  // Normalización para el valor del input según el tipo
+  let displayValue = value || '';
+  if (type === 'datetime-local') {
+    if (value && value.includes('T')) {
+      displayValue = value.slice(0, 16);
+    } else if (value && value.match(/^\d{1,2}:\d{2}$/)) {
+      // Si solo tenemos hora, añadimos la fecha de hoy para que el input datetime-local sea válido
+      const today = new Date().toISOString().split('T')[0];
+      displayValue = `${today}T${value.padStart(5, '0')}`;
+    } else {
+      displayValue = '';
+    }
+  }
+
+  return (
+    <div className="space-y-2">
+      <label className="text-[9px] font-black uppercase text-muted tracking-widest px-1 flex justify-between">
+        {label}
+        {!value && !optional && <span className="text-red-500 font-bold">Faltante</span>}
+        {!value && optional && <span className="text-muted font-bold">Opcional</span>}
+      </label>
+      <input 
+        type={type}
+        className={`w-full bg-background border rounded-xl p-3 text-xs outline-none transition-all ${!value && !optional ? 'border-red-500/50 bg-red-500/5' : 'border-border focus:border-accent'}`} 
+        value={displayValue} 
+        onChange={e => onChange(e.target.value)}
+        placeholder={`Ingresar ${label.toLowerCase()}...`}
+      />
+    </div>
+  );
+};

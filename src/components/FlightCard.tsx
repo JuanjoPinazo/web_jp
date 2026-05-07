@@ -77,7 +77,14 @@ export function FlightCard({ flight, role, actions, className }: FlightCardProps
             <Plane size={20} />
           </div>
           <div>
-            <p className="text-[10px] font-black uppercase text-muted tracking-[0.2em] leading-none mb-1.5">Información de Vuelo</p>
+            <div className="flex items-center gap-2 mb-1">
+              <p className="text-[10px] font-black uppercase text-muted tracking-[0.2em] leading-none">Información de Vuelo</p>
+              {(flight.gate || flight.boarding_group) ? (
+                <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-[8px] font-black text-emerald-600 uppercase tracking-widest">Tarjeta de Embarque</span>
+              ) : (
+                <span className="px-1.5 py-0.5 rounded-md bg-blue-500/10 border border-blue-500/20 text-[8px] font-black text-blue-600 uppercase tracking-widest">Reserva Confirmada</span>
+              )}
+            </div>
             <p className="text-xs font-black text-foreground uppercase tracking-tight">
               {flight.airline || (isAdmin ? <span className="text-orange-500 italic text-[10px]">Configurar</span> : 'Confirmado')}
               {flight.flight_number && <span className="text-muted font-bold ml-2">#{flight.flight_number}</span>}

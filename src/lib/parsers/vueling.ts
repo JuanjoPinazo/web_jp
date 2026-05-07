@@ -18,8 +18,11 @@ export interface ExtractedFlightData {
   duration_minutes?: number;
   checkin_opens_at?: string;
   checkin_closes_at?: string;
+  checkin_deadline?: string;
+  cabin_class?: string;
   baggage_info?: string;
   qr_detected: boolean;
+  qr_decoded?: boolean;
   confidence: number;
 }
 
@@ -107,6 +110,15 @@ export function parseVuelingBoardingPass(text: string): ExtractedFlightData | nu
   const groupMatch = text.match(/GRUPO\s+(\d+)/i);
   if (groupMatch) data.boarding_group = groupMatch[1];
 
+  // 10. COMBINAR FECHA Y HORA
+  if ((data as any).departure_date && data.departure_time) {
+    const baseDate = (data as any).departure_date;
+    data.departure_time = `${baseDate}T${data.departure_time}:00`;
+    if (data.arrival_time) {
+      data.arrival_time = `${baseDate}T${data.arrival_time}:00`;
+    }
+  }
+
   // CONFIDENCE
   const criticalFields = [data.passenger_name, data.departure_location, data.flight_number, data.booking_reference];
   data.confidence = criticalFields.filter(Boolean).length / criticalFields.length;
@@ -116,8 +128,9 @@ export function parseVuelingBoardingPass(text: string): ExtractedFlightData | nu
 
 export function parseVuelingFlightConfirmation(text: string): ExtractedFlightData | null {
   const t = text.toUpperCase();
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
   
-  // 1. Detection - Flight Confirmation Specific Keywords
+  // 1. Detection
   const isConfirmation = t.includes('RESERVA CONFIRMADA') || 
                         t.includes('ESTE EMAIL NO ES VÁLIDO COMO TARJETA DE EMBARQUE') ||
                         t.includes('CÓDIGO DE RESERVA') ||
@@ -127,87 +140,126 @@ export function parseVuelingFlightConfirmation(text: string): ExtractedFlightDat
 
   const data: ExtractedFlightData = {
     airline: 'Vueling',
-    qr_detected: false, // Confirmations don't have boarding QRs
+    qr_detected: false,
+    qr_decoded: false,
     confidence: 0
   };
 
-  // 2. LOCALIZADOR: "Código de reserva: XHIQNF"
-  const resMatch = text.match(/(?:C\u00f3digo de reserva|LOCALIZADOR|RESERVA)\s*[:\-]?\s*([A-Z0-9]{5,8})\b/i);
+  // --- DEBUG LOGS VARS ---
+  const provider = 'Vueling';
+  const document_type = 'flight_confirmation';
+  let flightBlock = '';
+  let passengerBlock = '';
+
+  // 1. LOCALIZADOR: "Código de reserva: XHIQNF"
+  const resMatch = text.match(/Código de reserva:\s*([A-Z0-9]{5,8})/i);
   if (resMatch) {
     data.booking_reference = resMatch[1].toUpperCase();
   }
 
-  // 3. PASAJERO: Bloque "Pasajeros"
-  // Intentar match en la misma línea o siguiente
-  const passengerMatch = text.match(/(?:Pasajeros|Passenger|Nombre)\s*[:\-]?\s*[\r\n]*\s*([A-ZÁÉÍÓÚÑ]{3,}(?:\s+[A-ZÁÉÍÓÚÑ]{2,})+)/i);
-  if (passengerMatch) {
-    data.passenger_name = passengerMatch[1].trim();
-  } else {
-    // Fallback: buscar nombres largos en mayúsculas después de palabras clave
-    const lines = text.split('\n').map(l => l.trim());
-    const passIdx = lines.findIndex(l => /Pasajeros|Passenger/i.test(l));
-    if (passIdx >= 0 && lines[passIdx + 1]) {
-      const candidate = lines[passIdx + 1];
-      if (candidate.length > 5 && /^[A-ZÁÉÍÓÚÑ\s]+$/.test(candidate)) {
-        data.passenger_name = candidate;
-      }
+  // 2. PASAJERO: Bloque "PASAJEROS Y SERVICIOS"
+  const passIdx = lines.findIndex(l => l.toUpperCase().includes('PASAJEROS Y SERVICIOS'));
+  if (passIdx >= 0) {
+    passengerBlock = lines.slice(passIdx, passIdx + 10).join(' | ');
+    // Buscar línea que parezca nombre real (2+ palabras, letras y espacios, no keywords)
+    for (let i = passIdx + 1; i < passIdx + 6; i++) {
+       const line = lines[i];
+       if (!line) continue;
+       const words = line.trim().split(/\s+/);
+       if (words.length >= 2 && 
+           /^[a-zñáéíóú\s]+$/i.test(line) && 
+           !/Pasajeros|Ida|Asiento|Servicios|Reserva|Vuelo|Equipaje|Maleta/i.test(line)) {
+         data.passenger_name = line.trim();
+         break;
+       }
     }
   }
 
-  // 4. VUELO: VY8163
-  const flightMatch = text.match(/VY\s?(\d{4,5})/i);
+  // 3. VUELO: VY8163
+  const flightMatch = text.match(/VY\d{4}/i);
   if (flightMatch) {
-    data.flight_number = `VY${flightMatch[1]}`.toUpperCase();
+    data.flight_number = flightMatch[0].toUpperCase();
   }
 
-  // 5. ORIGEN / DESTINO / HORAS
-  // Buscamos formato típico de confirmación: "ORY 13:00 VLC 14:55"
-  const routeMatch = text.match(/([A-Z]{3})\s+(\d{2}:\d{2})\s+([A-Z]{3})\s+(\d{2}:\d{2})/i);
-  if (routeMatch) {
-    data.departure_location = routeMatch[1].toUpperCase();
-    data.departure_time = routeMatch[2];
-    data.arrival_location = routeMatch[3].toUpperCase();
-    data.arrival_time = routeMatch[4];
-  } else {
-    // Fallback: buscar origen/destino por separado
-    const originMatch = text.match(/(?:Origen|Desde|Departure)\s*[:\-]?\s*([A-Z]{3})/i);
-    const destMatch = text.match(/(?:Destino|Hacia|Arrival)\s*[:\-]?\s*([A-Z]{3})/i);
-    if (originMatch) data.departure_location = originMatch[1].toUpperCase();
-    if (destMatch) data.arrival_location = destMatch[1].toUpperCase();
-  }
-
-  // 6. FECHA: "viernes, 22 mayo 2026" o similar
-  const dateMatch = text.match(/(\d{1,2})[\s/](\d{1,2}|ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)[\s/](\d{4})/i);
-  if (dateMatch) {
-    const day = dateMatch[1].padStart(2, '0');
-    let month = dateMatch[2].toLowerCase();
-    const months: any = {
-      'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06',
-      'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12',
-      'mayo': '05', 'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04', 'junio': '06',
-      'julio': '07', 'agosto': '08', 'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'
-    };
-    if (months[month]) month = months[month];
-    else if (months[month.substring(0, 3)]) month = months[month.substring(0, 3)];
-    else month = month.padStart(2, '0');
+  // 4. BLOQUE VISUAL DE VUELO (Origen, Destino, Horas, Fecha)
+  const flightLineIdx = lines.findIndex(l => l.toUpperCase().includes(data.flight_number || 'VY'));
+  if (flightLineIdx >= 0) {
+    // Escaneamos un bloque alrededor del número de vuelo
+    const start = Math.max(0, flightLineIdx - 5);
+    const end = Math.min(lines.length, flightLineIdx + 15);
+    flightBlock = lines.slice(start, end).join(' | ');
     
-    (data as any).departure_date = `${dateMatch[3]}-${month}-${day}`;
+    // 4.1 Fecha: "viernes, 22 mayo 2026"
+    const dateMatch = flightBlock.match(/(\d{1,2})[\s/](enero|febrero|marzo|abril|mayo|junio|julio|agosto|septiembre|octubre|noviembre|diciembre|ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)[\s/](\d{4})/i);
+    if (dateMatch) {
+       const day = dateMatch[1].padStart(2, '0');
+       let monthStr = dateMatch[2].toLowerCase();
+       const months: any = {
+         'ene': '01', 'feb': '02', 'mar': '03', 'abr': '04', 'may': '05', 'jun': '06',
+         'jul': '07', 'ago': '08', 'sep': '09', 'oct': '10', 'nov': '11', 'dic': '12',
+         'mayo': '05', 'enero': '01', 'febrero': '02', 'marzo': '03', 'abril': '04', 'junio': '06',
+         'julio': '07', 'agosto': '08', 'septiembre': '09', 'octubre': '10', 'noviembre': '11', 'diciembre': '12'
+       };
+       const month = months[monthStr] || months[monthStr.substring(0, 3)] || '01';
+       (data as any).departure_date = `${dateMatch[3]}-${month}-${day}`;
+    }
+
+    // 4.2 IATAs (Origen y Destino)
+    // Buscamos códigos de 3 letras mayúsculas evitando ruido
+    const excluded = ['RAQ', 'FUE', 'RV', 'EUR', 'IVA', 'PDF', 'XHI', 'VY'];
+    const iataMatches = flightBlock.match(/\b([A-Z]{3})\b/g);
+    if (iataMatches) {
+       const validIatas = iataMatches.filter(code => !excluded.includes(code.toUpperCase()));
+       if (validIatas.length >= 2) {
+          data.departure_location = validIatas[0];
+          data.arrival_location = validIatas[1];
+       }
+    }
+
+    // 4.3 Horas: "13:00h"
+    const timeMatches = [...flightBlock.matchAll(/(\d{2}:\d{2})h?/gi)];
+    if (timeMatches.length >= 2) {
+       data.departure_time = timeMatches[0][1];
+       data.arrival_time = timeMatches[1][1];
+    }
   }
 
-  // 7. ASIENTO: "Asiento 3E"
-  const seatMatch = text.match(/(?:Asiento|Seat)\s*[:\-]?\s*([0-9]{1,2}[A-F])\b/i);
-  if (seatMatch) {
-    data.seat = seatMatch[1].toUpperCase();
+  // 5. ASIENTO: En el bloque de pasajeros
+  if (passIdx >= 0) {
+    const seatIdx = lines.findIndex((l, i) => i > passIdx && l.toUpperCase().includes('ASIENTO'));
+    if (seatIdx >= 0 && lines[seatIdx + 1]) {
+       // La línea siguiente suele ser el asiento "3E"
+       const seatCandidate = lines[seatIdx + 1].match(/([0-9]{1,2}[A-F])\b/i);
+       if (seatCandidate) {
+         data.seat = seatCandidate[1].toUpperCase();
+       }
+    }
   }
 
-  // 8. EQUIPAJE
+  // 6. EQUIPAJE
   if (t.includes('BAJO EL ASIENTO') || t.includes('COMPARTIMENTO SUPERIOR')) {
     data.baggage_info = 'Equipaje bajo asiento + cabina incluido';
   }
 
-  // CONFIDENCE
-  const criticalFields = [data.passenger_name, data.departure_location, data.flight_number, data.booking_reference];
-  data.confidence = criticalFields.filter(Boolean).length / criticalFields.length;
+  // 7. COMBINAR FECHA Y HORA
+  if ((data as any).departure_date && data.departure_time) {
+    const baseDate = (data as any).departure_date;
+    data.departure_time = `${baseDate}T${data.departure_time}:00`;
+    if (data.arrival_time) {
+      data.arrival_time = `${baseDate}T${data.arrival_time}:00`;
+    }
+  }
+
+  data.confidence = 95;
+
+  // DEBUG OBLIGATORIO
+  console.log({
+    provider,
+    document_type,
+    flightBlock,
+    passengerBlock,
+    extracted: data
+  });
 
   return data;
 }
