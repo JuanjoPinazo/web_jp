@@ -224,15 +224,7 @@ export default function AdminPlansPage() {
       delete flightData.created_at;
       delete flightData.updated_at;
 
-      const { error } = await supabase
-        .from('travel_flights')
-        .update({
-          ...flightData,
-          last_updated_at: new Date().toISOString()
-        })
-        .eq('id', editingFlight.id);
-
-      if (error) throw error;
+      await saveItem('travel_flights', flightData);
 
       await alert({ title: 'Éxito', message: 'Vuelo actualizado correctamente.', type: 'success' });
       setEditingFlight(null);
@@ -277,12 +269,11 @@ export default function AdminPlansPage() {
       if (editingDocument.boarding_group !== undefined)
         updatePayload.boarding_group = editingDocument.boarding_group;
 
-      const { error } = await supabase
-        .from('travel_documents')
-        .update(updatePayload)
-        .eq('id', editingDocument.id);
-
-      if (error) throw error;
+      await saveTravelDocument({
+        id: editingDocument.id,
+        plan_id: selectedPlan.id,
+        ...updatePayload
+      });
 
       await alert({ title: 'Éxito', message: 'Documento actualizado.', type: 'success' });
       setEditingDocument(null);
@@ -1299,8 +1290,7 @@ export default function AdminPlansPage() {
                                 if (sanitizedData.arrival_time) updatePayload.arrival_time = sanitizedData.arrival_time;
                                 if (extractionResult.type === 'boarding_pass') updatePayload.source = 'boarding_pass_import';
                                 
-                                const { error: updateError } = await supabase.from('travel_flights').update(updatePayload).eq('id', relatedFlightId);
-                                if (updateError) throw updateError;
+                                await saveItem('travel_flights', { ...updatePayload, id: relatedFlightId });
                               } else {
                                 // 2. Create flight if doesn't exist
                                 const newFlight = await saveItem('travel_flights', {

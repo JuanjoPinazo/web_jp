@@ -9,6 +9,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { parseHotelRows, rowToHotelStayPayload, ImportRow } from '@/lib/hotel-import';
 import { Button } from '@/components/Button';
+import { useTravelPlans } from '@/hooks/useTravelPlans';
 
 interface HotelImportModalProps {
   planId: string;
@@ -33,6 +34,7 @@ export function HotelImportModal({ planId, contextId, planUserName, onClose, onS
   const [fileName, setFileName] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { saveItem } = useTravelPlans();
 
   const parseFile = useCallback(async (file: File) => {
     setFileName(file.name);
@@ -214,10 +216,10 @@ export function HotelImportModal({ planId, contextId, planUserName, onClose, onS
             .maybeSingle();
 
           if (existing?.id) {
-            await supabase.from('hotel_stays').update(payload).eq('id', existing.id);
+            await saveItem('hotel_stays', { ...payload, id: existing.id });
             updatedCount++;
           } else {
-            await supabase.from('hotel_stays').insert(payload);
+            await saveItem('hotel_stays', payload);
             imported++;
           }
         } catch (err) {

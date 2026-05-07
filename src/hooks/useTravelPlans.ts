@@ -3,6 +3,8 @@
 import { useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase';
 import { useAuth } from '@/context/AuthContext';
+import { notifyMediCRMUpdate } from '@/lib/integrations/medicrm-sync/client';
+import { EntityType } from '@/lib/integrations/medicrm-sync/types';
 
 export interface LogisticContact {
   id: string;
@@ -226,6 +228,34 @@ export const useTravelPlans = () => {
   const { session } = useAuth();
   const [loading, setLoading] = useState(false);
 
+  const triggerMediCRMSync = useCallback(async (planId: string, table: string, entityId: string) => {
+    try {
+      // Map table names to standard entities
+      const tableToEntity: Record<string, EntityType> = {
+        'travel_flights': 'flights',
+        'hotel_stays': 'hotels',
+        'travel_documents': 'documents',
+        'travel_transfers': 'transfers'
+      };
+
+      const entityType = tableToEntity[table];
+      if (!entityType) return;
+
+      // Get plan details for the payload
+      const { data: plan } = await supabase
+        .from('contact_travel_plans')
+        .select('user_id, context_id')
+        .eq('id', planId)
+        .single();
+        
+      if (plan) {
+        notifyMediCRMUpdate(planId, plan.user_id, plan.context_id, entityType, entityId);
+      }
+    } catch (err) {
+      console.error('Error triggering MediCRM sync:', err);
+    }
+  }, []);
+
   // --- CLIENT ACTIONS ---
   
   // Fetches the full plan for the logged-in user and a specific context
@@ -393,6 +423,12 @@ export const useTravelPlans = () => {
       .select()
       .single();
     if (error) throw error;
+    
+    // Trigger sync
+    if (data.plan_id) {
+      triggerMediCRMSync(data.plan_id, table, data.id);
+    }
+
     return data;
   };
 
@@ -408,6 +444,13 @@ export const useTravelPlans = () => {
       })
       .eq('id', id);
     if (error) throw error;
+
+    // Trigger sync for deleted item (we need to know the plan_id)
+    // For now we try to fetch it before it's "deleted" or use the id to find it
+    const { data: item } = await supabase.from(table).select('plan_id').eq('id', id).maybeSingle();
+    if (item?.plan_id) {
+      triggerMediCRMSync(item.plan_id, table, id);
+    }
   };
 
   const saveTravelDocument = async (payload: any) => {
@@ -424,6 +467,12 @@ export const useTravelPlans = () => {
       .select()
       .single();
     if (error) throw error;
+    
+    // Trigger sync
+    if (data.plan_id) {
+      triggerMediCRMSync(data.plan_id, 'travel_documents', data.id);
+    }
+
     return data;
   };
 
