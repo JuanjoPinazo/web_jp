@@ -193,14 +193,10 @@ export function OutcomeDrawer({ isOpen, onClose, card, onOpenQR }: OutcomeDrawer
 
                   {/* Dynamic Actions */}
                   <div className="pt-6 space-y-3">
-                    {actionType === 'boarding_pass' && payload.qr_code && onOpenQR && (
+                    {actionType === 'boarding_pass' && onOpenQR && (
                       <button 
                         onClick={() => {
-                          onOpenQR({
-                            qr_code: payload.qr_code,
-                            passenger_name: payload.passenger_name,
-                            display_title: payload.display_title || 'Tarjeta de Embarque'
-                          });
+                          onOpenQR(payload);
                           onClose();
                         }}
                         className="flex items-center justify-center gap-3 w-full p-5 rounded-2xl bg-foreground text-background font-black text-xs uppercase tracking-widest hover:scale-[1.02] transition-all shadow-xl"

@@ -37,12 +37,14 @@ import {
   FileSpreadsheet,
   Utensils,
   Smartphone,
-  Milestone
+  Milestone,
+  Eye
 } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDialog } from '@/context/DialogContext';
 import { HotelImportModal } from '@/components/HotelImportModal';
+import { QRCodeSVG } from 'qrcode.react';
 
 export default function AdminPlansPage() {
   const { getUsers, getContexts } = useAdmin();
@@ -87,9 +89,12 @@ export default function AdminPlansPage() {
   const [selectedUser, setSelectedUser] = useState('');
   const [selectedContext, setSelectedContext] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editingHospitality, setEditingHospitality] = useState<any>(null);
   const [supportInfo, setSupportInfo] = useState({ phone: '+34 600 000 000' });
   const [showQuickUser, setShowQuickUser] = useState(false);
   const [quickUser, setQuickUser] = useState({ name: '', surname: '', email: '' });
+  const [contextProfiles, setContextProfiles] = useState<any[]>([]);
+  const [editingAttendee, setEditingAttendee] = useState<any>(null);
 
   useEffect(() => {
     loadData();
@@ -150,31 +155,41 @@ export default function AdminPlansPage() {
 
       if (pError) throw pError;
       setPlans(pData || []);
-    } catch (err: any) {
-      console.error('Error loading data:', err);
-      alert({ title: 'Error', message: 'No se pudieron cargar los datos.', type: 'danger' });
+    } catch (err) {
+      console.error(err);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadContextProfiles = async (contextId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .in('id', (
+          await supabase.from('context_users').select('user_id').eq('context_id', contextId)
+        ).data?.map(cu => cu.user_id) || []);
+      
+      if (error) throw error;
+      setContextProfiles(data || []);
+    } catch (err) {
+      console.error('Error loading context profiles:', err);
     }
   };
 
   const handleManagePlan = async (plan: any) => {
     setLoading(true);
     try {
-      const [fullPlan, modulesData] = await Promise.all([
-        getAdminPlanForUser(plan.user_id, plan.context_id),
-        supabase.from('plan_modules').select('module_id, is_enabled').eq('plan_id', plan.id)
-      ]);
-
-      const moduleMap: Record<string, boolean> = {};
-      modulesData.data?.forEach(m => {
-        moduleMap[m.module_id] = m.is_enabled;
-      });
-
-      setEnabledModules(moduleMap);
+      const fullPlan = await getAdminPlanForUser(plan.user_id, plan.context_id);
       setSelectedPlan(fullPlan);
+      setEnabledModules(fullPlan?.contexts?.modules_enabled || {});
+      if (fullPlan?.context_id) {
+        loadContextProfiles(fullPlan.context_id);
+      }
       setView('detail');
     } catch (err) {
+      console.error(err);
       alert({ title: 'Error', message: 'No se pudo cargar el detalle del plan.', type: 'danger' });
     } finally {
       setLoading(false);
@@ -709,6 +724,96 @@ export default function AdminPlansPage() {
             )}
           </div>
         </section>
+        
+        {/* Hospitality Section */}
+        <section className="space-y-4">
+          <div className="flex justify-between items-center px-1">
+            <h3 className="text-xs font-black uppercase text-muted tracking-widest flex items-center gap-2">
+              <Utensils size={14} className="text-accent" /> Hospitality VIP
+            </h3>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-8 gap-1.5 text-[10px] font-black uppercase tracking-widest text-accent hover:bg-accent/10 rounded-xl px-3"
+              onClick={() => setEditingHospitality({
+                plan_id: selectedPlan.id,
+                type: 'dinner',
+                title: '',
+                venue_name: '',
+                start_datetime: '',
+                end_datetime: '',
+                visible_to_client: true,
+                private_room: false,
+                status: 'planned',
+                notes: '',
+                contact_name: '',
+                contact_phone: ''
+              })}
+            >
+              <Plus size={14} /> Añadir Evento
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {(selectedPlan.hospitality_events || []).map((event: any) => (
+              <div key={event.id} className="bg-background border border-border rounded-2xl overflow-hidden group hover:border-accent/30 transition-all">
+                <div className="p-4 border-b border-border flex justify-between items-center bg-muted/30">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent shrink-0">
+                      <Utensils size={16} />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-foreground line-clamp-1">{event.title || 'Evento Hospitality'}</span>
+                        <span className="px-1.5 py-0.5 rounded-md bg-accent/10 text-accent text-[8px] font-black uppercase">{event.type}</span>
+                      </div>
+                      <p className="text-[9px] text-muted font-medium">{event.venue_name}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setEditingHospitality(event)}>
+                      <Edit2 size={12} className="text-muted hover:text-accent" />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleDelete('hospitality_events', event.id)}>
+                      <Trash2 size={12} className="text-red-500" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="p-5 space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">Fecha / Hora</p>
+                      <p className="text-xs font-bold">
+                        {event.start_datetime ? new Date(event.start_datetime).toLocaleString('es-ES', { 
+                          day: '2-digit', month: '2-digit', 
+                          hour: '2-digit', minute: '2-digit', 
+                          timeZone: 'UTC' 
+                        }) : 'S/F'}
+                      </p>
+                    </div>
+                    {event.dress_code && (
+                      <div>
+                        <p className="text-[9px] font-black text-muted uppercase tracking-widest">Dress Code</p>
+                        <p className="text-xs font-bold">{event.dress_code}</p>
+                      </div>
+                    )}
+                  </div>
+                  {event.reservation_code && (
+                    <div className="pt-2 border-t border-border/50">
+                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">Reserva</p>
+                      <p className="text-xs font-mono font-bold text-accent">{event.reservation_code} {event.reservation_name ? `(${event.reservation_name})` : ''}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            {(selectedPlan.hospitality_events || []).length === 0 && (
+              <div className="col-span-full border border-dashed border-border rounded-2xl p-10 text-center">
+                <p className="text-xs text-muted font-medium">No hay eventos de hospitality registrados.</p>
+              </div>
+            )}
+          </div>
+        </section>
 
         <section className="space-y-4">
           <h3 className="text-xs font-black uppercase text-muted tracking-widest flex items-center gap-2">
@@ -726,12 +831,22 @@ export default function AdminPlansPage() {
                       <p className="text-xs font-bold text-foreground">{doc.display_title || doc.title}</p>
                       {!doc.visible_to_client && <span className="text-[8px] font-black uppercase bg-muted px-1.5 py-0.5 rounded text-muted-foreground">Privado</span>}
                     </div>
-                    <p className="text-[9px] text-muted font-black uppercase tracking-widest">
-                      {doc.document_type === 'boarding_pass' ? 'Tarjeta de Embarque' : 
-                       doc.document_type === 'flight_confirmation' ? 'Reserva de Vuelo' : 
-                       doc.document_type === 'hotel' ? 'Reserva de Hotel' : 
-                       (doc.document_type || 'Documento')} {doc.description ? `· ${doc.description}` : ''}
-                    </p>
+                     <p className="text-[9px] text-muted font-black uppercase tracking-widest">
+                       {doc.document_type === 'boarding_pass' ? 'Tarjeta de Embarque' : 
+                        doc.document_type === 'flight_confirmation' ? 'Reserva de Vuelo' : 
+                        doc.document_type === 'hotel' ? 'Reserva de Hotel' : 
+                        (doc.document_type || 'Documento')} {doc.description ? `· ${doc.description}` : ''}
+                     </p>
+                     {doc.document_type === 'boarding_pass' && doc.qr_raw_payload && (
+                        <div className="mt-2 flex items-center gap-3 bg-accent/5 p-2 rounded-xl border border-accent/10">
+                           <div className="bg-white p-1 rounded border border-border">
+                             <QRCodeSVG value={doc.qr_raw_payload} size={40} />
+                           </div>
+                           <div className="text-[7px] font-mono text-muted uppercase tracking-tighter max-w-[120px] truncate">
+                             QR: {doc.qr_raw_payload.substring(0, 15)}...
+                           </div>
+                        </div>
+                     )}
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -1094,6 +1209,28 @@ export default function AdminPlansPage() {
                         {(extractionResult as any).error && (
                           <p className="text-red-500 text-[9px] font-bold">ERROR: {(extractionResult as any).error}</p>
                         )}
+                        
+                        <div className="flex gap-2 pt-2">
+                           <Button 
+                             variant="outline" 
+                             size="sm" 
+                             className="h-7 text-[8px] font-black uppercase tracking-widest border-accent/20 text-accent hover:bg-accent hover:text-white"
+                             onClick={() => {
+                               if (extractionResult.file) {
+                                 const url = URL.createObjectURL(extractionResult.file);
+                                 window.open(url, '_blank');
+                               }
+                             }}
+                           >
+                             <Eye size={10} className="mr-1" /> Ver PDF Original
+                           </Button>
+                           
+                           {extractionResult.qr_decoded && (
+                             <div className="bg-white p-1 rounded-lg border border-border shadow-sm flex items-center justify-center">
+                               <QRCodeSVG value={extractionResult.qr_raw_payload || ''} size={60} />
+                             </div>
+                           )}
+                        </div>
                       </div>
 
                       <div className="grid grid-cols-2 gap-6">
@@ -1158,90 +1295,32 @@ export default function AdminPlansPage() {
                         <Button variant="ghost" className="flex-1 rounded-2xl py-6 font-bold" onClick={() => setImportStep('upload')}>Descartar</Button>
                         <Button className="flex-2 rounded-2xl py-6 font-black uppercase tracking-widest text-xs" disabled={isSubmitting} onClick={async () => {
                           try {
+                            if (!selectedPlan?.id) throw new Error('No hay un plan activo seleccionado.');
                             setIsSubmitting(true);
-                            const editData = extractionResult.data;
-                            const depLoc = (editData.departure_location || editData.origin || '').toUpperCase() === 'VAL' ? 'VLC' : (editData.departure_location || editData.origin);
-                            const arrLoc = (editData.arrival_location || editData.destination || '').toUpperCase() === 'VAL' ? 'VLC' : (editData.arrival_location || editData.destination);
-
-                            // Detección de trayecto (Outbound / Return)
-                            let tripType = editData.type;
-                            const isFromSpain = /VLC|Valencia|MAD|Madrid|ALC|Alicante/i.test(depLoc);
-                            const isToFrance = /ORY|Orly|CDG|Paris|Par\u00eds/i.test(arrLoc);
-                            const isFromFrance = /ORY|Orly|CDG|Paris|Par\u00eds/i.test(depLoc);
-                            const isToSpain = /VLC|Valencia|MAD|Madrid|ALC|Alicante/i.test(arrLoc);
-
-                            if (isFromSpain && isToFrance) tripType = 'outbound';
-                            else if (isFromFrance && isToSpain) tripType = 'return';
-
-                            // LIMPIEZA CRÍTICA: Solo enviar campos que existen en la DB
-                            const allowedFields = [
-                              'id', 'plan_id', 'airline', 'flight_number', 'departure_location', 
-                              'arrival_location', 'origin', 'destination', 'departure_time', 
-                              'arrival_time', 'reservation_code', 'seat', 'baggage_info', 
-                              'is_verified', 'source', 'type', 'notes', 'gate', 'boarding_group', 'qr_code',
-                              'hotel_name', 'confirmation_number', 'address', 'check_in', 'check_out'
-                            ];
-
-                            const sanitizedData: any = {};
-                            allowedFields.forEach(key => {
-                              if (editData[key] !== undefined) sanitizedData[key] = editData[key];
-                            });
-
-                            // SMART MATCH LOGIC: Find target plan by passenger name
-                            let targetPlanId = selectedPlan.id;
-                            const guestName = extractionResult.data.passenger_name || (extractionResult.data.passengers ? extractionResult.data.passengers.split(',')[0].trim() : null);
-
-                            if (guestName) {
-                              const { data: matchedProfiles } = await supabase.from('profiles').select('id, nombre, apellidos');
-                              const profile = matchedProfiles?.find(p => {
-                                const fullName = `${p.nombre || ''} ${p.apellidos || ''}`.trim().toLowerCase();
-                                return fullName === guestName.toLowerCase();
-                              });
-
-                              if (profile) {
-                                // Check if user has a plan for this context
-                                const { data: existingPlan } = await supabase
-                                  .from('contact_travel_plans')
-                                  .select('id')
-                                  .eq('user_id', profile.id)
-                                  .eq('context_id', selectedPlan.context_id)
-                                  .is('deleted_at', null)
-                                  .maybeSingle();
-                                
-                                if (existingPlan) {
-                                  targetPlanId = existingPlan.id;
-                                } else {
-                                  const { data: newPlan } = await supabase
-                                    .from('contact_travel_plans')
-                                    .insert({
-                                      user_id: profile.id,
-                                      context_id: selectedPlan.context_id,
-                                      status: 'active',
-                                      source: 'pdf_import_auto'
-                                    })
-                                    .select('id')
-                                    .single();
-                                  if (newPlan) targetPlanId = newPlan.id;
-                                }
-                              }
-                            }
-
-                            // Aplicar normalizaciones sobre el objeto limpio
-                            sanitizedData.departure_location = depLoc;
-                            sanitizedData.arrival_location = arrLoc;
-                            sanitizedData.origin = depLoc;
-                            sanitizedData.destination = arrLoc;
-                            sanitizedData.type = tripType;
-                            sanitizedData.is_verified = true;
-                            sanitizedData.plan_id = targetPlanId;
                             
+                            const editData = extractionResult.data;
+                            
+                            // 1. MAPPING ROBUSTO (Punto 1 de la solicitud)
+                            const depLoc = (
+                              editData.departure_location || 
+                              editData.origin || 
+                              editData.departure_airport || 
+                              editData.from || 
+                              ''
+                            ).trim();
+
+                            const arrLoc = (
+                              editData.arrival_location || 
+                              editData.destination || 
+                              editData.arrival_airport || 
+                              editData.to || 
+                              ''
+                            ).trim();
+
+                            // Normalización de fechas
                             const toISO = (dateStr: string) => {
                                if (!dateStr) return null;
-                               // 1. Si ya es ISO parcial (YYYY-MM-DDTHH:mm), completar
-                               if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(dateStr)) return `${dateStr}:00`;
-                               if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(dateStr)) return dateStr;
-                               
-                               // 2. Formato DD/MM/YYYY con o sin hora
+                               if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(dateStr)) return dateStr.length === 16 ? `${dateStr}:00` : dateStr;
                                const match = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})(?:\s+(\d{1,2}:\d{2}))?/);
                                if (match) {
                                  const day = match[1].padStart(2, '0');
@@ -1250,120 +1329,112 @@ export default function AdminPlansPage() {
                                  const time = match[4] || '12:00';
                                  return `${year}-${month}-${day}T${time}:00`;
                                }
-
-                               // 3. Si solo es hora HH:mm (fallo de extracción de fecha)
-                               if (/^\d{1,2}:\d{2}$/.test(dateStr)) {
-                                 const today = new Date().toISOString().split('T')[0];
-                                 return `${today}T${dateStr.padStart(5, '0')}:00`;
-                               }
-
                                return dateStr;
                             };
 
-                            if (sanitizedData.departure_time) sanitizedData.departure_time = toISO(sanitizedData.departure_time);
-                            if (sanitizedData.arrival_time) sanitizedData.arrival_time = toISO(sanitizedData.arrival_time);
-                            if (sanitizedData.check_in) sanitizedData.check_in = toISO(sanitizedData.check_in);
-                            if (sanitizedData.check_out) sanitizedData.check_out = toISO(sanitizedData.check_out);
+                            const depTime = toISO(editData.departure_time);
+                            const arrTime = toISO(editData.arrival_time);
 
-                            let relatedFlightId = null;
-
-                            if (extractionResult.type === 'boarding_pass' || extractionResult.type === 'flight') {
-                              // 1. Try to find existing flight
-                              const { data: planFlights } = await supabase.from('travel_flights').select('*').eq('plan_id', targetPlanId).is('deleted_at', null);
-                              const existingFlight = planFlights?.find((f: any) => 
-                                f.flight_number === sanitizedData.flight_number && 
-                                (f.departure_location === sanitizedData.origin || f.origin === sanitizedData.origin)
-                              );
-
-                              if (existingFlight) {
-                                relatedFlightId = existingFlight.id;
-                                // UPDATE flight with new data
-                                const updatePayload: any = {
-                                   reservation_code: sanitizedData.booking_reference || existingFlight.reservation_code,
-                                   last_updated_at: new Date().toISOString()
-                                };
-                                if (sanitizedData.seat) updatePayload.seat = sanitizedData.seat;
-                                if (sanitizedData.gate) updatePayload.gate = sanitizedData.gate;
-                                if (sanitizedData.boarding_group) updatePayload.boarding_group = sanitizedData.boarding_group;
-                                if (sanitizedData.baggage_info) updatePayload.baggage_info = sanitizedData.baggage_info;
-                                if (sanitizedData.departure_time) updatePayload.departure_time = sanitizedData.departure_time;
-                                if (sanitizedData.arrival_time) updatePayload.arrival_time = sanitizedData.arrival_time;
-                                if (extractionResult.type === 'boarding_pass') updatePayload.source = 'boarding_pass_import';
-                                
-                                await saveItem('travel_flights', { ...updatePayload, id: relatedFlightId });
-                              } else {
-                                // 2. Create flight if doesn't exist
-                                const newFlight = await saveItem('travel_flights', {
-                                  plan_id: targetPlanId,
-                                  airline: sanitizedData.airline || 'Vueling',
-                                  flight_number: sanitizedData.flight_number,
-                                  departure_location: sanitizedData.origin,
-                                  arrival_location: sanitizedData.destination,
-                                  departure_time: sanitizedData.departure_time,
-                                  arrival_time: sanitizedData.arrival_time,
-                                  reservation_code: sanitizedData.booking_reference,
-                                  seat: sanitizedData.seat,
-                                  gate: sanitizedData.gate,
-                                  boarding_group: sanitizedData.boarding_group,
-                                  baggage_info: sanitizedData.baggage_info,
-                                  is_verified: true,
-                                  source: extractionResult.type === 'boarding_pass' ? 'boarding_pass_import' : 'flight_confirmation_import',
-                                  type: tripType
-                                });
-                                relatedFlightId = newFlight.id;
-                              }
-                            } else {
-                              const tableMap: any = { hotel: 'hotel_stays' };
-                              const res = await saveItem(tableMap[extractionResult.type], sanitizedData);
-                              if (!res || !res.id) throw new Error('La base de datos rechazó el registro.');
+                            // 2. VALIDACIÓN DE CAMPOS OBLIGATORIOS (Punto 2 y 7)
+                            // El plan_id se resolverá a continuación
+                            if (!editData.airline || !editData.flight_number || !depLoc || !arrLoc || !depTime) {
+                              console.error('VALIDATION FAILED', { airline: editData.airline, flight_number: editData.flight_number, depLoc, arrLoc, depTime });
+                              throw new Error('Falta origen/destino, aerolínea o número del vuelo. Revisa la extracción antes de guardar.');
                             }
 
-                            // 2. Upload and link the PDF
+                            // SMART MATCH LOGIC: Find target plan by passenger name
+                            let targetPlanId = selectedPlan.id;
+                            const guestName = editData.passenger_name || (editData.passengers ? editData.passengers.split(',')[0].trim() : null);
+                            
+                            if (guestName) {
+                              const { data: matchedProfiles } = await supabase.from('profiles').select('id, nombre, apellidos');
+                              const profile = matchedProfiles?.find(p => `${p.nombre || ''} ${p.apellidos || ''}`.trim().toLowerCase() === guestName.toLowerCase());
+                              if (profile) {
+                                const { data: existingPlan } = await supabase.from('contact_travel_plans')
+                                  .select('id').eq('user_id', profile.id).eq('context_id', selectedPlan.context_id).is('deleted_at', null).maybeSingle();
+                                if (existingPlan?.id) targetPlanId = existingPlan.id;
+                              }
+                            }
+
+                            // 3 & 4. LÓGICA DE VINCULACIÓN (Punto 3 y 4)
+                            let relatedFlightId = editData.related_flight_id;
+                            
+                            if (!relatedFlightId) {
+                               // Buscar vuelo existente
+                               const { data: planFlights } = await supabase.from('travel_flights').select('*').eq('plan_id', targetPlanId).is('deleted_at', null);
+                               const existingFlight = planFlights?.find((f: any) => 
+                                 f.flight_number === editData.flight_number && 
+                                 (f.departure_location === depLoc || f.origin === depLoc) &&
+                                 (f.arrival_location === arrLoc || f.destination === arrLoc)
+                               );
+                               if (existingFlight) relatedFlightId = existingFlight.id;
+                            }
+
+                            const flightPayload: any = {
+                               plan_id: targetPlanId,
+                               airline: editData.airline || 'Vueling',
+                               flight_number: editData.flight_number,
+                               departure_location: depLoc,
+                               arrival_location: arrLoc,
+                               origin: depLoc,
+                               destination: arrLoc,
+                               departure_time: depTime,
+                               arrival_time: arrTime,
+                               reservation_code: editData.booking_reference,
+                               seat: editData.seat,
+                               gate: editData.gate,
+                               boarding_group: editData.boarding_group,
+                               baggage_info: editData.baggage_info,
+                               is_verified: true,
+                               source: extractionResult.type === 'boarding_pass' ? 'boarding_pass_import' : 'flight_confirmation_import',
+                               type: editData.type || 'outbound'
+                            };
+
+                            // 6. DEBUG ANTES DEL INSERT (Punto 6)
+                            console.log('FLIGHT PAYLOAD BEFORE SAVE', flightPayload);
+
+                            const savedFlight = await saveItem('travel_flights', relatedFlightId ? { ...flightPayload, id: relatedFlightId } : flightPayload);
+                            if (savedFlight) relatedFlightId = savedFlight.id;
+
+                            // 5. GUARDAR EN TRAVEL_DOCUMENTS (Punto 5)
                             if (extractionResult.file) {
                               const fileName = `${extractionResult.type}_${Date.now()}.pdf`;
-                              const { data: uploadData, error: uploadError } = await supabase.storage
-                                .from('travel-documents')
-                                .upload(`${targetPlanId}/${fileName}`, extractionResult.file);
+                              const { data: uploadData } = await supabase.storage
+                                .from('travel-documents').upload(`${targetPlanId}/${fileName}`, extractionResult.file);
+                              
+                              if (uploadData) {
+                                const { data: { publicUrl } } = supabase.storage.from('travel-documents').getPublicUrl(uploadData.path);
+                                
+                                const docTitle = extractionResult.type === 'boarding_pass' 
+                                  ? `Tarjeta de Embarque · ${editData.airline} ${editData.flight_number}`
+                                  : `Reserva · ${editData.airline} ${editData.flight_number}`;
 
-                              if (uploadError) throw new Error(`Error en storage: ${uploadError.message}`);
-
-                              const { data: { publicUrl } } = supabase.storage
-                                .from('travel-documents')
-                                .getPublicUrl(uploadData.path);
-
-                               // Título inteligente
-                               let suggestedTitle = sanitizedData.display_title || `Documento ${extractionResult.type}`;
-                               if (extractionResult.type === 'boarding_pass') {
-                                 suggestedTitle = `Tarjeta de Embarque · ${sanitizedData.airline || 'Vueling'} ${sanitizedData.flight_number}`;
-                               } else if (sanitizedData.airline && sanitizedData.flight_number) {
-                                 suggestedTitle = `Billete · ${sanitizedData.airline} ${sanitizedData.flight_number}`;
-                               }
-
-                               await saveTravelDocument({
-                                 plan_id: targetPlanId,
-                                 title: suggestedTitle,
-                                 display_title: suggestedTitle,
-                                 document_type: extractionResult.type === 'boarding_pass' ? 'boarding_pass' : (extractionResult.type === 'flight' ? 'flight_confirmation' : 'general'),
-                                 description: extractionResult.type === 'boarding_pass' 
-                                   ? `${sanitizedData.origin} → ${sanitizedData.destination} · Asiento ${sanitizedData.seat}`
-                                   : (sanitizedData.airline?.toLowerCase().includes('vueling') ? 'Confirmación de reserva' : ''),
-                                 file_url: publicUrl,
-                                 related_flight_id: relatedFlightId,
-                                 passenger_name: sanitizedData.passenger_name,
-                                 seat_assignment: sanitizedData.seat,
-                                 boarding_group: sanitizedData.boarding_group,
-                                 qr_code: extractionResult.qr_raw_payload || sanitizedData.qr_code,
-                                 qr_decoded: extractionResult.qr_decoded || false,
-                                 qr_raw_payload: extractionResult.qr_raw_payload || null,
-                                 visible_to_client: true
-                               });
+                                await saveTravelDocument({
+                                  plan_id: targetPlanId,
+                                  title: docTitle,
+                                  display_title: docTitle,
+                                  document_type: extractionResult.type === 'boarding_pass' ? 'boarding_pass' : 'flight_confirmation',
+                                  description: `${depLoc} → ${arrLoc} · Asiento ${editData.seat || 'S/A'}`,
+                                  file_url: publicUrl,
+                                  related_flight_id: relatedFlightId,
+                                  passenger_name: editData.passenger_name,
+                                  seat_assignment: editData.seat,
+                                  boarding_group: editData.boarding_group,
+                                  booking_reference: editData.booking_reference,
+                                  qr_code: extractionResult.qr_raw_payload || editData.qr_code,
+                                  qr_decoded: extractionResult.qr_decoded || false,
+                                  qr_raw_payload: extractionResult.qr_raw_payload || null,
+                                  visible_to_client: true
+                                });
+                              }
                             }
 
                             setImportStep('upload');
                             setExtractionResult(null);
                             handleManagePlan(selectedPlan);
                           } catch (err: any) {
-                              console.error('Error Crítico Detallado:', err);
+                               console.error('Error Crítico Detallado:', err.message || err);
+                               console.log('Error object:', err);
                               
                               let errorMsg = 'Error desconocido';
                               
@@ -1801,6 +1872,247 @@ export default function AdminPlansPage() {
         )}
       </AnimatePresence>
 
+      {/* Modal de Edición de Hospitality */}
+      <AnimatePresence>
+        {editingHospitality && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[70] flex items-center justify-center p-4 overflow-y-auto">
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-background border border-border w-full max-w-2xl rounded-[32px] overflow-hidden shadow-2xl my-8"
+            >
+              <div className="p-8 border-b border-border flex justify-between items-center bg-muted/20">
+                <div>
+                  <h3 className="text-2xl font-black text-primary tracking-tighter">Gestionar Evento Hospitality</h3>
+                  <p className="text-[10px] text-muted font-black uppercase tracking-widest mt-1">Experiencia VIP y Agenda</p>
+                </div>
+                <Button variant="ghost" className="rounded-full h-10 w-10 p-0" onClick={() => setEditingHospitality(null)}>
+                  <X size={24} />
+                </Button>
+              </div>
+              
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                setIsSubmitting(true);
+                try {
+                  if (!editingHospitality.title || !editingHospitality.start_datetime) {
+                    throw new Error('Título y Fecha son obligatorios.');
+                  }
+                  await saveItem('hospitality_events', editingHospitality);
+                  await alert({ title: 'Éxito', message: 'Evento guardado correctamente.', type: 'success' });
+                  setEditingHospitality(null);
+                  handleManagePlan(selectedPlan);
+                } catch (err: any) {
+                  await alert({ title: 'Error', message: err.message, type: 'danger' });
+                } finally {
+                  setIsSubmitting(false);
+                }
+              }} className="p-8 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Tipo de Evento</label>
+                    <select 
+                      className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none"
+                      value={editingHospitality.type}
+                      onChange={e => setEditingHospitality({...editingHospitality, type: e.target.value})}
+                    >
+                      <option value="dinner">Cena VIP</option>
+                      <option value="lunch">Comida VIP</option>
+                      <option value="meeting">Reunión de Negocios</option>
+                      <option value="experience">Experiencia / Ocio</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Estado</label>
+                    <select 
+                      className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none"
+                      value={editingHospitality.status || 'planned'}
+                      onChange={e => setEditingHospitality({...editingHospitality, status: e.target.value})}
+                    >
+                      <option value="planned">Planificado</option>
+                      <option value="confirmed">Confirmado</option>
+                      <option value="cancelled">Cancelado</option>
+                    </select>
+                  </div>
+                  
+                  <FieldReview label="Título del Evento" value={editingHospitality.title} onChange={(v:any) => setEditingHospitality({...editingHospitality, title: v})} />
+                  
+                  <div className="col-span-2">
+                    <FieldReview label="Descripción / Menú" value={editingHospitality.description} onChange={(v:any) => setEditingHospitality({...editingHospitality, description: v})} />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Inicio (Fecha/Hora)</label>
+                    <input 
+                      type="datetime-local" 
+                      className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent"
+                      value={editingHospitality.start_datetime?.slice(0, 16) || ''}
+                      onChange={e => setEditingHospitality({...editingHospitality, start_datetime: e.target.value})}
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Fin (Opcional)</label>
+                    <input 
+                      type="datetime-local" 
+                      className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent"
+                      value={editingHospitality.end_datetime?.slice(0, 16) || ''}
+                      onChange={e => setEditingHospitality({...editingHospitality, end_datetime: e.target.value})}
+                    />
+                  </div>
+
+                  <FieldReview label="Lugar (Establecimiento)" value={editingHospitality.venue_name} onChange={(v:any) => setEditingHospitality({...editingHospitality, venue_name: v})} />
+                  <FieldReview label="Dirección" value={editingHospitality.venue_address} onChange={(v:any) => setEditingHospitality({...editingHospitality, venue_address: v})} />
+                  
+                  <FieldReview label="Dress Code" value={editingHospitality.dress_code} onChange={(v:any) => setEditingHospitality({...editingHospitality, dress_code: v})} />
+                  <FieldReview label="Cód. Reserva" value={editingHospitality.reservation_code} onChange={(v:any) => setEditingHospitality({...editingHospitality, reservation_code: v})} />
+                  
+                  <FieldReview label="Nombre Reserva" value={editingHospitality.reservation_name} onChange={(v:any) => setEditingHospitality({...editingHospitality, reservation_name: v})} />
+                  <FieldReview label="Contacto Lugar" value={editingHospitality.contact_name} onChange={(v:any) => setEditingHospitality({...editingHospitality, contact_name: v})} />
+                  
+                  <FieldReview label="Teléf. Contacto" value={editingHospitality.contact_phone} onChange={(v:any) => setEditingHospitality({...editingHospitality, contact_phone: v})} />
+                  <FieldReview label="Dress Code" value={editingHospitality.dress_code} onChange={(v:any) => setEditingHospitality({...editingHospitality, dress_code: v})} />
+
+                  <div className="col-span-2">
+                    <FieldReview 
+                      label="Notas Internas / Menú" 
+                      value={editingHospitality.notes} 
+                      onChange={(v:any) => setEditingHospitality({...editingHospitality, notes: v})} 
+                      placeholder="Añadir detalles importantes..."
+                    />
+                  </div>
+
+                  <div className="col-span-2">
+                    <FieldReview 
+                      label="Imagen del Evento (URL)" 
+                      value={editingHospitality.image_url} 
+                      onChange={(v:any) => setEditingHospitality({...editingHospitality, image_url: v})} 
+                      placeholder="https://..."
+                    />
+                  </div>
+                  
+                  <div className="flex gap-4">
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="checkbox" 
+                        id="private_room"
+                        checked={editingHospitality.private_room}
+                        onChange={e => setEditingHospitality({...editingHospitality, private_room: e.target.checked})}
+                      />
+                      <label htmlFor="private_room" className="text-[10px] font-black uppercase text-muted tracking-widest">Sala Privada</label>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input 
+                        type="checkbox" 
+                        id="visible_to_client"
+                        checked={editingHospitality.visible_to_client}
+                        onChange={e => setEditingHospitality({...editingHospitality, visible_to_client: e.target.checked})}
+                      />
+                      <label htmlFor="visible_to_client" className="text-[10px] font-black uppercase text-muted tracking-widest">Visible al Cliente</label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* BLOQUE ASISTENTES */}
+                <div className="pt-8 border-t border-border space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-[10px] font-black uppercase text-accent tracking-[0.2em]">Asistentes ({editingHospitality.attendees?.filter((a:any) => !a.deleted_at).length || 0})</h4>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      type="button"
+                      className="h-7 text-[9px] font-black uppercase tracking-widest text-accent hover:bg-accent/10 rounded-lg px-3"
+                      onClick={() => setEditingAttendee({
+                        event_id: editingHospitality.id,
+                        attendance_status: 'pending',
+                        transport_required: false,
+                        guest_name: '',
+                        guest_email: '',
+                        dietary_restrictions: '',
+                        notes: ''
+                      })}
+                    >
+                      <Plus size={12} className="mr-1" /> Añadir Asistente
+                    </Button>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {editingHospitality.attendees?.filter((a:any) => !a.deleted_at).map((attendee: any) => {
+                      const profile = contextProfiles.find(p => p.id === attendee.profile_id);
+                      return (
+                        <div key={attendee.id} className="p-4 rounded-2xl bg-muted/30 border border-border flex items-center justify-between">
+                          <div className="flex items-center gap-3 overflow-hidden">
+                            <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent text-[10px] font-black shrink-0">
+                              {(attendee.guest_name || profile?.nombre || '?')[0].toUpperCase()}
+                            </div>
+                            <div className="overflow-hidden">
+                              <p className="text-xs font-bold text-foreground truncate">
+                                {attendee.guest_name || `${profile?.nombre || ''} ${profile?.apellidos || ''}`.trim() || 'Invitado'}
+                              </p>
+                              <div className="flex items-center gap-2">
+                                <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded ${
+                                  attendee.attendance_status === 'confirmed' ? 'bg-green-500/10 text-green-500' : 
+                                  attendee.attendance_status === 'declined' ? 'bg-red-500/10 text-red-500' : 'bg-yellow-500/10 text-yellow-500'
+                                }`}>
+                                  {attendee.attendance_status}
+                                </span>
+                                {attendee.transport_required && (
+                                  <span className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-500">Transporte</span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex gap-1 shrink-0">
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              type="button"
+                              className="h-8 w-8 p-0"
+                              onClick={() => setEditingAttendee(attendee)}
+                            >
+                              <Edit2 size={12} className="text-muted" />
+                            </Button>
+                            <Button 
+                              variant="ghost" 
+                              size="sm" 
+                              type="button"
+                              className="h-8 w-8 p-0"
+                              onClick={async () => {
+                                if (await confirm({ title: 'Eliminar Asistente', message: '¿Estás seguro de que deseas eliminar a este asistente?' })) {
+                                  try {
+                                    await deleteItem('hospitality_event_attendees', attendee.id);
+                                    const updatedAttendees = editingHospitality.attendees.map((a: any) => 
+                                      a.id === attendee.id ? { ...a, deleted_at: new Date().toISOString() } : a
+                                    );
+                                    setEditingHospitality({ ...editingHospitality, attendees: updatedAttendees });
+                                  } catch (err: any) {
+                                    alert({ title: 'Error', message: err.message, type: 'danger' });
+                                  }
+                                }
+                              }}
+                            >
+                              <Trash2 size={12} className="text-red-500" />
+                            </Button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="pt-6 border-t border-border flex gap-4">
+                  <Button variant="ghost" type="button" className="flex-1 rounded-2xl py-6 font-bold" onClick={() => setEditingHospitality(null)}>Cancelar</Button>
+                  <Button type="submit" className="flex-2 rounded-2xl py-6 font-black uppercase tracking-widest text-xs" disabled={isSubmitting}>
+                    {isSubmitting ? <Loader2 className="animate-spin" /> : 'Guardar Evento'}
+                  </Button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* Hotel Import Modal */}
       {showHotelImport && selectedPlan && (
         <HotelImportModal
@@ -1814,6 +2126,115 @@ export default function AdminPlansPage() {
           }}
         />
       )}
+      {/* Attendee Management Modal */}
+      <AnimatePresence>
+        {editingAttendee && (
+          <div className="fixed inset-0 z-[600] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              onClick={() => setEditingAttendee(null)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+              className="relative w-full max-w-lg bg-surface rounded-[32px] shadow-2xl overflow-hidden border border-border"
+            >
+              <div className="p-8 border-b border-border flex justify-between items-center bg-muted/30">
+                <div className="space-y-1">
+                  <h3 className="text-lg font-black text-foreground tracking-tight">Gestionar Asistente</h3>
+                  <p className="text-[10px] text-muted font-black uppercase tracking-widest">Hospitality Event</p>
+                </div>
+                <button onClick={() => setEditingAttendee(null)} className="w-10 h-10 rounded-full bg-background border border-border flex items-center justify-center text-foreground hover:bg-muted transition-colors">
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="p-8 space-y-6">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Vincular a Usuario del Plan</label>
+                  <select 
+                    className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none"
+                    value={editingAttendee.profile_id || ''}
+                    onChange={e => {
+                      const profileId = e.target.value;
+                      const profile = contextProfiles.find(p => p.id === profileId);
+                      setEditingAttendee({
+                        ...editingAttendee, 
+                        profile_id: profileId || null,
+                        guest_name: profile ? `${profile.nombre} ${profile.apellidos}` : editingAttendee.guest_name,
+                        guest_email: profile ? profile.email : editingAttendee.guest_email
+                      });
+                    }}
+                  >
+                    <option value="">-- Seleccionar usuario --</option>
+                    {contextProfiles.map(p => (
+                      <option key={p.id} value={p.id}>{p.nombre} {p.apellidos} ({p.email})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <FieldReview label="Nombre Manual" value={editingAttendee.guest_name} onChange={(v:any) => setEditingAttendee({...editingAttendee, guest_name: v})} />
+                  <FieldReview label="Email Manual" value={editingAttendee.guest_email} onChange={(v:any) => setEditingAttendee({...editingAttendee, guest_email: v})} />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Estado Asistencia</label>
+                    <select 
+                      className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none"
+                      value={editingAttendee.attendance_status}
+                      onChange={e => setEditingAttendee({...editingAttendee, attendance_status: e.target.value})}
+                    >
+                      <option value="pending">Pendiente</option>
+                      <option value="confirmed">Confirmado</option>
+                      <option value="declined">Declinado</option>
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-2 pt-6">
+                    <input 
+                      type="checkbox" 
+                      id="transport_req"
+                      checked={editingAttendee.transport_required}
+                      onChange={e => setEditingAttendee({...editingAttendee, transport_required: e.target.checked})}
+                    />
+                    <label htmlFor="transport_req" className="text-[10px] font-black uppercase text-muted tracking-widest">Requiere Transporte</label>
+                  </div>
+                </div>
+
+                <FieldReview label="Restricciones Alimentarias" value={editingAttendee.dietary_restrictions} onChange={(v:any) => setEditingAttendee({...editingAttendee, dietary_restrictions: v})} placeholder="Alergias, vegetariano, etc." />
+                <FieldReview label="Notas del Asistente" value={editingAttendee.notes} onChange={(v:any) => setEditingAttendee({...editingAttendee, notes: v})} />
+
+                <div className="pt-6 border-t border-border flex gap-4">
+                  <Button variant="ghost" className="flex-1 rounded-2xl py-6 font-bold" onClick={() => setEditingAttendee(null)}>Cancelar</Button>
+                  <Button 
+                    className="flex-2 rounded-2xl py-6 font-black uppercase tracking-widest text-xs"
+                    onClick={async () => {
+                      try {
+                        const saved = await saveItem('hospitality_event_attendees', editingAttendee);
+                        const updatedAttendees = editingHospitality.attendees || [];
+                        const exists = updatedAttendees.findIndex((a: any) => a.id === saved.id);
+                        let finalAttendees;
+                        if (exists > -1) {
+                          finalAttendees = updatedAttendees.map((a: any, i: number) => i === exists ? saved : a);
+                        } else {
+                          finalAttendees = [...updatedAttendees, saved];
+                        }
+                        setEditingHospitality({ ...editingHospitality, attendees: finalAttendees });
+                        setEditingAttendee(null);
+                      } catch (err: any) {
+                        alert({ title: 'Error', message: err.message, type: 'danger' });
+                      }
+                    }}
+                  >
+                    Guardar Asistente
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

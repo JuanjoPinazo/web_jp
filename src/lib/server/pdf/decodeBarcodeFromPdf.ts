@@ -29,14 +29,22 @@ export async function decodeBarcodeFromPdf(buffer: Buffer): Promise<{
 
     // 2. Convertir primera página a imagen (PNG) usando pdftocairo (Poppler)
     // -r 600: Muy alta resolución para códigos complejos (PDF417/Aztec)
-    await execFileAsync('pdftocairo', [
+    // FORZAMOS RUTA ABSOLUTA PARA DEBUG
+    const cmd = '/opt/homebrew/bin/pdftocairo';
+
+    const env = { 
+      ...process.env, 
+      PATH: `${process.env.PATH}:/opt/homebrew/bin:/usr/local/bin` 
+    };
+
+    await execFileAsync(cmd, [
       '-png',
       '-f', '1',
       '-l', '1',
       '-r', '600',
       inputPdf,
       outputBase
-    ]);
+    ], { env });
 
     // 3. Procesar imagen con Sharp para optimizar lectura
     // Grayscale, Sharpen y Contrast Boost (normalize) ayudan a zxing

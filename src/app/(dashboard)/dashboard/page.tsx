@@ -25,11 +25,34 @@ import {
   Download,
   Navigation,
   MessageSquare,
-  AlertCircle
+  AlertCircle,
+  CalendarRange
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import { OutcomeDrawer } from '@/components/OutcomeDrawer';
+
+const WakeLockHandler = () => {
+  useEffect(() => {
+    let wakeLock: any = null;
+    const requestWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator) {
+          wakeLock = await (navigator as any).wakeLock.request('screen');
+        }
+      } catch (err) {
+        console.warn('Wake Lock request failed:', err);
+      }
+    };
+    requestWakeLock();
+    return () => {
+      if (wakeLock) {
+        wakeLock.release().catch(() => {});
+      }
+    };
+  }, []);
+  return null;
+};
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -50,6 +73,7 @@ export default function DashboardPage() {
   const [activePlan, setActivePlan] = useState<FullTravelPlan | null>(null);
   const [enabledModules, setEnabledModules] = useState<Record<string, boolean>>({});
   const [selectedQR, setSelectedQR] = useState<any>(null);
+  const [selectedPDF, setSelectedPDF] = useState<any>(null);
   const [showTimeline, setShowTimeline] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -198,7 +222,7 @@ export default function DashboardPage() {
       });
     });
 
-    // 4. DINNERS / RESTAURANTS
+    // 4. DINNERS / RESTAURANTS (Legacy)
     activePlan.restaurants.filter(r => r.type === 'reserved' || !r.type).forEach(r => {
       events.push({
         id: `dinner-${r.id}`,
@@ -210,6 +234,22 @@ export default function DashboardPage() {
         icon: Utensils,
         color: 'text-orange-500',
         payload: r
+      });
+    });
+
+    // 5. HOSPITALITY EVENTS (New Module)
+    activePlan.hospitality_events?.filter(e => e.visible_to_client).forEach(e => {
+      events.push({
+        id: `hospitality-${e.id}`,
+        type: 'hospitality',
+        datetime: new Date(e.start_datetime),
+        title: e.title,
+        location: e.venue_name || 'Lugar por confirmar',
+        description: `${e.description || ''}${e.dress_code ? ` · Dress Code: ${e.dress_code}` : ''}`,
+        icon: Utensils,
+        color: 'text-accent',
+        payload: e,
+        timeString: new Date(e.start_datetime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
       });
     });
 
@@ -609,7 +649,7 @@ export default function DashboardPage() {
                         {event.title}
                       </h4>
                       <span className="text-[10px] font-black text-accent shrink-0">
-                        {event.datetime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {event.timeString || event.datetime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
                    </div>
                    <p className="text-xs font-medium text-muted/80 leading-relaxed">
@@ -625,7 +665,154 @@ export default function DashboardPage() {
         </div>
       </motion.section>
 
-      {/* BLOQUE 4: EXPERIENCIA CURADA */}
+       {/* BLOQUE 4: AGENDA VIP (HOSPITALITY) */}
+      {isModuleEnabled('hospitality') && (activePlan?.hospitality_events?.filter(e => e.visible_to_client).length ?? 0) > 0 && (
+        <motion.section variants={itemVariants} className="space-y-6">
+          <div className="flex items-center gap-4 px-2">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-accent">Agenda VIP</h3>
+            <div className="flex-1 h-px bg-accent/20" />
+          </div>
+          <div className="grid grid-cols-1 gap-6">
+            {activePlan?.hospitality_events.filter(e => e.visible_to_client && !e.deleted_at).map(e => (
+              <div key={e.id} className="relative group overflow-hidden rounded-[2.5rem]">
+                <div className="absolute -inset-0.5 bg-gradient-to-r from-accent/20 to-purple-500/20 blur opacity-50 group-hover:opacity-100 transition-opacity" />
+                <div className="relative bg-surface/80 backdrop-blur-md border border-accent/20 overflow-hidden flex flex-col">
+                   {e.image_url && (
+                     <div className="h-48 w-full relative">
+                        <img src={e.image_url} alt={e.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-surface/90 to-transparent" />
+                        {e.status === 'cancelled' && (
+                          <div className="absolute top-4 right-4 px-3 py-1 bg-red-500 text-white text-[8px] font-black uppercase rounded-full shadow-lg">Cancelado</div>
+                        )}
+                        {e.status === 'confirmed' && (
+                          <div className="absolute top-4 right-4 px-3 py-1 bg-green-500 text-white text-[8px] font-black uppercase rounded-full shadow-lg">Confirmado</div>
+                        )}
+                     </div>
+                   )}
+                   <div className="p-8 space-y-6">
+                      <div className="flex justify-between items-start">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 mb-1">
+                              <div className="inline-flex items-center gap-2 px-2 py-0.5 rounded-md bg-accent/10 border border-accent/20 text-[8px] font-black text-accent uppercase tracking-widest">
+                                {e.type === 'dinner' ? 'Cena Exclusiva' : e.type === 'lunch' ? 'Comida VIP' : e.type === 'meeting' ? 'Reunión' : 'Experiencia'}
+                              </div>
+                              {!e.image_url && e.status === 'cancelled' && (
+                                <span className="px-2 py-0.5 bg-red-500/10 text-red-500 border border-red-500/20 text-[8px] font-black uppercase rounded-md">Cancelado</span>
+                              )}
+                              {!e.image_url && e.status === 'confirmed' && (
+                                <span className="px-2 py-0.5 bg-green-500/10 text-green-500 border border-green-500/20 text-[8px] font-black uppercase rounded-md">Confirmado</span>
+                              )}
+                            </div>
+                            <h4 className="text-xl font-black text-foreground tracking-tight">{e.title}</h4>
+                          </div>
+                          {!e.image_url && (
+                            <div className="w-12 h-12 rounded-2xl bg-accent/10 flex items-center justify-center text-accent">
+                              {e.type === 'dinner' || e.type === 'lunch' ? <Utensils size={24} /> : <CalendarRange size={24} />}
+                            </div>
+                          )}
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-6 py-4 border-y border-border/50">
+                          <div className="space-y-1">
+                            <p className="text-[9px] font-black text-muted uppercase tracking-widest">Hora</p>
+                            <p className="text-lg font-black text-foreground">
+                              {new Date(e.start_datetime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
+                            </p>
+                          </div>
+                          {e.dress_code && (
+                            <div className="space-y-1 text-right">
+                              <p className="text-[9px] font-black text-muted uppercase tracking-widest">Dress Code</p>
+                              <p className="text-xs font-bold text-accent uppercase tracking-tighter">{e.dress_code}</p>
+                            </div>
+                          )}
+                      </div>
+
+                      <div className="space-y-4">
+                          <div className="flex items-start gap-3">
+                            <MapPin size={16} className="text-muted shrink-0 mt-0.5" />
+                            <div className="flex-1">
+                              <p className="text-xs font-bold text-foreground">{e.venue_name || 'Establecimiento por confirmar'}</p>
+                              {e.venue_address && <p className="text-[10px] text-muted leading-relaxed line-clamp-1">{e.venue_address}</p>}
+                            </div>
+                            {e.venue_address && (
+                              <button 
+                                onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((e.venue_name || '') + ' ' + (e.venue_address || ''))}`)}
+                                className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent active:scale-90 transition-transform"
+                              >
+                                <Navigation size={14} />
+                              </button>
+                            )}
+                          </div>
+
+                          {(e.contact_name || e.contact_phone) && (
+                            <div className="p-4 rounded-2xl bg-surface border border-border flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent">
+                                <User size={14} />
+                              </div>
+                              <div className="flex-1">
+                                <p className="text-[8px] font-black text-muted uppercase tracking-widest">Contacto</p>
+                                <p className="text-[10px] font-bold text-foreground">{e.contact_name || 'Personal del establecimiento'}</p>
+                              </div>
+                              {e.contact_phone && (
+                                <a href={`tel:${e.contact_phone}`} className="w-8 h-8 rounded-lg bg-green-500/10 text-green-500 flex items-center justify-center">
+                                  <Phone size={14} />
+                                </a>
+                              )}
+                            </div>
+                          )}
+
+                          {e.notes && (
+                            <div className="p-4 rounded-2xl bg-accent/5 border border-accent/10">
+                               <p className="text-[8px] font-black text-accent uppercase tracking-widest mb-1">Notas / Menú</p>
+                               <p className="text-[10px] text-foreground leading-relaxed italic">{e.notes}</p>
+                            </div>
+                          )}
+                          
+                          {e.attendees && e.attendees.filter((a:any) => a.attendance_status === 'confirmed' && !a.deleted_at).length > 0 && (
+                            <div className="pt-4 border-t border-border/30">
+                              <p className="text-[8px] font-black text-muted uppercase tracking-widest mb-2">Asistentes Confirmados</p>
+                              <div className="flex flex-wrap gap-2">
+                                {e.attendees.filter((a:any) => a.attendance_status === 'confirmed' && !a.deleted_at).map((a: any) => (
+                                  <div key={a.id} className="flex items-center gap-1.5 bg-accent/5 border border-accent/10 px-2 py-1 rounded-lg">
+                                    <div className="w-4 h-4 rounded-full bg-accent/20 flex items-center justify-center text-[7px] font-black text-accent">
+                                      {(a.guest_name || a.profiles?.nombre || '?')[0].toUpperCase()}
+                                    </div>
+                                    <span className="text-[9px] font-bold text-foreground">
+                                      {a.guest_name || `${a.profiles?.nombre || ''} ${a.profiles?.apellidos || ''}`.trim() || 'Invitado'}
+                                    </span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          <div className="flex gap-2">
+                            {e.venue_address && (
+                              <button 
+                                onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent((e.venue_name || '') + ' ' + (e.venue_address || ''))}`)}
+                                className="flex-1 py-4 rounded-2xl bg-accent text-white font-black uppercase tracking-widest text-[9px] flex items-center justify-center gap-2 shadow-lg shadow-accent/20 active:scale-[0.98] transition-all"
+                              >
+                                <Navigation size={14} /> Cómo llegar
+                              </button>
+                            )}
+                            {e.reservation_code && (
+                              <div className="px-4 py-4 rounded-2xl bg-surface-subtle border border-border flex flex-col justify-center items-center min-w-[100px]">
+                                <p className="text-[7px] font-black text-muted uppercase tracking-widest">Reserva</p>
+                                <p className="text-[11px] font-black text-accent font-mono uppercase">{e.reservation_code}</p>
+                              </div>
+                            )}
+                          </div>
+                      </div>
+                   </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </motion.section>
+      )}
+
+      {/* BLOQUE 5: EXPERIENCIA CURADA */}
+
       {isModuleEnabled('restaurants') && (activePlan?.restaurants?.filter(r => r.type !== 'reserved').length ?? 0) > 0 && (
         <motion.section variants={itemVariants} className="space-y-6">
           <div className="flex items-center gap-4 px-2">
@@ -658,11 +845,12 @@ export default function DashboardPage() {
           <div className="flex-1 h-px bg-border" />
         </div>
         <div className="space-y-4">
-          {/* 1. Tarjetas de Embarque Destacadas */}
           {activePlan?.documents
             .filter(d => d.visible_to_client !== false && (d.document_type === 'boarding_pass' || d.title.toLowerCase().includes('tarjeta')))
             .map(doc => {
-              const hasQR = !!doc.qr_code;
+              const flight = activePlan?.flights.find(f => f.id === doc.related_flight_id);
+              const hasQR = !!(doc.qr_code || doc.qr_raw_payload);
+              
               return (
                 <div key={doc.id} className="p-8 rounded-[2.5rem] bg-surface border border-accent/20 shadow-xl relative overflow-hidden group">
                   <div className="absolute top-0 right-0 p-6 opacity-5">
@@ -678,43 +866,46 @@ export default function DashboardPage() {
                     </div>
                     <div className="text-right">
                       <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1">Localizador</p>
-                      <p className="text-sm font-mono font-black text-accent">{doc.qr_raw_payload?.substring(0, 6) || 'Confirmado'}</p>
+                      <p className="text-sm font-mono font-black text-accent">{flight?.reservation_code || doc.booking_reference || 'Confirmado'}</p>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 gap-6 mb-8">
                     <div className="space-y-1">
-                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">Asiento</p>
-                      <p className="text-2xl font-black text-foreground">{doc.seat_assignment || '—'}</p>
+                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">Ruta</p>
+                      <p className="text-base font-black text-foreground uppercase">
+                        {flight?.departure_location || '—'} → {flight?.arrival_location || '—'}
+                      </p>
                     </div>
                     <div className="space-y-1 text-right">
-                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">Grupo</p>
-                      <p className="text-2xl font-black text-foreground">{doc.boarding_group || '—'}</p>
+                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">Asiento</p>
+                      <p className="text-2xl font-black text-foreground">{doc.seat_assignment || flight?.seat || '—'}</p>
                     </div>
                   </div>
 
                   <div className="pt-6 border-t border-border/50 flex flex-col gap-3">
                     {hasQR ? (
                       <button 
-                        onClick={() => setSelectedQR(doc)}
+                        onClick={() => setSelectedQR({ ...doc, flight })}
                         className="w-full py-5 rounded-2xl bg-accent text-white font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-3 shadow-lg shadow-accent/20 active:scale-95 transition-all"
                       >
                         <QrCode size={16} /> Mostrar QR de Embarque
                       </button>
                     ) : (
                       <button 
-                        onClick={() => window.open(doc.file_url)}
+                        onClick={() => setSelectedPDF(doc)}
                         className="w-full py-5 rounded-2xl bg-foreground text-background font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-3 active:scale-95 transition-all"
                       >
-                        <FileText size={16} /> Abrir Tarjeta de Embarque
+                        <FileText size={16} /> Ver Tarjeta Completa
                       </button>
                     )}
                     
-                    {!hasQR && (
-                      <div className="flex items-center justify-center gap-2 text-[9px] font-black text-muted uppercase tracking-widest">
-                        <CheckCircle2 size={12} className="text-emerald-500" /> PDF Oficial Disponible
-                      </div>
-                    )}
+                    <button 
+                      onClick={() => setSelectedPDF(doc)}
+                      className="w-full py-4 rounded-2xl border border-border text-foreground font-black uppercase tracking-widest text-[9px] flex items-center justify-center gap-2"
+                    >
+                      Ver PDF Original
+                    </button>
                   </div>
                 </div>
               );
@@ -808,106 +999,146 @@ export default function DashboardPage() {
         isOpen={showTimeline} 
         card={{ actionType: 'timeline', title: 'Itinerario Completo' }} 
         onClose={() => setShowTimeline(false)} 
-        onOpenQR={(data) => setSelectedQR(data)}
+        onOpenQR={(doc) => {
+          const flight = activePlan?.flights.find(f => f.id === doc.related_flight_id);
+          setSelectedQR({ ...doc, flight });
+        }}
       />
 
       {/* QR MODAL (Premium Full-Screen Experience) */}
       <AnimatePresence>
         {selectedQR && (
-          <div className="fixed inset-0 z-[300] flex items-center justify-center">
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              exit={{ opacity: 0 }} 
-              onClick={() => setSelectedQR(null)} 
-              className={`absolute inset-0 ${airportMode ? 'bg-white/95' : 'bg-black/95'} backdrop-blur-3xl`} 
-            />
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[300] bg-white"
+          >
+            <WakeLockHandler />
             
             <motion.div 
               initial={{ y: "100%" }} 
               animate={{ y: 0 }} 
               exit={{ y: "100%" }} 
               transition={{ type: "spring", damping: 30, stiffness: 300 }}
-              className={`relative w-full h-[100dvh] ${airportMode ? 'bg-white' : 'bg-background'} flex flex-col items-center pt-[calc(var(--sat)+2rem)] px-8 pb-[calc(var(--sab)+2rem)] overflow-hidden`}
+              className="flex flex-col h-full p-8 pb-12 items-center justify-between overflow-hidden"
             >
-              {/* Close Button */}
-              <button 
-                onClick={() => setSelectedQR(null)} 
-                className={`absolute top-[calc(var(--sat)+1rem)] right-6 w-12 h-12 rounded-full ${airportMode ? 'bg-black/5 border-black/10' : 'bg-surface border-border'} flex items-center justify-center ${airportMode ? 'text-black' : 'text-foreground'} shadow-lg active:scale-90 transition-all z-20`}
-              >
-                <X size={24} />
-              </button>
-
-              <div className="w-full max-w-sm flex flex-col items-center space-y-10 h-full relative z-10">
-                {/* Header Information */}
-                <div className="text-center space-y-3">
-                  <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full ${airportMode ? 'bg-accent/10 border-accent/20' : 'bg-accent/10 border-accent/20'} text-accent mb-2`}>
-                    <Plane size={10} />
-                    <span className="text-[9px] font-black uppercase tracking-widest">Tarjeta de Embarque</span>
+              {/* Header Info */}
+              <div className="w-full flex justify-between items-start">
+                <div className="space-y-1">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent/10 border border-accent/20 text-accent mb-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                    <span className="text-[10px] font-black uppercase tracking-widest">Tarjeta de Embarque</span>
                   </div>
-                  <h2 className={`text-4xl font-black ${airportMode ? 'text-black' : 'text-foreground'} tracking-tighter leading-none`}>
-                    {selectedQR.flight?.departure_location || '—'} <span className="text-accent">➔</span> {selectedQR.flight?.arrival_location || '—'}
-                  </h2>
-                  <p className={`text-xs font-bold ${airportMode ? 'text-black/50' : 'text-muted'} uppercase tracking-[0.3em]`}>
+                  <h3 className="text-4xl font-black tracking-tighter text-slate-900 leading-none">
+                    {selectedQR.flight?.departure_location || '—'} ➔ {selectedQR.flight?.arrival_location || '—'}
+                  </h3>
+                  <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">
                     {selectedQR.flight?.airline} · {selectedQR.flight?.flight_number}
                   </p>
                 </div>
-
-                {/* QR Code Container (High Contrast for Scanning) */}
-                <div className={`w-full aspect-square max-w-[320px] bg-white rounded-[3rem] p-10 ${airportMode ? 'shadow-xl border-2 border-black/5' : 'shadow-[0_0_50px_rgba(0,174,239,0.15)] border-4 border-accent/10'} flex items-center justify-center relative`}>
-                  {!airportMode && <div className="absolute inset-0 bg-accent/5 rounded-[3rem] blur-2xl -z-10" />}
-                  <QRCodeSVG 
-                    value={selectedQR.qr_code || ''} 
-                    size={240} 
-                    level="H" 
-                    includeMargin={false}
-                    fgColor="#000000"
-                  />
-                </div>
-
-                {/* Critical Operational Data (Airport Survival Info) */}
-                <div className="w-full grid grid-cols-3 gap-3">
-                  <div className={`p-5 rounded-[2rem] ${airportMode ? 'bg-black/5 border-black/10' : 'bg-surface border-border'} border flex flex-col items-center gap-1.5 transition-all`}>
-                    <span className={`text-[8px] font-black uppercase ${airportMode ? 'text-black/40' : 'text-muted'} tracking-widest`}>Vuelo</span>
-                    <span className="text-xl font-black text-accent">{selectedQR.flight?.flight_number || '—'}</span>
-                  </div>
-                  <div className="p-5 rounded-[2rem] bg-accent flex flex-col items-center gap-1.5 shadow-xl shadow-accent/20 scale-110 relative z-10">
-                    <span className="text-[8px] font-black uppercase text-white/70 tracking-widest">Asiento</span>
-                    <span className="text-xl font-black text-white">{selectedQR.seat_assignment || selectedQR.flight?.seat || '—'}</span>
-                  </div>
-                  <div className={`p-5 rounded-[2rem] ${airportMode ? 'bg-black/5 border-black/10' : 'bg-surface border-border'} border flex flex-col items-center gap-1.5 transition-all`}>
-                    <span className={`text-[8px] font-black uppercase ${airportMode ? 'text-black/40' : 'text-muted'} tracking-widest`}>Puerta</span>
-                    <span className={`text-xl font-black ${airportMode ? 'text-black' : 'text-foreground'}`}>{selectedQR.flight?.gate || '—'}</span>
-                  </div>
-                </div>
-
-                <div className="flex-1 flex flex-col justify-end w-full pb-4">
-                   <div className={`p-6 rounded-[2.5rem] ${airportMode ? 'bg-black/5 border-black/10' : 'bg-surface-subtle border-border'} border flex items-center justify-between mb-4`}>
-                      <div>
-                        <p className={`text-[9px] font-black ${airportMode ? 'text-black/40' : 'text-muted'} uppercase tracking-widest`}>Pasajero</p>
-                        <p className={`text-sm font-black ${airportMode ? 'text-black' : 'text-foreground'} uppercase`}>{selectedQR.passenger_name || userName}</p>
-                      </div>
-                      <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center text-accent">
-                         <User size={20} />
-                      </div>
-                   </div>
-                  <button 
-                    onClick={() => window.open(selectedQR.file_url)}
-                    className={`w-full py-5 rounded-2xl ${airportMode ? 'bg-black text-white' : 'bg-foreground text-background'} font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-3 active:scale-95 transition-all shadow-xl`}
-                  >
-                    <Download size={16} /> Descargar PDF Original
-                  </button>
-                </div>
+                <button 
+                  onClick={() => setSelectedQR(null)}
+                  className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center text-slate-800 active:scale-90 transition-transform"
+                >
+                  <X size={24} />
+                </button>
               </div>
 
-              {/* Decorative background accents */}
-              {!airportMode && (
-                <>
-                  <div className="absolute top-1/4 -right-20 w-64 h-64 bg-accent/10 blur-[120px] rounded-full pointer-events-none" />
-                  <div className="absolute bottom-1/4 -left-20 w-64 h-64 bg-purple-500/5 blur-[120px] rounded-full pointer-events-none" />
-                </>
-              )}
+              {/* QR Main Card */}
+              <div className="bg-white p-6 rounded-[3rem] shadow-[0_20px_50px_rgba(0,0,0,0.1)] border border-slate-100 flex flex-col items-center gap-8 w-full max-w-sm">
+                 <div className="bg-white p-2 border-2 border-slate-50 rounded-2xl">
+                   <QRCodeSVG 
+                      value={selectedQR.qr_raw_payload || selectedQR.qr_code || ''} 
+                      size={260} 
+                      level="H"
+                      includeMargin={true}
+                   />
+                 </div>
+                 <div className="w-full grid grid-cols-2 gap-8 px-4">
+                    <div className="text-center space-y-1">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Asiento</p>
+                      <p className="text-2xl font-black text-slate-900">{selectedQR.seat_assignment || selectedQR.flight?.seat || '—'}</p>
+                    </div>
+                    <div className="text-center space-y-1">
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Pasajero</p>
+                      <p className="text-sm font-black text-slate-900 truncate max-w-[120px]">{selectedQR.passenger_name || userName}</p>
+                    </div>
+                 </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="w-full max-w-sm space-y-4">
+                 <p className="text-center text-[10px] font-medium text-slate-400 leading-relaxed italic px-6">
+                   Muestra este código en la puerta de embarque. Aumenta el brillo si es necesario.
+                 </p>
+                 <div className="grid grid-cols-2 gap-3">
+                   <button 
+                    onClick={() => setSelectedPDF(selectedQR)}
+                    className="w-full py-5 rounded-2xl bg-slate-100 text-slate-900 font-black uppercase tracking-widest text-[9px] flex items-center justify-center gap-2"
+                   >
+                     <FileText size={14} /> Ver Completa
+                   </button>
+                   <button 
+                    onClick={() => setSelectedQR(null)}
+                    className="w-full py-5 rounded-2xl bg-slate-900 text-white font-black uppercase tracking-widest text-[9px] shadow-xl active:scale-95 transition-all"
+                   >
+                     Cerrar
+                   </button>
+                 </div>
+              </div>
             </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* PDF VIEWER MODAL */}
+      <AnimatePresence>
+        {selectedPDF && (
+          <div className="fixed inset-0 z-[400] flex flex-col bg-background">
+             <div className="flex items-center justify-between p-6 border-b border-border bg-surface">
+                <div className="flex items-center gap-3">
+                   <FileText className="text-accent" size={20} />
+                   <div>
+                      <p className="text-[10px] font-black text-muted uppercase tracking-widest">Documento Completo</p>
+                      <p className="text-sm font-black text-foreground">{selectedPDF.title}</p>
+                   </div>
+                </div>
+                <button 
+                  onClick={() => setSelectedPDF(null)}
+                  className="w-10 h-10 rounded-full bg-surface-subtle flex items-center justify-center text-foreground"
+                >
+                  <X size={20} />
+                </button>
+             </div>
+             
+             <div className="flex-1 bg-slate-800">
+                <iframe 
+                  src={`${selectedPDF.file_url}#toolbar=0&view=FitH`}
+                  className="w-full h-full border-none"
+                  title="PDF Viewer"
+                />
+             </div>
+
+             <div className="p-6 bg-surface border-t border-border grid grid-cols-2 gap-4">
+                <button 
+                  onClick={() => window.open(selectedPDF.file_url, '_blank')}
+                  className="py-4 rounded-2xl bg-surface-subtle border border-border text-foreground font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2"
+                >
+                  Abrir Original
+                </button>
+                <button 
+                  onClick={() => {
+                    const link = document.createElement('a');
+                    link.href = selectedPDF.file_url;
+                    link.download = `${selectedPDF.title}.pdf`;
+                    link.click();
+                  }}
+                  className="py-4 rounded-2xl bg-accent text-white font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 shadow-lg shadow-accent/20"
+                >
+                  <Download size={14} /> Descargar
+                </button>
+             </div>
           </div>
         )}
       </AnimatePresence>

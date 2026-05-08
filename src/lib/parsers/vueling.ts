@@ -82,11 +82,27 @@ export function parseVuelingBoardingPass(text: string): ExtractedFlightData | nu
   }
 
   // 5. ORIGEN / DESTINO
-  const routeLine = lines.find(l => /^[A-Z]{3}\s+[A-Z]{3}$/.test(l));
-  if (routeLine) {
-    const parts = routeLine.split(/\s+/);
-    data.departure_location = parts[0];
-    data.arrival_location = parts[1];
+  // Buscamos dos códigos IATA de 3 letras (mayúsculas) en una línea o cerca de palabras clave
+  const iataCodes = text.match(/\b[A-Z]{3}\b/g) || [];
+  // Filtrar códigos comunes que NO son aeropuertos en Vueling
+  const excluded = ['EUR', 'IVA', 'PDF', 'XHI', 'PNR', 'CVD', 'BPI', 'BPD', 'BPO', 'PNR', 'VY'];
+  const potentialIatas = iataCodes.filter(c => !excluded.includes(c));
+  
+  if (potentialIatas.length >= 2) {
+    // Si encontramos exactamente dos códigos que no están excluidos, es muy probable que sean origen/destino
+    // A menudo aparecen en el bloque superior
+    data.departure_location = potentialIatas[0];
+    data.arrival_location = potentialIatas[1];
+  } else {
+    // Intento con regex de línea específica
+    const routeLine = lines.find(l => /[A-Z]{3}\s+[A-Z]{3}/.test(l));
+    if (routeLine) {
+      const parts = routeLine.match(/[A-Z]{3}/g);
+      if (parts && parts.length >= 2) {
+        data.departure_location = parts[0];
+        data.arrival_location = parts[1];
+      }
+    }
   }
 
   // 6. FECHA

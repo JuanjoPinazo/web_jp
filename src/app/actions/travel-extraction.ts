@@ -6,7 +6,8 @@ import {
   parseVuelingBoardingPass, 
   parseVuelingFlightConfirmation,
   parseAirFrance,
-  parseHotelBooking 
+  parseHotelBooking,
+  parseIataBCBP 
 } from '@/lib/parsers';
 
 export interface ExtractedData {
@@ -133,19 +134,37 @@ export async function extractTravelInfo(formData: FormData): Promise<ExtractedDa
     // Si es BP o auto, intentar BP primero
     if (forcedType === 'auto' || forcedType === 'boarding_pass') {
       const vuelingBP = parseVuelingBoardingPass(rawText);
-      if (vuelingBP) {
-        const barcodeResult = await decodeBarcodeFromPdf(buffer);
-        return { 
-          type: 'boarding_pass', 
-          data: normalizeDates(vuelingBP), 
-          confidence: vuelingBP.confidence, 
-          rawText,
-          qr_detected: barcodeResult.success || vuelingBP.qr_detected,
-          qr_decoded: barcodeResult.success,
-          qr_raw_payload: barcodeResult.payload || undefined,
-          file
-        };
-      }
+        if (vuelingBP) {
+          const barcodeResult = await decodeBarcodeFromPdf(buffer);
+          
+          // ENRIQUECER CON DATOS DEL QR (Máxima fiabilidad)
+          if (barcodeResult.success && barcodeResult.payload) {
+            const qrData = parseIataBCBP(barcodeResult.payload);
+            if (qrData) {
+              console.log('[DEBUG] Enriqueciendo con datos del QR:', qrData.departure_location, '->', qrData.arrival_location);
+              vuelingBP.departure_location = qrData.departure_location || vuelingBP.departure_location;
+              vuelingBP.arrival_location = qrData.arrival_location || vuelingBP.arrival_location;
+              vuelingBP.seat = qrData.seat || vuelingBP.seat;
+              vuelingBP.booking_reference = qrData.booking_reference || vuelingBP.booking_reference;
+              if (qrData.flight_number_raw) {
+                // El flight number en QR suele venir como "08162" o similar
+                const num = qrData.flight_number_raw.replace(/^0+/, '');
+                vuelingBP.flight_number = `VY${num}`;
+              }
+            }
+          }
+
+          return { 
+            type: 'boarding_pass', 
+            data: normalizeDates(vuelingBP), 
+            confidence: barcodeResult.success ? 1 : vuelingBP.confidence, 
+            rawText,
+            qr_detected: barcodeResult.success || vuelingBP.qr_detected,
+            qr_decoded: barcodeResult.success,
+            qr_raw_payload: barcodeResult.payload || undefined,
+            file
+          };
+        }
     }
 
     // Si es reserva o auto, intentar confirmación

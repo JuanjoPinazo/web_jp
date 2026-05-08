@@ -16,18 +16,29 @@ export async function extractTextWithPdftotext(buffer: Buffer): Promise<string> 
   const input = await tmpName({ postfix: '.pdf' });
   const output = await tmpName({ postfix: '.txt' });
 
+  console.log('>>> [extractTextWithPdftotext] INICIANDO EXTRACCIÓN <<<');
   try {
     // 1. Guardar el buffer en un archivo temporal
     await writeFile(input, buffer);
 
     // 2. Ejecutar pdftotext (requiere poppler instalado: brew install poppler)
-    await execFileAsync('pdftotext', [
+    // FORZAMOS RUTA ABSOLUTA PARA DEBUG
+    const cmd = '/opt/homebrew/bin/pdftotext';
+    
+    console.log(`[DEBUG] Ejecutando: ${cmd}`);
+
+    const env = { 
+      ...process.env, 
+      PATH: `${process.env.PATH}:/opt/homebrew/bin:/usr/local/bin` 
+    };
+
+    await execFileAsync(cmd, [
       '-layout',
       '-enc',
       'UTF-8',
       input,
       output,
-    ]);
+    ], { env });
 
     // 3. Leer el resultado
     const text = await readFile(output, 'utf8');
@@ -35,8 +46,9 @@ export async function extractTextWithPdftotext(buffer: Buffer): Promise<string> 
     // Limpieza básica
     return text.replace(/\0/g, '').trim();
   } catch (err: any) {
-    console.error('[extractTextWithPdftotext] Error:', err);
-    return `__ERROR__: pdftotext no disponible o fallo en ejecución. ${err.message}`;
+    const debugId = Math.random().toString(36).substring(7);
+    console.error(`[extractTextWithPdftotext][${debugId}] Error:`, err);
+    return `__ERROR__: [ID:${debugId}] pdftotext no disponible o fallo en ejecución. ${err.message}`;
   } finally {
     // 4. Limpiar archivos temporales
     await unlink(input).catch(() => {});

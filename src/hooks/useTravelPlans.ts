@@ -183,6 +183,7 @@ export interface Document {
   related_hotel_stay_id?: string;
   related_transfer_id?: string;
   passenger_name?: string;
+  booking_reference?: string;
   seat_assignment?: string;
   boarding_group?: string;
   qr_code?: string;
@@ -196,6 +197,48 @@ export interface Document {
   last_updated_by?: string;
   deleted_at?: string | null;
   created_at: string;
+}
+
+export interface HospitalityAttendee {
+  id: string;
+  event_id: string;
+  contact_id?: string;
+  profile_id?: string;
+  guest_name?: string;
+  guest_email?: string;
+  attendance_status: 'confirmed' | 'pending' | 'declined';
+  dietary_restrictions?: string;
+  transport_required: boolean;
+  notes?: string;
+  deleted_at?: string | null;
+}
+
+export interface HospitalityEvent {
+  id: string;
+  plan_id: string;
+  type: 'dinner' | 'lunch' | 'meeting' | 'experience';
+  title: string;
+  description?: string;
+  venue_name?: string;
+  venue_address?: string;
+  venue_lat?: number;
+  venue_lng?: number;
+  start_datetime: string;
+  end_datetime?: string;
+  dress_code?: string;
+  notes?: string;
+  contact_name?: string;
+  contact_phone?: string;
+  reservation_name?: string;
+  reservation_code?: string;
+  menu_type?: string;
+  private_room: boolean;
+  visible_to_client: boolean;
+  status: 'planned' | 'confirmed' | 'cancelled';
+  attendees?: HospitalityAttendee[];
+  image_url?: string;
+  created_at: string;
+  deleted_at?: string | null;
 }
 
 export interface Registration {
@@ -217,6 +260,7 @@ export interface FullTravelPlan extends TravelPlan {
   hotel_stays: HotelStay[]; // primary: hotel_stays
   transfers: Transfer[];
   restaurants: Restaurant[];
+  hospitality_events: HospitalityEvent[];
   documents: Document[];
   registrations: Registration[];
   profiles?: any;
@@ -278,12 +322,13 @@ export const useTravelPlans = () => {
       }
 
       // Fetch related items
-      const [flights, hotels, hotelStays, transfers, restaurants, docs, regs] = await Promise.all([
+      const [flights, hotels, hotelStays, transfers, restaurants, hospitality, docs, regs] = await Promise.all([
         supabase.from('travel_flights').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('departure_time'),
         supabase.from('travel_hotels').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('check_in'),
         supabase.from('hotel_stays').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('check_in'),
         supabase.from('travel_transfers').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('pickup_time'),
         supabase.from('travel_restaurants').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('reservation_time'),
+        supabase.from('hospitality_events').select('*, hospitality_event_attendees(*)').eq('plan_id', plan.id).is('deleted_at', null).order('start_datetime'),
         supabase.from('travel_documents').select('*').eq('plan_id', plan.id).is('deleted_at', null),
         supabase.from('travel_registrations').select('*').eq('plan_id', plan.id).is('deleted_at', null)
       ]);
@@ -311,6 +356,7 @@ export const useTravelPlans = () => {
         hotel_stays: hotelStays.data || [],
         transfers: transfers.data || [],
         restaurants: restaurants.data || [],
+        hospitality_events: hospitality.data || [],
         documents: docs.data || [],
         registrations: regs.data || [],
         logistic_contact: coordinator
@@ -345,12 +391,19 @@ export const useTravelPlans = () => {
         return null;
       }
 
-      const [flights, hotels, hotelStays, transfers, restaurants, docs, regs] = await Promise.all([
+      const [flights, hotels, hotelStays, transfers, restaurants, hospitality, docs, regs] = await Promise.all([
         supabase.from('travel_flights').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('departure_time'),
         supabase.from('travel_hotels').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('check_in'),
         supabase.from('hotel_stays').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('check_in'),
         supabase.from('travel_transfers').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('pickup_time'),
         supabase.from('travel_restaurants').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('reservation_time'),
+        supabase.from('hospitality_events').select(`
+          *,
+          attendees:hospitality_event_attendees(
+            *,
+            profiles:profile_id(nombre, apellidos)
+          )
+        `).eq('plan_id', plan.id).is('deleted_at', null).order('start_datetime'),
         supabase.from('travel_documents').select('*').eq('plan_id', plan.id).is('deleted_at', null),
         supabase.from('travel_registrations').select('*').eq('plan_id', plan.id).is('deleted_at', null)
       ]);
@@ -378,6 +431,7 @@ export const useTravelPlans = () => {
         hotel_stays: hotelStays.data || [],
         transfers: transfers.data || [],
         restaurants: restaurants.data || [],
+        hospitality_events: hospitality.data || [],
         documents: docs.data || [],
         registrations: regs.data || [],
         logistic_contact: coordinator
@@ -411,6 +465,10 @@ export const useTravelPlans = () => {
 
   const saveItem = async (table: string, payload: any) => {
     const { data: { user } } = await supabase.auth.getUser();
+    
+    if (table !== 'logistic_contacts' && !payload.plan_id) {
+      console.warn(`[saveItem] Warning: plan_id is missing for table ${table}`, payload);
+    }
     
     const { data, error } = await supabase
       .from(table)
