@@ -32,6 +32,7 @@ export default function AdminUsersPage() {
   const [isActivating, setIsActivating] = useState(false);
   const [activationDone, setActivationDone] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const [formData, setFormData] = useState({
     email: '',
@@ -42,6 +43,7 @@ export default function AdminUsersPage() {
     company_id: '',
     user_type: 'hospital',
     phone: '',
+    avatar_url: '',
     sendInvite: true
   });
   const [avatarUploadUserId, setAvatarUploadUserId] = useState<string | null>(null);
@@ -62,6 +64,7 @@ export default function AdminUsersPage() {
         company_id: (editingUser as any).company_id || '',
         user_type: (editingUser as any).user_type || 'hospital',
         phone: editingUser.phone || '',
+        avatar_url: (editingUser as any).avatar_url || '',
         sendInvite: false
       });
       setAvatarUploadUserId(editingUser.id);
@@ -80,8 +83,11 @@ export default function AdminUsersPage() {
       if (uploadErr) throw uploadErr;
       const { data } = supabase.storage.from('avatars').getPublicUrl(path);
       const url = data.publicUrl + '?t=' + Date.now();
-      await supabase.from('profiles').update({ avatar_url: url }).eq('id', userId);
-      // Update local state
+      
+      // Update formData so it's sent to the API on Save
+      setFormData(prev => ({ ...prev, avatar_url: url }));
+      
+      // Update local state for immediate feedback
       setUsers(prev => prev.map(u => u.id === userId ? { ...u, avatar_url: url } : u));
       if (editingUser?.id === userId) setEditingUser({ ...editingUser, avatar_url: url });
     } catch (err: any) {
@@ -151,6 +157,7 @@ export default function AdminUsersPage() {
         company_id: '',
         user_type: 'hospital',
         phone: '', 
+        avatar_url: '',
         sendInvite: true 
       });
       loadData();
@@ -245,6 +252,37 @@ export default function AdminUsersPage() {
     }
   };
 
+  const handleSyncStatus = async () => {
+    setIsSyncing(true);
+    try {
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      const token = currentSession?.access_token;
+
+      const response = await fetch('/api/admin/sync-user-status', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'Error al sincronizar');
+
+      await alert({ 
+        title: 'Sincronización Completada', 
+        message: result.message, 
+        type: 'success' 
+      });
+      loadData();
+    } catch (err: any) {
+      console.error(err);
+      await alert({ title: 'Error', message: err.message, type: 'danger' });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
   const handleCopyPassword = () => {
     navigator.clipboard.writeText(tempPassword);
     setCopied(true);
@@ -253,8 +291,12 @@ export default function AdminUsersPage() {
 
   const handleDeleteUser = async (userId: string) => {
     const ok = await confirm({ 
-      title: 'Eliminar Usuario', 
-      message: '¿Estás seguro de que deseas eliminar permanentemente a este usuario? Esta acción borrará su perfil y su acceso al sistema.', 
+      title: '¡ACCIÓN IRREVERSIBLE!', 
+      message: `¿Estás seguro de que deseas eliminar a este usuario? Esta acción es definitiva y eliminará permanentemente:
+        • Perfil y acceso al sistema.
+        • Todos sus planes de viaje (vuelos, hoteles, cenas).
+        • Documentación y registros asociados.
+        • Invitaciones a eventos VIP.`, 
       type: 'danger' 
     });
     
@@ -325,10 +367,19 @@ export default function AdminUsersPage() {
                 <List size={18} />
               </button>
            </div>
-           <Button className="flex-1 lg:flex-none gap-2 rounded-2xl px-6 py-6 shadow-xl shadow-accent/10" onClick={() => setIsModalOpen(true)}>
-             <Plus size={20} />
-             Nuevo Contacto
-           </Button>
+            <Button 
+              variant="ghost"
+              disabled={isSyncing}
+              className="hidden md:flex gap-2 rounded-2xl px-6 py-6 border border-border bg-surface text-muted hover:text-accent hover:border-accent/40" 
+              onClick={handleSyncStatus}
+            >
+              {isSyncing ? <Loader2 size={18} className="animate-spin" /> : <RefreshCw size={18} />}
+              Sincronizar Estados
+            </Button>
+            <Button className="flex-1 lg:flex-none gap-2 rounded-2xl px-6 py-6 shadow-xl shadow-accent/10" onClick={() => setIsModalOpen(true)}>
+              <Plus size={20} />
+              Nuevo Contacto
+            </Button>
         </div>
       </header>
 
@@ -514,7 +565,7 @@ export default function AdminUsersPage() {
                {/* Modal Content */}
                 <div className="flex justify-between items-center mb-10">
                    <h3 className="text-3xl font-black font-heading tracking-tighter uppercase">{editingUser ? 'Actualizar' : 'Invitar'}</h3>
-                   <button onClick={() => { setIsModalOpen(false); setEditingUser(null); setFormData({ email: '', name: '', surname: '', role: 'client', client_id: '', company_id: '', user_type: 'hospital', phone: '', sendInvite: true }); }} className="p-3 rounded-full bg-background border border-border text-muted hover:text-accent"><X size={24} /></button>
+                   <button onClick={() => { setIsModalOpen(false); setEditingUser(null); setFormData({ email: '', name: '', surname: '', role: 'client', client_id: '', company_id: '', user_type: 'hospital', phone: '', avatar_url: '', sendInvite: true }); }} className="p-3 rounded-full bg-background border border-border text-muted hover:text-accent"><X size={24} /></button>
                 </div>
                <form onSubmit={handleCreateUser} className="space-y-6">
                   {editingUser && (

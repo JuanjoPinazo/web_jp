@@ -59,6 +59,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           surname: profile.apellidos || '',
           role: profile.role || 'client',
           phone: profile.telefono || '',
+          avatar_url: profile.avatar_url,
           client_id: profile.client_id
         },
         status: 'authenticated'

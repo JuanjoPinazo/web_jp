@@ -135,21 +135,28 @@ export interface HotelStay {
 export interface Transfer {
   id: string;
   plan_id: string;
-  transfer_type?: string;
-  pickup_time: string;
+  type: string; // airport_to_hotel, hotel_to_airport, etc.
+  pickup_datetime: string;
   pickup_location: string;
   dropoff_location: string;
+  passenger_name?: string;
   driver_name?: string;
   driver_phone?: string;
-  vehicle_info?: string;
+  vehicle_type?: string;
+  company_name?: string;
   booking_reference?: string;
   notes?: string;
-  status: string;
+  status: 'planned' | 'confirmed' | 'cancelled';
+  visible_to_client: boolean;
+  related_flight_id?: string;
+  related_hotel_id?: string;
+  related_hospitality_id?: string;
   source: string;
   external_id?: string;
   last_updated_at?: string;
   last_updated_by?: string;
   deleted_at?: string | null;
+  created_at: string;
 }
 
 export interface Restaurant {
@@ -322,13 +329,14 @@ export const useTravelPlans = () => {
       }
 
       // Fetch related items
-      const [flights, hotels, hotelStays, transfers, restaurants, hospitality, docs, regs] = await Promise.all([
+      const [flights, hotels, hotelStays, transfers, restaurants, hospitality, invitedEvents, docs, regs] = await Promise.all([
         supabase.from('travel_flights').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('departure_time'),
         supabase.from('travel_hotels').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('check_in'),
         supabase.from('hotel_stays').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('check_in'),
         supabase.from('travel_transfers').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('pickup_time'),
         supabase.from('travel_restaurants').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('reservation_time'),
         supabase.from('hospitality_events').select('*, hospitality_event_attendees(*)').eq('plan_id', plan.id).is('deleted_at', null).order('start_datetime'),
+        supabase.from('hospitality_event_attendees').select('event_id, hospitality_events(*, hospitality_event_attendees(*))').eq('profile_id', session.user.id).is('deleted_at', null),
         supabase.from('travel_documents').select('*').eq('plan_id', plan.id).is('deleted_at', null),
         supabase.from('travel_registrations').select('*').eq('plan_id', plan.id).is('deleted_at', null)
       ]);
@@ -354,9 +362,18 @@ export const useTravelPlans = () => {
         flights: flights.data || [],
         hotels: hotels.data || [],
         hotel_stays: hotelStays.data || [],
-        transfers: transfers.data || [],
+        transfers: (transfers.data || []).map((t: any) => ({
+          ...t,
+          type: t.type || t.transfer_type,
+          pickup_datetime: t.pickup_datetime || t.pickup_time
+        })),
         restaurants: restaurants.data || [],
-        hospitality_events: hospitality.data || [],
+        hospitality_events: [
+          ...(hospitality.data || []),
+          ...((invitedEvents.data || [])
+            .map((ie: any) => ie.hospitality_events)
+            .filter((he: any) => he && !hospitality.data?.some(h => h.id === he.id)))
+        ],
         documents: docs.data || [],
         registrations: regs.data || [],
         logistic_contact: coordinator
@@ -391,7 +408,7 @@ export const useTravelPlans = () => {
         return null;
       }
 
-      const [flights, hotels, hotelStays, transfers, restaurants, hospitality, docs, regs] = await Promise.all([
+      const [flights, hotels, hotelStays, transfers, restaurants, hospitality, invitedEvents, docs, regs] = await Promise.all([
         supabase.from('travel_flights').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('departure_time'),
         supabase.from('travel_hotels').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('check_in'),
         supabase.from('hotel_stays').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('check_in'),
@@ -404,6 +421,7 @@ export const useTravelPlans = () => {
             profiles:profile_id(nombre, apellidos)
           )
         `).eq('plan_id', plan.id).is('deleted_at', null).order('start_datetime'),
+        supabase.from('hospitality_event_attendees').select('event_id, hospitality_events(*, hospitality_event_attendees(*, profiles:profile_id(nombre, apellidos)))').eq('profile_id', plan.user_id).is('deleted_at', null),
         supabase.from('travel_documents').select('*').eq('plan_id', plan.id).is('deleted_at', null),
         supabase.from('travel_registrations').select('*').eq('plan_id', plan.id).is('deleted_at', null)
       ]);
@@ -429,9 +447,18 @@ export const useTravelPlans = () => {
         flights: flights.data || [],
         hotels: hotels.data || [],
         hotel_stays: hotelStays.data || [],
-        transfers: transfers.data || [],
+        transfers: (transfers.data || []).map((t: any) => ({
+          ...t,
+          type: t.type || t.transfer_type,
+          pickup_datetime: t.pickup_datetime || t.pickup_time
+        })),
         restaurants: restaurants.data || [],
-        hospitality_events: hospitality.data || [],
+        hospitality_events: [
+          ...(hospitality.data || []),
+          ...((invitedEvents.data || [])
+            .map((ie: any) => ie.hospitality_events)
+            .filter((he: any) => he && !hospitality.data?.some(h => h.id === he.id)))
+        ],
         documents: docs.data || [],
         registrations: regs.data || [],
         logistic_contact: coordinator
@@ -469,11 +496,19 @@ export const useTravelPlans = () => {
     if (table !== 'logistic_contacts' && !payload.plan_id) {
       console.warn(`[saveItem] Warning: plan_id is missing for table ${table}`, payload);
     }
+
+    let finalPayload = { ...payload };
+    
+    // Normalize for transfers
+    if (table === 'travel_transfers') {
+      if (finalPayload.type) finalPayload.transfer_type = finalPayload.type;
+      if (finalPayload.pickup_datetime) finalPayload.pickup_time = finalPayload.pickup_datetime;
+    }
     
     const { data, error } = await supabase
       .from(table)
       .upsert({
-        ...payload,
+        ...finalPayload,
         last_updated_by: user?.id,
         last_updated_at: new Date().toISOString(),
         source: payload.source || 'manual'
@@ -553,6 +588,81 @@ export const useTravelPlans = () => {
     return data;
   };
 
+  // Dedicated function for hospitality_event_attendees.
+  // Uses only the columns that actually exist in the table (no source / last_updated_by).
+  const saveAttendee = async (payload: {
+    id?: string;
+    event_id: string;
+    profile_id?: string | null;
+    guest_name?: string;
+    guest_email?: string;
+    attendance_status: 'pending' | 'confirmed' | 'declined';
+    dietary_restrictions?: string;
+    transport_required?: boolean;
+    notes?: string;
+  }) => {
+    const { data, error } = await supabase
+      .from('hospitality_event_attendees')
+      .upsert({
+        ...payload,
+        last_updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+    if (error) throw error;
+    return data;
+  };
+
+  // After saving an attendee, reload the full list for a given event so the UI is always in sync.
+  const getEventAttendees = async (eventId: string) => {
+    const { data, error } = await supabase
+      .from('hospitality_event_attendees')
+      .select('*, profiles:profile_id(nombre, apellidos, email, avatar_url)')
+      .eq('event_id', eventId)
+      .is('deleted_at', null)
+      .order('created_at');
+    if (error) throw error;
+    return data ?? [];
+  };
+
+  // Soft-delete for attendees (no last_updated_by column in that table).
+  const deleteAttendee = async (id: string) => {
+    const { error } = await supabase
+      .from('hospitality_event_attendees')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) throw error;
+  };
+
+  // Fetch all events for a given context (useful for linking)
+  const getContextEvents = useCallback(async (contextId: string) => {
+    // We need to find all plans in this context to get their events
+    const { data: plans } = await supabase.from('contact_travel_plans').select('id').eq('context_id', contextId);
+    const planIds = (plans || []).map(p => p.id);
+    
+    if (planIds.length === 0) return [];
+
+    const { data, error } = await supabase
+      .from('hospitality_events')
+      .select(`
+        *,
+        attendees:hospitality_event_attendees(
+          *,
+          profiles:profile_id(nombre, apellidos, email)
+        ),
+        plan:contact_travel_plans(
+          id,
+          profiles:user_id(nombre, apellidos)
+        )
+      `)
+      .in('plan_id', planIds)
+      .is('deleted_at', null)
+      .order('start_datetime');
+    
+    if (error) throw error;
+    return data || [];
+  }, []);
+
   return {
     loading,
     getMyActivePlan,
@@ -562,6 +672,10 @@ export const useTravelPlans = () => {
     deleteItem,
     saveTravelDocument,
     getLogisticContacts,
-    saveLogisticContact
+    saveLogisticContact,
+    saveAttendee,
+    getEventAttendees,
+    deleteAttendee,
+    getContextEvents,
   };
 };

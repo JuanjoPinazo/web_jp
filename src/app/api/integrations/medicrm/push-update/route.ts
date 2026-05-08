@@ -41,8 +41,20 @@ export async function POST(request: Request) {
           body: JSON.stringify(payload)
         });
         
+        let errorDetail = '';
+        if (!response.ok) {
+          try {
+            errorDetail = await response.text();
+          } catch (e) {
+            errorDetail = 'No se pudo leer el cuerpo del error';
+          }
+        }
+
         const syncResult = response.ok ? 'SUCCESS' : `FAILED (${response.status})`;
         console.log(`[MEDICRM PUSH RESULT] plan_id: ${plan_id} | result: ${syncResult}`);
+        if (!response.ok) {
+          console.error(`[MEDICRM PUSH DETAIL] Server error response: ${errorDetail}`);
+        }
       } catch (err: any) {
         console.error(`[MEDICRM PUSH ERROR] External call failed: ${err.message}`);
       }

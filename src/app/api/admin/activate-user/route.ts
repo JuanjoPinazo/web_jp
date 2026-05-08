@@ -63,13 +63,15 @@ export async function POST(request: Request) {
       .from('profiles')
       .update({
         onboarding_status: 'active',
-        require_password_change: true,
       })
       .eq('id', userId);
 
     if (profileError) {
       console.error('Profile update error:', profileError);
-      // Non-fatal: the password was set, just warn
+      return NextResponse.json(
+        { error: 'Error al actualizar el estado del perfil: ' + profileError.message },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({

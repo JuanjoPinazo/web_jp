@@ -78,6 +78,7 @@ export const useUser = () => {
       if (updates.surname !== undefined) dbPayload.apellidos = updates.surname;
       if (updates.phone !== undefined) dbPayload.telefono = updates.phone;
       if (updates.email !== undefined) dbPayload.email = updates.email;
+      if (updates.avatar_url !== undefined) dbPayload.avatar_url = updates.avatar_url;
 
       // Only send updated_at if we want to force it from client, 
       // but it's better to let the DB handle it via trigger.

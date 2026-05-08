@@ -14,7 +14,7 @@ interface SidebarProps {
 
 export const Sidebar = ({ role, userName }: SidebarProps) => {
   const pathname = usePathname();
-  const { logout } = useAuth();
+  const { logout, session } = useAuth();
   const { confirm } = useDialog();
 
   const menuItems = [
@@ -95,8 +95,12 @@ export const Sidebar = ({ role, userName }: SidebarProps) => {
       <div className="p-4 border-t border-border bg-surface-subtle/50">
         <div className="p-4 rounded-2xl border border-border bg-surface flex flex-col gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-full bg-accent/20 border border-accent/20 flex items-center justify-center text-accent text-[10px] font-black uppercase">
-              {userName.split(' ').map(n => n[0]).join('')}
+            <div className="w-8 h-8 rounded-full bg-accent/20 border border-accent/20 flex items-center justify-center text-accent text-[10px] font-black uppercase overflow-hidden">
+              {session.user?.avatar_url ? (
+                <img src={session.user.avatar_url} alt={userName} className="w-full h-full object-cover" />
+              ) : (
+                userName.split(' ').map(n => n[0]).join('')
+              )}
             </div>
             <div className="flex flex-col overflow-hidden">
               <div className="flex items-center gap-2">

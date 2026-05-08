@@ -3,7 +3,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
-import { Lock, Mail, ArrowRight, Loader2, ShieldCheck, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { Lock, Mail, ArrowRight, Loader2, ShieldCheck, ArrowLeft, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -13,6 +13,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [error, setError] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const { login } = useAuth();
   const router = useRouter();
 
@@ -99,14 +100,21 @@ export default function LoginPage() {
                   <label className="text-[10px] font-black uppercase tracking-widest text-muted/70 ml-1">Contraseña</label>
                   <div className="relative group/field">
                     <input
-                      type="password"
+                      type={showPassword ? 'text' : 'password'}
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
-                      className="w-full bg-background border border-border rounded-xl py-4 pl-12 pr-4 text-sm focus:border-accent/40 focus:ring-4 focus:ring-accent/5 outline-none transition-all"
+                      className="w-full bg-background border border-border rounded-xl py-4 pl-12 pr-12 text-sm focus:border-accent/40 focus:ring-4 focus:ring-accent/5 outline-none transition-all"
                       placeholder="••••••••"
                       required
                     />
                     <Lock className="absolute left-4 top-1/2 -translate-y-1/2 text-muted group-focus-within/field:text-accent transition-colors" size={18} />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-muted hover:text-accent transition-colors"
+                    >
+                      {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                    </button>
                   </div>
                 </div>
 

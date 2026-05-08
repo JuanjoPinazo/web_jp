@@ -6,14 +6,14 @@ import { useAdmin } from '@/hooks/useAdmin';
 import { useTravelPlans, FullTravelPlan } from '@/hooks/useTravelPlans';
 import { FlightCard } from '@/components/FlightCard';
 import { CoordinatorSelector } from '@/components/CoordinatorSelector';
-import { 
-  Plane, 
-  Hotel, 
-  Car, 
-  FileText, 
-  Plus, 
-  Search, 
-  User as UserIcon, 
+import {
+  Plane,
+  Hotel,
+  Car,
+  FileText,
+  Plus,
+  Search,
+  User as UserIcon,
   Calendar,
   ChevronRight,
   MoreVertical,
@@ -38,11 +38,17 @@ import {
   Utensils,
   Smartphone,
   Milestone,
-  Eye
+  Eye,
+  Users,
+  UserPlus,
+  RefreshCw,
+  Check,
+  Mail,
 } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDialog } from '@/context/DialogContext';
+import { useHotelsCatalog, MasterHotel } from '@/hooks/useHotelsCatalog';
 import { HotelImportModal } from '@/components/HotelImportModal';
 import { QRCodeSVG } from 'qrcode.react';
 
@@ -54,7 +60,10 @@ export default function AdminPlansPage() {
   const [importStep, setImportStep] = useState<'upload' | 'extracting' | 'validating'>('upload');
   const [extractionResult, setExtractionResult] = useState<any>(null);
 
-  const { getAdminPlanForUser, saveItem, deleteItem, saveTravelDocument } = useTravelPlans();
+  const { 
+    getAdminPlanForUser, saveItem, deleteItem, saveTravelDocument, 
+    saveAttendee, getEventAttendees, deleteAttendee, getContextEvents 
+  } = useTravelPlans();
   const { alert, confirm } = useDialog();
 
   const displayLocalTime = (dateStr: string) => {
@@ -80,7 +89,14 @@ export default function AdminPlansPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPlan, setSelectedPlan] = useState<any>(null);
   const [enabledModules, setEnabledModules] = useState<Record<string, boolean>>({});
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  
+  // Hotel Catalog Integration
+  const { fetchHotels: fetchCatalogHotels } = useHotelsCatalog();
+  const [catalogHotels, setCatalogHotels] = useState<MasterHotel[]>([]);
+  const [hotelSearch, setHotelSearch] = useState('');
+  const [showCatalogList, setShowCatalogList] = useState(false);
   const [editingPlan, setEditingPlan] = useState<any>(null);
   const [editingFlight, setEditingFlight] = useState<any>(null);
   const [editingHotel, setEditingHotel] = useState<any>(null);
@@ -90,11 +106,17 @@ export default function AdminPlansPage() {
   const [selectedContext, setSelectedContext] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingHospitality, setEditingHospitality] = useState<any>(null);
+  const [editingTransfer, setEditingTransfer] = useState<any>(null);
   const [supportInfo, setSupportInfo] = useState({ phone: '+34 600 000 000' });
   const [showQuickUser, setShowQuickUser] = useState(false);
   const [quickUser, setQuickUser] = useState({ name: '', surname: '', email: '' });
   const [contextProfiles, setContextProfiles] = useState<any[]>([]);
+  const [profilesLoading, setProfilesLoading] = useState(false);
   const [editingAttendee, setEditingAttendee] = useState<any>(null);
+  const [attendeeSaving, setAttendeeSaving] = useState(false);
+  const [attendeeError, setAttendeeError] = useState<string | null>(null);
+  const [contextEvents, setContextEvents] = useState<any[]>([]);
+  const [showEventSelector, setShowEventSelector] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -148,13 +170,39 @@ export default function AdminPlansPage() {
         .from('contact_travel_plans')
         .select(`
           *,
-          profiles:user_id (nombre, apellidos, email, avatar_url),
-          contexts:context_id (name)
+          profiles:user_id (id, nombre, apellidos, email, avatar_url),
+          contexts:context_id (name),
+          flights:travel_flights(count),
+          hotels:travel_hotels(count),
+          hotel_stays:hotel_stays(count),
+          transfers:travel_transfers(count),
+          restaurants:travel_restaurants(count),
+          hospitality:hospitality_events(count),
+          documents:travel_documents(count)
         `)
         .order('created_at', { ascending: false });
 
       if (pError) throw pError;
-      setPlans(pData || []);
+
+      // Fetch attendances separately to avoid deep nesting issues
+      const { data: aData } = await supabase
+        .from('hospitality_event_attendees')
+        .select('profile_id')
+        .is('deleted_at', null);
+      
+      const attendanceMap: Record<string, number> = {};
+      aData?.forEach((a: any) => {
+        if (a.profile_id) {
+          attendanceMap[a.profile_id] = (attendanceMap[a.profile_id] || 0) + 1;
+        }
+      });
+
+      const enrichedPlans = (pData || []).map(plan => ({
+        ...plan,
+        attendance_count: attendanceMap[plan.user_id] || 0
+      }));
+
+      setPlans(enrichedPlans);
     } catch (err) {
       console.error(err);
     } finally {
@@ -163,18 +211,36 @@ export default function AdminPlansPage() {
   };
 
   const loadContextProfiles = async (contextId: string) => {
+    setProfilesLoading(true);
     try {
+      // Two-step join: context_users → profiles (avoids fragile nested subquery)
+      const { data: cuData, error: cuError } = await supabase
+        .from('context_users')
+        .select('user_id')
+        .eq('context_id', contextId);
+
+      if (cuError) throw cuError;
+
+      const userIds = (cuData ?? []).map((cu: any) => cu.user_id).filter(Boolean);
+
+      if (userIds.length === 0) {
+        setContextProfiles([]);
+        return;
+      }
+
       const { data, error } = await supabase
         .from('profiles')
-        .select('*')
-        .in('id', (
-          await supabase.from('context_users').select('user_id').eq('context_id', contextId)
-        ).data?.map(cu => cu.user_id) || []);
-      
+        .select('id, nombre, apellidos, email, avatar_url')
+        .in('id', userIds)
+        .order('nombre');
+
       if (error) throw error;
       setContextProfiles(data || []);
     } catch (err) {
       console.error('Error loading context profiles:', err);
+      setContextProfiles([]);
+    } finally {
+      setProfilesLoading(false);
     }
   };
 
@@ -186,6 +252,8 @@ export default function AdminPlansPage() {
       setEnabledModules(fullPlan?.contexts?.modules_enabled || {});
       if (fullPlan?.context_id) {
         loadContextProfiles(fullPlan.context_id);
+        const events = await getContextEvents(fullPlan.context_id);
+        setContextEvents(events);
       }
       setView('detail');
     } catch (err) {
@@ -194,6 +262,27 @@ export default function AdminPlansPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const openHotelEdit = async (hotel: any = null) => {
+    if (hotel) {
+      setEditingHotel({ ...hotel });
+    } else {
+      setEditingHotel({ 
+        plan_id: selectedPlan.id, 
+        check_in: '', 
+        check_out: '', 
+        hotel_name: '', 
+        booking_reference: '',
+        visible_to_client: true,
+        guest_name: `${selectedPlan.profiles?.nombre || ''} ${selectedPlan.profiles?.apellidos || ''}`.trim(),
+        source: 'manual'
+      });
+    }
+    setHotelSearch('');
+    setShowCatalogList(false);
+    const hotels = await fetchCatalogHotels();
+    setCatalogHotels(hotels || []);
   };
 
   const filteredPlans = plans.filter(p => {
@@ -221,6 +310,7 @@ export default function AdminPlansPage() {
       const result = await extractTravelInfo(formData);
       setExtractionResult({ ...result, file });
       setImportStep('validating');
+      loadData(); // Background refresh
     } catch (err: any) {
       alert({ title: 'Error', message: err.message, type: 'danger' });
       setIsImporting(false);
@@ -244,6 +334,7 @@ export default function AdminPlansPage() {
       await alert({ title: 'Éxito', message: 'Vuelo actualizado correctamente.', type: 'success' });
       setEditingFlight(null);
       handleManagePlan(selectedPlan);
+      loadData(); // Auto-refresh dashboard counts
     } catch (err: any) {
       alert({ title: 'Error', message: err.message, type: 'danger' });
     } finally {
@@ -293,6 +384,28 @@ export default function AdminPlansPage() {
       await alert({ title: 'Éxito', message: 'Documento actualizado.', type: 'success' });
       setEditingDocument(null);
       handleManagePlan(selectedPlan);
+      loadData(); // Sync counts
+    } catch (err: any) {
+      alert({ title: 'Error', message: err.message, type: 'danger' });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+  
+  const handleSaveTransfer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTransfer) return;
+    try {
+      setIsSubmitting(true);
+      const data = { ...editingTransfer };
+      delete data.created_at;
+      delete data.updated_at;
+      
+      await saveItem('travel_transfers', data);
+      await alert({ title: 'Éxito', message: 'Traslado guardado correctamente.', type: 'success' });
+      setEditingTransfer(null);
+      handleManagePlan(selectedPlan);
+      loadData();
     } catch (err: any) {
       alert({ title: 'Error', message: err.message, type: 'danger' });
     } finally {
@@ -320,6 +433,14 @@ export default function AdminPlansPage() {
               onChange={e => setSearchQuery(e.target.value)}
             />
           </div>
+          <Button 
+            variant="outline" 
+            onClick={() => loadData().then(() => alert({ title: 'Actualizado', message: 'Datos de logística sincronizados.', type: 'success' }))} 
+            className="rounded-xl px-4 flex items-center gap-2 border-border bg-surface"
+            disabled={loading}
+          >
+            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} /> <span className="hidden md:inline">Refrescar</span>
+          </Button>
           <Button onClick={() => setIsCreating(true)} className="rounded-xl px-4 flex items-center gap-2">
             <Plus size={18} /> <span className="hidden md:inline">Nuevo Plan</span>
           </Button>
@@ -355,13 +476,57 @@ export default function AdminPlansPage() {
             </div>
 
             <div className="space-y-3 mb-6">
-              <div className="flex items-center gap-2 text-xs text-muted">
-                <ShieldCheck size={14} className={plan.status === 'active' ? 'text-emerald-500' : 'text-orange-500'} />
-                <span>Estado: <b className="text-foreground uppercase text-[10px]">{plan.status === 'active' ? 'Publicado' : 'Borrador'}</b></span>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-xs text-muted">
+                  <ShieldCheck size={14} className={plan.status === 'active' ? 'text-emerald-500' : 'text-orange-500'} />
+                  <span>Estado: <b className="text-foreground uppercase text-[10px]">{plan.status === 'active' ? 'Publicado' : 'Borrador'}</b></span>
+                </div>
               </div>
-              <div className="flex items-center gap-2 text-xs text-muted">
-                <Phone size={14} />
-                <span>Soporte: <b className="text-foreground">{plan.support_phone || 'S/N'}</b></span>
+
+              {/* Checklist Logístico - Dashboard Rápido */}
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-muted/30 border border-border/50">
+                <div className="flex gap-3">
+                  {(() => {
+                    const getCount = (arr: any) => arr?.[0]?.count || 0;
+                    const fCount = getCount(plan.flights);
+                    const hCount = getCount(plan.hotels) + getCount(plan.hotel_stays);
+                    const tCount = getCount(plan.transfers);
+                    const rCount = getCount(plan.restaurants);
+                    const vCount = getCount(plan.hospitality) + (plan.attendance_count || 0);
+                    
+                    return (
+                      <>
+                        <div className={`flex flex-col items-center gap-1 ${fCount > 0 ? 'text-blue-500' : 'text-muted/30'}`} title="Vuelos">
+                          <Plane size={14} />
+                          <span className="text-[9px] font-black">{fCount}</span>
+                        </div>
+                        <div className={`flex flex-col items-center gap-1 ${hCount > 0 ? 'text-orange-500' : 'text-muted/30'}`} title="Hoteles">
+                          <Hotel size={14} />
+                          <span className="text-[9px] font-black">{hCount}</span>
+                        </div>
+                        <div className={`flex flex-col items-center gap-1 ${tCount > 0 ? 'text-purple-500' : 'text-muted/30'}`} title="Traslados">
+                          <Car size={14} />
+                          <span className="text-[9px] font-black">{tCount}</span>
+                        </div>
+                        <div className={`flex flex-col items-center gap-1 ${rCount > 0 ? 'text-emerald-500' : 'text-muted/30'}`} title="Cenas/Restaurantes">
+                          <Utensils size={14} />
+                          <span className="text-[9px] font-black">{rCount}</span>
+                        </div>
+                        <div className={`flex flex-col items-center gap-1 ${vCount > 0 ? 'text-pink-500' : 'text-muted/30'}`} title="Eventos VIP / Hospitality">
+                          <Calendar size={14} />
+                          <span className="text-[9px] font-black">{vCount}</span>
+                        </div>
+                      </>
+                    );
+                  })()}
+                </div>
+                
+                <div className="h-6 w-[1px] bg-border/50 mx-1" />
+                
+                <div className={`flex flex-col items-center gap-1 ${plan.support_phone ? 'text-accent' : 'text-muted/30'}`} title="Soporte asignado">
+                  <Phone size={14} />
+                  <span className="text-[9px] font-black">{plan.support_phone ? 'SÍ' : 'NO'}</span>
+                </div>
               </div>
             </div>
 
@@ -590,18 +755,7 @@ export default function AdminPlansPage() {
               variant="ghost"
               size="sm"
               className="h-8 gap-1.5 text-[10px] font-black uppercase tracking-widest text-accent hover:bg-accent/10 rounded-xl px-3"
-              onClick={() => setEditingHotel({
-                plan_id: selectedPlan.id,
-                guest_name: `${selectedPlan.profiles?.nombre || ''} ${selectedPlan.profiles?.apellidos || ''}`.trim(),
-                hotel_name: '',
-                booking_reference: '',
-                check_in: '',
-                check_out: '',
-                room_group_id: '',
-                breakfast_included: false,
-                status: 'confirmed',
-                source: 'manual'
-              })}
+              onClick={() => openHotelEdit()}
             >
               <Plus size={14} /> Añadir Hotel
             </Button>
@@ -706,17 +860,7 @@ export default function AdminPlansPage() {
                   variant="ghost"
                   size="sm"
                   className="gap-2 text-[10px] font-black uppercase tracking-widest text-accent hover:bg-accent/10 rounded-xl mx-auto"
-                  onClick={() => setEditingHotel({
-                    plan_id: selectedPlan.id,
-                    guest_name: `${selectedPlan.profiles?.nombre || ''} ${selectedPlan.profiles?.apellidos || ''}`.trim(),
-                    hotel_name: '',
-                    booking_reference: '',
-                    check_in: '',
-                    check_out: '',
-                    breakfast_included: false,
-                    status: 'confirmed',
-                    source: 'manual'
-                  })}
+                  onClick={() => openHotelEdit()}
                 >
                   <Plus size={14} /> Añadir Primer Hotel
                 </Button>
@@ -731,85 +875,230 @@ export default function AdminPlansPage() {
             <h3 className="text-xs font-black uppercase text-muted tracking-widest flex items-center gap-2">
               <Utensils size={14} className="text-accent" /> Hospitality VIP
             </h3>
+            <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1.5 text-[10px] font-black uppercase tracking-widest text-accent hover:bg-accent/10 rounded-xl px-3"
+                onClick={() => setShowEventSelector(true)}
+              >
+                <Users size={14} /> Vincular Invitación
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 gap-1.5 text-[10px] font-black uppercase tracking-widest text-accent hover:bg-accent/10 rounded-xl px-3"
+                onClick={() => setEditingHospitality({
+                  plan_id: selectedPlan.id,
+                  type: 'dinner',
+                  title: '',
+                  venue_name: '',
+                  start_datetime: '',
+                  end_datetime: '',
+                  visible_to_client: true,
+                  private_room: false,
+                  status: 'planned',
+                  notes: '',
+                  contact_name: '',
+                  contact_phone: ''
+                })}
+              >
+                <Plus size={14} /> Nuevo Evento Propio
+              </Button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {(selectedPlan.hospitality_events || []).map((event: any) => {
+              const isOwner = event.plan_id === selectedPlan.id;
+              // Buscamos si el usuario actual es un asistente (para poder borrar la invitación si es necesario)
+              const userAttendee = event.hospitality_event_attendees?.find((a: any) => a.profile_id === selectedPlan.user_id);
+              
+              return (
+                <div key={event.id} className={`bg-background border rounded-2xl overflow-hidden group hover:border-accent/30 transition-all ${!isOwner ? 'border-dashed border-accent/40' : 'border-border'}`}>
+                  <div className="p-4 border-b border-border flex justify-between items-center bg-muted/30">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${isOwner ? 'bg-accent/10 text-accent' : 'bg-emerald-500/10 text-emerald-500'}`}>
+                        {isOwner ? <Utensils size={16} /> : <UserPlus size={16} />}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-foreground line-clamp-1">{event.title || 'Evento Hospitality'}</span>
+                          <span className="px-1.5 py-0.5 rounded-md bg-accent/10 text-accent text-[8px] font-black uppercase">{event.type}</span>
+                          {!isOwner && <span className="px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-500 text-[8px] font-black uppercase tracking-widest">Invitado/a</span>}
+                        </div>
+                        <p className="text-[9px] text-muted font-medium">{event.venue_name}</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-1">
+                      {!isOwner && userAttendee && (
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={async () => {
+                          if (await confirm({ title: 'Eliminar Invitación', message: '¿Eliminar esta invitación del itinerario del usuario?' })) {
+                            deleteAttendee(userAttendee.id).then(() => handleManagePlan(selectedPlan));
+                          }
+                        }}>
+                          <Trash2 size={12} className="text-red-500" />
+                        </Button>
+                      )}
+                      {isOwner && (
+                        <>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setEditingHospitality(event)}>
+                            <Edit2 size={12} className="text-muted hover:text-accent" />
+                          </Button>
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={async () => {
+                            if (await confirm({ title: 'Eliminar Evento', message: '¿Eliminar este evento y todos sus asistentes?' })) {
+                              deleteItem('hospitality_events', event.id).then(() => handleManagePlan(selectedPlan));
+                            }
+                          }}>
+                            <Trash2 size={12} className="text-red-500" />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="p-5 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <p className="text-[9px] font-black text-muted uppercase tracking-widest">Fecha / Hora</p>
+                        <p className="text-xs font-bold">
+                          {event.start_datetime ? new Date(event.start_datetime).toLocaleString('es-ES', { 
+                            day: '2-digit', month: '2-digit', 
+                            hour: '2-digit', minute: '2-digit', 
+                            timeZone: 'UTC' 
+                          }) : 'S/F'}
+                        </p>
+                      </div>
+                      {!isOwner && event.plan?.profiles && (
+                        <div>
+                          <p className="text-[9px] font-black text-muted uppercase tracking-widest">Anfitrión</p>
+                          <p className="text-xs font-bold text-accent">{event.plan.profiles.nombre} {event.plan.profiles.apellidos}</p>
+                        </div>
+                      )}
+                    </div>
+                    {event.reservation_code && isOwner && (
+                      <div className="pt-2 border-t border-border/50">
+                        <p className="text-[9px] font-black text-muted uppercase tracking-widest">Reserva</p>
+                        <p className="text-xs font-mono font-bold text-accent">{event.reservation_code} {event.reservation_name ? `(${event.reservation_name})` : ''}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {(selectedPlan.hospitality_events || []).length === 0 && (
+              <div className="col-span-full border border-dashed border-border rounded-2xl p-10 text-center">
+                <p className="text-xs text-muted font-medium">No hay eventos de hospitality registrados.</p>
+              </div>
+            )}
+          </div>
+        </section>
+
+        {/* Transfers Section */}
+        <section className="space-y-4">
+          <div className="flex justify-between items-center px-1">
+            <h3 className="text-xs font-black uppercase text-muted tracking-widest flex items-center gap-2">
+              <Car size={14} className="text-accent" /> Traslados & Shuttles
+            </h3>
             <Button
               variant="ghost"
               size="sm"
               className="h-8 gap-1.5 text-[10px] font-black uppercase tracking-widest text-accent hover:bg-accent/10 rounded-xl px-3"
-              onClick={() => setEditingHospitality({
+              onClick={() => setEditingTransfer({
                 plan_id: selectedPlan.id,
-                type: 'dinner',
-                title: '',
-                venue_name: '',
-                start_datetime: '',
-                end_datetime: '',
-                visible_to_client: true,
-                private_room: false,
+                type: 'airport_to_hotel',
+                pickup_datetime: '',
+                pickup_location: '',
+                dropoff_location: '',
                 status: 'planned',
-                notes: '',
-                contact_name: '',
-                contact_phone: ''
+                visible_to_client: true,
+                source: 'manual'
               })}
             >
-              <Plus size={14} /> Añadir Evento
+              <Plus size={14} /> Nuevo Traslado
             </Button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {(selectedPlan.hospitality_events || []).map((event: any) => (
-              <div key={event.id} className="bg-background border border-border rounded-2xl overflow-hidden group hover:border-accent/30 transition-all">
+            {(selectedPlan.transfers || []).map((transfer: any) => (
+              <div key={transfer.id} className="bg-background border border-border rounded-2xl overflow-hidden group hover:border-accent/30 transition-all">
                 <div className="p-4 border-b border-border flex justify-between items-center bg-muted/30">
                   <div className="flex items-center gap-3">
-                    <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent shrink-0">
-                      <Utensils size={16} />
+                    <div className="w-8 h-8 rounded-lg bg-accent/10 text-accent flex items-center justify-center shrink-0">
+                      <Car size={16} />
                     </div>
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-foreground line-clamp-1">{event.title || 'Evento Hospitality'}</span>
-                        <span className="px-1.5 py-0.5 rounded-md bg-accent/10 text-accent text-[8px] font-black uppercase">{event.type}</span>
+                        <span className="text-xs font-bold text-foreground">
+                          {transfer.type?.replace(/_/g, ' ').toUpperCase() || 'TRASLADO'}
+                        </span>
+                        <span className={`px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase ${
+                          transfer.status === 'confirmed' ? 'bg-emerald-500/10 text-emerald-500' :
+                          transfer.status === 'cancelled' ? 'bg-red-500/10 text-red-500' :
+                          'bg-amber-500/10 text-amber-500'
+                        }`}>
+                          {transfer.status || 'planned'}
+                        </span>
                       </div>
-                      <p className="text-[9px] text-muted font-medium">{event.venue_name}</p>
+                      <p className="text-[9px] text-muted font-medium">
+                        {transfer.pickup_datetime ? new Date(transfer.pickup_datetime).toLocaleString('es-ES', { 
+                          day: '2-digit', month: '2-digit', 
+                          hour: '2-digit', minute: '2-digit',
+                          timeZone: 'UTC'
+                        }) : 'S/H'}
+                      </p>
                     </div>
                   </div>
                   <div className="flex gap-1">
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setEditingHospitality(event)}>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setEditingTransfer(transfer)}>
                       <Edit2 size={12} className="text-muted hover:text-accent" />
                     </Button>
-                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleDelete('hospitality_events', event.id)}>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => handleDelete('transfer', transfer.id)}>
                       <Trash2 size={12} className="text-red-500" />
                     </Button>
                   </div>
                 </div>
                 <div className="p-5 space-y-3">
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">Fecha / Hora</p>
-                      <p className="text-xs font-bold">
-                        {event.start_datetime ? new Date(event.start_datetime).toLocaleString('es-ES', { 
-                          day: '2-digit', month: '2-digit', 
-                          hour: '2-digit', minute: '2-digit', 
-                          timeZone: 'UTC' 
-                        }) : 'S/F'}
-                      </p>
+                  <div className="flex items-start gap-4">
+                    <div className="flex flex-col items-center gap-1 pt-1">
+                      <div className="w-2 h-2 rounded-full bg-accent" />
+                      <div className="w-0.5 h-6 bg-border" />
+                      <div className="w-2 h-2 rounded-full border-2 border-accent" />
                     </div>
-                    {event.dress_code && (
+                    <div className="flex-1 space-y-4">
                       <div>
-                        <p className="text-[9px] font-black text-muted uppercase tracking-widest">Dress Code</p>
-                        <p className="text-xs font-bold">{event.dress_code}</p>
+                        <p className="text-[8px] font-black text-muted uppercase tracking-widest">Recogida (Origen)</p>
+                        <p className="text-xs font-bold">{transfer.pickup_location || 'No especificado'}</p>
                       </div>
-                    )}
+                      <div>
+                        <p className="text-[8px] font-black text-muted uppercase tracking-widest">Destino</p>
+                        <p className="text-xs font-bold">{transfer.dropoff_location || 'No especificado'}</p>
+                      </div>
+                    </div>
                   </div>
-                  {event.reservation_code && (
-                    <div className="pt-2 border-t border-border/50">
-                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">Reserva</p>
-                      <p className="text-xs font-mono font-bold text-accent">{event.reservation_code} {event.reservation_name ? `(${event.reservation_name})` : ''}</p>
+                  
+                  {(transfer.driver_name || transfer.vehicle_type) && (
+                    <div className="pt-3 border-t border-border/50 grid grid-cols-2 gap-3">
+                      {transfer.driver_name && (
+                        <div>
+                          <p className="text-[8px] font-black text-muted uppercase tracking-widest">Chófer</p>
+                          <p className="text-xs font-bold">{transfer.driver_name}</p>
+                          {transfer.driver_phone && <p className="text-[10px] text-accent font-medium">{transfer.driver_phone}</p>}
+                        </div>
+                      )}
+                      {transfer.vehicle_type && (
+                        <div>
+                          <p className="text-[8px] font-black text-muted uppercase tracking-widest">Vehículo</p>
+                          <p className="text-xs font-bold">{transfer.vehicle_type}</p>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
               </div>
             ))}
-            {(selectedPlan.hospitality_events || []).length === 0 && (
-              <div className="col-span-full border border-dashed border-border rounded-2xl p-10 text-center">
-                <p className="text-xs text-muted font-medium">No hay eventos de hospitality registrados.</p>
+            {(selectedPlan.transfers || []).length === 0 && (
+              <div className="col-span-full border border-dashed border-border rounded-2xl p-8 text-center">
+                <p className="text-xs text-muted font-medium">No hay traslados configurados.</p>
               </div>
             )}
           </div>
@@ -885,6 +1174,7 @@ export default function AdminPlansPage() {
         const tableMap: any = { flight: 'travel_flights', hotel: 'hotel_stays', transfer: 'travel_transfers', document: 'travel_documents' };
         await deleteItem(tableMap[type], id);
         handleManagePlan(selectedPlan);
+        loadData(); // Actualizar contadores del dashboard
       } catch (err) {
         alert({ title: 'Error', message: 'No se pudo eliminar el registro.', type: 'danger' });
       }
@@ -1432,6 +1722,7 @@ export default function AdminPlansPage() {
                             setImportStep('upload');
                             setExtractionResult(null);
                             handleManagePlan(selectedPlan);
+                            loadData();
                           } catch (err: any) {
                                console.error('Error Crítico Detallado:', err.message || err);
                                console.log('Error object:', err);
@@ -1619,15 +1910,32 @@ export default function AdminPlansPage() {
                     throw new Error('Nombre, Fechas y Localizador son obligatorios.');
                   }
                   // Save to hotel_stays (primary table)
-                  const hotelPayload = {
-                    ...editingHotel,
-                    // hotel_stays uses guest_name (map from traveler_name if present)
-                    guest_name: editingHotel.guest_name || editingHotel.traveler_name || '',
+                  // Reconstruir payload solo con campos válidos para hotel_stays (whitelist)
+                  const hotelPayload: any = {
+                    plan_id: editingHotel.plan_id,
+                    guest_name: (editingHotel.guest_name || editingHotel.traveler_name || '').trim(),
+                    hotel_name: editingHotel.hotel_name,
+                    address: editingHotel.address,
+                    phone: editingHotel.phone,
+                    check_in: editingHotel.check_in,
+                    check_out: editingHotel.check_out,
+                    check_in_time: editingHotel.check_in_time,
+                    check_out_time: editingHotel.check_out_time,
+                    room_type: editingHotel.room_type,
+                    booking_reference: editingHotel.booking_reference,
+                    breakfast_included: editingHotel.breakfast_included,
+                    room_group_id: editingHotel.room_group_id,
+                    notes: editingHotel.notes,
+                    status: editingHotel.status || 'confirmed',
+                    source: editingHotel.source || 'manual'
                   };
-                  delete hotelPayload.traveler_name; // not a column in hotel_stays
+
+                  if (editingHotel.id) hotelPayload.id = editingHotel.id;
+
                   await saveItem('hotel_stays', hotelPayload);
                   setEditingHotel(null);
                   handleManagePlan(selectedPlan);
+                  loadData();
                 } catch (err: any) {
                   alert({ title: 'Error', message: err.message || 'No se pudo guardar el hotel.', type: 'danger' });
                 } finally {
@@ -1635,6 +1943,74 @@ export default function AdminPlansPage() {
                 }
               }} className="p-8 space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="col-span-2 space-y-3 p-5 bg-accent/5 rounded-3xl border border-accent/10 relative">
+                    <label className="text-[10px] font-black uppercase text-accent tracking-widest px-1 flex items-center gap-2">
+                      <Search size={12} /> Buscar en Catálogo Maestro
+                    </label>
+                    <div className="relative">
+                      <input 
+                        type="text"
+                        className="w-full bg-background border border-accent/20 rounded-xl p-3 text-xs outline-none focus:border-accent"
+                        placeholder="Escribir nombre o ciudad del hotel..."
+                        value={hotelSearch}
+                        onChange={(e) => {
+                          setHotelSearch(e.target.value);
+                          setShowCatalogList(true);
+                        }}
+                        onFocus={() => setShowCatalogList(true)}
+                      />
+                      
+                      <AnimatePresence>
+                        {showCatalogList && hotelSearch.length >= 2 && (
+                          <motion.div 
+                            initial={{ opacity: 0, y: 5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 5 }}
+                            className="absolute left-0 right-0 top-full mt-2 bg-surface border border-border rounded-2xl shadow-2xl z-[80] max-h-60 overflow-y-auto"
+                          >
+                            {catalogHotels
+                              .filter(h => 
+                                h.name.toLowerCase().includes(hotelSearch.toLowerCase()) || 
+                                h.city.toLowerCase().includes(hotelSearch.toLowerCase())
+                              )
+                              .map(hotel => (
+                                <button
+                                  key={hotel.id}
+                                  type="button"
+                                  className="w-full text-left p-4 hover:bg-accent/10 border-b border-border/50 last:border-0 flex justify-between items-center group"
+                                  onClick={() => {
+                                    setEditingHotel({
+                                      ...editingHotel,
+                                      hotel_name: hotel.name,
+                                      address: hotel.address || '',
+                                      phone: hotel.phone || '',
+                                      stars: hotel.stars,
+                                      rating: hotel.rating,
+                                      city: hotel.city
+                                    });
+                                    setHotelSearch(hotel.name);
+                                    setShowCatalogList(false);
+                                  }}
+                                >
+                                  <div>
+                                    <p className="text-xs font-bold text-foreground group-hover:text-accent transition-colors">{hotel.name}</p>
+                                    <p className="text-[10px] text-muted">{hotel.city} · {hotel.stars ? `${hotel.stars}★` : 'Sin estrellas'}</p>
+                                  </div>
+                                  <ChevronRight size={14} className="text-muted" />
+                                </button>
+                              ))
+                            }
+                            {catalogHotels.filter(h => h.name.toLowerCase().includes(hotelSearch.toLowerCase())).length === 0 && (
+                              <div className="p-4 text-center">
+                                <p className="text-[10px] font-bold text-muted uppercase">No se encontraron hoteles</p>
+                              </div>
+                            )}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </div>
+
                   <div className="col-span-2">
                     <FieldReview label="Huésped Principal" value={editingHotel.guest_name} onChange={(v:any) => setEditingHotel({...editingHotel, guest_name: v})} />
                   </div>
@@ -1672,6 +2048,19 @@ export default function AdminPlansPage() {
 
                   <FieldReview label="Tipo de Habitación" value={editingHotel.room_type} onChange={(v:any) => setEditingHotel({...editingHotel, room_type: v})} />
                   <FieldReview label="Localizador / Ref" value={editingHotel.booking_reference} onChange={(v:any) => setEditingHotel({...editingHotel, booking_reference: v})} />
+
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Categoría (Estrellas)</label>
+                    <select 
+                      className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent"
+                      value={editingHotel.stars || ''}
+                      onChange={e => setEditingHotel({...editingHotel, stars: e.target.value ? parseInt(e.target.value) : null})}
+                    >
+                      <option value="">No especificado</option>
+                      {[1,2,3,4,5].map(n => <option key={n} value={n}>{n} Estrellas</option>)}
+                    </select>
+                  </div>
+                  <FieldReview label="Valoración (Rating)" type="number" value={editingHotel.rating} onChange={(v:any) => setEditingHotel({...editingHotel, rating: parseFloat(v)})} placeholder="Ej: 8.5" />
 
                   <div className="col-span-2 space-y-2">
                     <FieldReview 
@@ -1898,7 +2287,15 @@ export default function AdminPlansPage() {
                   if (!editingHospitality.title || !editingHospitality.start_datetime) {
                     throw new Error('Título y Fecha son obligatorios.');
                   }
-                  await saveItem('hospitality_events', editingHospitality);
+                  // Strip ALL joined/virtual fields — PostgREST rejects any unknown key
+                  const {
+                    attendees: _a,
+                    hospitality_event_attendees: _hea,
+                    profiles: _p,
+                    contexts: _ctx,
+                    ...hospitalityPayload
+                  } = editingHospitality as any;
+                  await saveItem('hospitality_events', hospitalityPayload);
                   await alert({ title: 'Éxito', message: 'Evento guardado correctamente.', type: 'success' });
                   setEditingHospitality(null);
                   handleManagePlan(selectedPlan);
@@ -2018,23 +2415,31 @@ export default function AdminPlansPage() {
                 <div className="pt-8 border-t border-border space-y-4">
                   <div className="flex items-center justify-between">
                     <h4 className="text-[10px] font-black uppercase text-accent tracking-[0.2em]">Asistentes ({editingHospitality.attendees?.filter((a:any) => !a.deleted_at).length || 0})</h4>
-                    <Button 
-                      variant="ghost" 
-                      size="sm" 
+                    <Button
+                      variant="ghost"
+                      size="sm"
                       type="button"
-                      className="h-7 text-[9px] font-black uppercase tracking-widest text-accent hover:bg-accent/10 rounded-lg px-3"
-                      onClick={() => setEditingAttendee({
-                        event_id: editingHospitality.id,
-                        attendance_status: 'pending',
-                        transport_required: false,
-                        guest_name: '',
-                        guest_email: '',
-                        dietary_restrictions: '',
-                        notes: ''
-                      })}
+                      className="h-7 text-[9px] font-black uppercase tracking-widest text-accent hover:bg-accent/10 rounded-lg px-3 disabled:opacity-40"
+                      disabled={!editingHospitality.id}
+                      title={!editingHospitality.id ? 'Guarda el evento primero' : 'Añadir asistente'}
+                      onClick={() => {
+                        setAttendeeError(null);
+                        setEditingAttendee({
+                          event_id: editingHospitality.id,
+                          attendance_status: 'pending',
+                          transport_required: false,
+                          guest_name: '',
+                          guest_email: '',
+                          dietary_restrictions: '',
+                          notes: '',
+                        });
+                      }}
                     >
                       <Plus size={12} className="mr-1" /> Añadir Asistente
                     </Button>
+                    {!editingHospitality.id && (
+                      <span className="text-[8px] text-amber-500 font-bold">Guarda el evento primero</span>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -2064,28 +2469,27 @@ export default function AdminPlansPage() {
                             </div>
                           </div>
                           <div className="flex gap-1 shrink-0">
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               type="button"
                               className="h-8 w-8 p-0"
-                              onClick={() => setEditingAttendee(attendee)}
+                              onClick={() => { setAttendeeError(null); setEditingAttendee(attendee); }}
                             >
                               <Edit2 size={12} className="text-muted" />
                             </Button>
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
+                            <Button
+                              variant="ghost"
+                              size="sm"
                               type="button"
                               className="h-8 w-8 p-0"
                               onClick={async () => {
-                                if (await confirm({ title: 'Eliminar Asistente', message: '¿Estás seguro de que deseas eliminar a este asistente?' })) {
+                                if (await confirm({ title: 'Eliminar Asistente', message: `¿Eliminar a ${attendee.guest_name || 'este asistente'} del evento?` })) {
                                   try {
-                                    await deleteItem('hospitality_event_attendees', attendee.id);
-                                    const updatedAttendees = editingHospitality.attendees.map((a: any) => 
-                                      a.id === attendee.id ? { ...a, deleted_at: new Date().toISOString() } : a
-                                    );
-                                    setEditingHospitality({ ...editingHospitality, attendees: updatedAttendees });
+                                    await deleteAttendee(attendee.id);
+                                    // Reload from DB
+                                    const freshAttendees = await getEventAttendees(editingHospitality.id);
+                                    setEditingHospitality((prev: any) => ({ ...prev, attendees: freshAttendees }));
                                   } catch (err: any) {
                                     alert({ title: 'Error', message: err.message, type: 'danger' });
                                   }
@@ -2123,6 +2527,7 @@ export default function AdminPlansPage() {
           onSuccess={() => {
             setShowHotelImport(false);
             handleManagePlan(selectedPlan);
+            loadData();
           }}
         />
       )}
@@ -2130,107 +2535,454 @@ export default function AdminPlansPage() {
       <AnimatePresence>
         {editingAttendee && (
           <div className="fixed inset-0 z-[600] flex items-center justify-center p-4">
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-              onClick={() => setEditingAttendee(null)}
+              onClick={() => { if (!attendeeSaving) { setEditingAttendee(null); setAttendeeError(null); } }}
               className="absolute inset-0 bg-black/60 backdrop-blur-sm"
             />
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
-              className="relative w-full max-w-lg bg-surface rounded-[32px] shadow-2xl overflow-hidden border border-border"
+              className="relative w-full max-w-lg bg-surface rounded-[32px] shadow-2xl overflow-hidden border border-border max-h-[90vh] flex flex-col"
             >
-              <div className="p-8 border-b border-border flex justify-between items-center bg-muted/30">
-                <div className="space-y-1">
-                  <h3 className="text-lg font-black text-foreground tracking-tight">Gestionar Asistente</h3>
-                  <p className="text-[10px] text-muted font-black uppercase tracking-widest">Hospitality Event</p>
+              {/* Header */}
+              <div className="p-6 border-b border-border flex justify-between items-center bg-muted/20 flex-shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-accent/10 flex items-center justify-center text-accent">
+                    <UserPlus size={16} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-foreground tracking-tight">
+                      {editingAttendee.id ? 'Editar Asistente' : 'Añadir Asistente'}
+                    </h3>
+                    <p className="text-[9px] text-muted font-black uppercase tracking-widest">
+                      {editingHospitality?.title || 'Evento Hospitality'}
+                    </p>
+                  </div>
                 </div>
-                <button onClick={() => setEditingAttendee(null)} className="w-10 h-10 rounded-full bg-background border border-border flex items-center justify-center text-foreground hover:bg-muted transition-colors">
-                  <X size={20} />
+                <button
+                  onClick={() => { if (!attendeeSaving) { setEditingAttendee(null); setAttendeeError(null); } }}
+                  className="w-9 h-9 rounded-full bg-background border border-border flex items-center justify-center text-foreground hover:bg-muted transition-colors"
+                  disabled={attendeeSaving}
+                >
+                  <X size={18} />
                 </button>
               </div>
 
-              <div className="p-8 space-y-6">
+              <div className="flex-1 overflow-y-auto p-6 space-y-5">
+
+                {/* Error banner */}
+                {attendeeError && (
+                  <div className="flex items-start gap-3 p-4 rounded-2xl bg-red-500/10 border border-red-500/20">
+                    <AlertCircle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+                    <p className="text-xs font-medium text-red-600 leading-relaxed">{attendeeError}</p>
+                  </div>
+                )}
+
+                {/* Link to platform user */}
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Vincular a Usuario del Plan</label>
-                  <select 
-                    className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none"
-                    value={editingAttendee.profile_id || ''}
-                    onChange={e => {
-                      const profileId = e.target.value;
-                      const profile = contextProfiles.find(p => p.id === profileId);
-                      setEditingAttendee({
-                        ...editingAttendee, 
-                        profile_id: profileId || null,
-                        guest_name: profile ? `${profile.nombre} ${profile.apellidos}` : editingAttendee.guest_name,
-                        guest_email: profile ? profile.email : editingAttendee.guest_email
-                      });
-                    }}
-                  >
-                    <option value="">-- Seleccionar usuario --</option>
-                    {contextProfiles.map(p => (
-                      <option key={p.id} value={p.id}>{p.nombre} {p.apellidos} ({p.email})</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <FieldReview label="Nombre Manual" value={editingAttendee.guest_name} onChange={(v:any) => setEditingAttendee({...editingAttendee, guest_name: v})} />
-                  <FieldReview label="Email Manual" value={editingAttendee.guest_email} onChange={(v:any) => setEditingAttendee({...editingAttendee, guest_email: v})} />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Estado Asistencia</label>
-                    <select 
-                      className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none"
-                      value={editingAttendee.attendance_status}
-                      onChange={e => setEditingAttendee({...editingAttendee, attendance_status: e.target.value})}
+                  <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1 flex items-center gap-2">
+                    <Users size={11} />
+                    Vincular a usuario del plan
+                    {profilesLoading && <Loader2 size={10} className="animate-spin" />}
+                  </label>
+                  {contextProfiles.length > 0 ? (
+                    <select
+                      className="w-full bg-background border border-border rounded-xl p-3 text-sm outline-none focus:border-accent appearance-none transition-colors"
+                      value={editingAttendee.profile_id || ''}
+                      onChange={e => {
+                        const profileId = e.target.value;
+                        const profile = contextProfiles.find((p: any) => p.id === profileId);
+                        setEditingAttendee({
+                          ...editingAttendee,
+                          profile_id: profileId || null,
+                          guest_name: profile ? `${profile.nombre} ${profile.apellidos}` : editingAttendee.guest_name,
+                          guest_email: profile ? profile.email : editingAttendee.guest_email,
+                        });
+                      }}
                     >
-                      <option value="pending">Pendiente</option>
-                      <option value="confirmed">Confirmado</option>
-                      <option value="declined">Declinado</option>
+                      <option value="">— Invitado externo (sin cuenta) —</option>
+                      {contextProfiles.map((p: any) => (
+                        <option key={p.id} value={p.id}>
+                          {p.nombre} {p.apellidos} · {p.email}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/20 border border-border/50">
+                      <AlertCircle size={14} className="text-amber-500 flex-shrink-0" />
+                      <p className="text-xs text-muted">
+                        {profilesLoading ? 'Cargando usuarios…' : 'No hay usuarios asignados a este congreso. Puedes añadir un asistente externo manualmente.'}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Divider */}
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 h-px bg-border" />
+                  <span className="text-[9px] font-black text-muted uppercase tracking-widest">O datos manuales</span>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+
+                {/* Manual name / email */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Nombre</label>
+                    <input
+                      type="text"
+                      value={editingAttendee.guest_name || ''}
+                      onChange={e => setEditingAttendee({ ...editingAttendee, guest_name: e.target.value })}
+                      placeholder="Dr. García López"
+                      className="w-full bg-background border border-border rounded-xl p-3 text-sm outline-none focus:border-accent transition-colors"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1 flex items-center gap-1">
+                      <Mail size={9} /> Email
+                    </label>
+                    <input
+                      type="email"
+                      value={editingAttendee.guest_email || ''}
+                      onChange={e => setEditingAttendee({ ...editingAttendee, guest_email: e.target.value })}
+                      placeholder="dr@hospital.es"
+                      className="w-full bg-background border border-border rounded-xl p-3 text-sm outline-none focus:border-accent transition-colors"
+                    />
+                  </div>
+                </div>
+
+                {/* Status + Transport */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Estado</label>
+                    <select
+                      className="w-full bg-background border border-border rounded-xl p-3 text-sm outline-none focus:border-accent appearance-none transition-colors"
+                      value={editingAttendee.attendance_status || 'pending'}
+                      onChange={e => setEditingAttendee({ ...editingAttendee, attendance_status: e.target.value })}
+                    >
+                      <option value="pending">⏳ Pendiente</option>
+                      <option value="confirmed">✅ Confirmado</option>
+                      <option value="declined">❌ Declinado</option>
                     </select>
                   </div>
-                  <div className="flex items-center gap-2 pt-6">
-                    <input 
-                      type="checkbox" 
-                      id="transport_req"
-                      checked={editingAttendee.transport_required}
-                      onChange={e => setEditingAttendee({...editingAttendee, transport_required: e.target.checked})}
-                    />
-                    <label htmlFor="transport_req" className="text-[10px] font-black uppercase text-muted tracking-widest">Requiere Transporte</label>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Transporte</label>
+                    <button
+                      type="button"
+                      onClick={() => setEditingAttendee({ ...editingAttendee, transport_required: !editingAttendee.transport_required })}
+                      className={`w-full p-3 rounded-xl border text-sm font-bold transition-all flex items-center gap-2 ${
+                        editingAttendee.transport_required
+                          ? 'bg-blue-500/10 border-blue-500/30 text-blue-600'
+                          : 'bg-background border-border text-muted'
+                      }`}
+                    >
+                      <Car size={14} />
+                      {editingAttendee.transport_required ? 'Necesita traslado' : 'Sin traslado'}
+                    </button>
                   </div>
                 </div>
 
-                <FieldReview label="Restricciones Alimentarias" value={editingAttendee.dietary_restrictions} onChange={(v:any) => setEditingAttendee({...editingAttendee, dietary_restrictions: v})} placeholder="Alergias, vegetariano, etc." />
-                <FieldReview label="Notas del Asistente" value={editingAttendee.notes} onChange={(v:any) => setEditingAttendee({...editingAttendee, notes: v})} />
+                {/* Dietary restrictions */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Restricciones dietéticas</label>
+                  <input
+                    type="text"
+                    value={editingAttendee.dietary_restrictions || ''}
+                    onChange={e => setEditingAttendee({ ...editingAttendee, dietary_restrictions: e.target.value })}
+                    placeholder="Alérgico a frutos secos, vegano, sin gluten…"
+                    className="w-full bg-background border border-border rounded-xl p-3 text-sm outline-none focus:border-accent transition-colors"
+                  />
+                </div>
 
-                <div className="pt-6 border-t border-border flex gap-4">
-                  <Button variant="ghost" className="flex-1 rounded-2xl py-6 font-bold" onClick={() => setEditingAttendee(null)}>Cancelar</Button>
-                  <Button 
-                    className="flex-2 rounded-2xl py-6 font-black uppercase tracking-widest text-xs"
-                    onClick={async () => {
-                      try {
-                        const saved = await saveItem('hospitality_event_attendees', editingAttendee);
-                        const updatedAttendees = editingHospitality.attendees || [];
-                        const exists = updatedAttendees.findIndex((a: any) => a.id === saved.id);
-                        let finalAttendees;
-                        if (exists > -1) {
-                          finalAttendees = updatedAttendees.map((a: any, i: number) => i === exists ? saved : a);
-                        } else {
-                          finalAttendees = [...updatedAttendees, saved];
-                        }
-                        setEditingHospitality({ ...editingHospitality, attendees: finalAttendees });
-                        setEditingAttendee(null);
-                      } catch (err: any) {
-                        alert({ title: 'Error', message: err.message, type: 'danger' });
-                      }
-                    }}
-                  >
-                    Guardar Asistente
-                  </Button>
+                {/* Notes */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Notas internas</label>
+                  <textarea
+                    value={editingAttendee.notes || ''}
+                    onChange={e => setEditingAttendee({ ...editingAttendee, notes: e.target.value })}
+                    placeholder="Observaciones para el coordinador…"
+                    rows={2}
+                    className="w-full bg-background border border-border rounded-xl p-3 text-sm outline-none focus:border-accent transition-colors resize-none"
+                  />
                 </div>
               </div>
+
+              {/* Footer */}
+              <div className="p-6 border-t border-border flex gap-3 flex-shrink-0 bg-surface">
+                <Button
+                  variant="ghost"
+                  className="flex-1 rounded-2xl py-5 font-bold"
+                  onClick={() => { setEditingAttendee(null); setAttendeeError(null); }}
+                  disabled={attendeeSaving}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  className="flex-[2] rounded-2xl py-5 font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2"
+                  disabled={attendeeSaving || (!editingAttendee.guest_name && !editingAttendee.profile_id)}
+                  onClick={async () => {
+                    // Validate
+                    if (!editingAttendee.event_id) {
+                      setAttendeeError('Guarda primero el evento antes de añadir asistentes.');
+                      return;
+                    }
+                    if (!editingAttendee.guest_name && !editingAttendee.profile_id) {
+                      setAttendeeError('Indica un nombre o selecciona un usuario del plan.');
+                      return;
+                    }
+                    setAttendeeSaving(true);
+                    setAttendeeError(null);
+                    try {
+                      await saveAttendee({
+                        id: editingAttendee.id,
+                        event_id: editingAttendee.event_id,
+                        profile_id: editingAttendee.profile_id || null,
+                        guest_name: editingAttendee.guest_name || '',
+                        guest_email: editingAttendee.guest_email || '',
+                        attendance_status: editingAttendee.attendance_status || 'pending',
+                        dietary_restrictions: editingAttendee.dietary_restrictions || '',
+                        transport_required: editingAttendee.transport_required || false,
+                        notes: editingAttendee.notes || '',
+                      });
+                      // Reload attendees from DB to stay in sync
+                      const freshAttendees = await getEventAttendees(editingAttendee.event_id);
+                      setEditingHospitality((prev: any) => ({ ...prev, attendees: freshAttendees }));
+                      setEditingAttendee(null);
+                    } catch (err: any) {
+                      setAttendeeError(err.message || 'Error al guardar. Inténtalo de nuevo.');
+                    } finally {
+                      setAttendeeSaving(false);
+                    }
+                  }}
+                >
+                  {attendeeSaving ? (
+                    <><Loader2 size={14} className="animate-spin" /> Guardando…</>
+                  ) : (
+                    <><Check size={14} /> {editingAttendee.id ? 'Guardar cambios' : 'Añadir asistente'}</>
+                  )}
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- EVENT SELECTOR MODAL --- */}
+      <AnimatePresence>
+        {showEventSelector && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-background border border-border w-full max-w-lg rounded-[2rem] overflow-hidden shadow-2xl"
+            >
+              <div className="p-8 border-b border-border flex justify-between items-start bg-muted/20">
+                <div>
+                  <p className="text-[10px] font-black text-accent uppercase tracking-[0.3em] mb-1">Vincular Invitación</p>
+                  <h3 className="text-2xl font-black tracking-tighter">Eventos Disponibles</h3>
+                  <p className="text-xs text-muted mt-1">Selecciona un evento de la lista central para este usuario.</p>
+                </div>
+                <button onClick={() => setShowEventSelector(false)} className="p-2.5 rounded-2xl bg-surface border border-border text-muted hover:text-foreground">
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="p-6 max-h-[50vh] overflow-y-auto space-y-3">
+                {contextEvents.length === 0 ? (
+                  <p className="text-center py-10 text-xs text-muted">No hay eventos globales registrados para este congreso.</p>
+                ) : (
+                  contextEvents
+                    .filter(ev => !selectedPlan.hospitality_events?.some((se: any) => se.id === ev.id))
+                    .map(ev => (
+                    <button
+                      key={ev.id}
+                      onClick={async () => {
+                        try {
+                          setIsSubmitting(true);
+                          await saveAttendee({
+                            event_id: ev.id,
+                            profile_id: selectedPlan.user_id,
+                            attendance_status: 'pending',
+                            transport_required: false,
+                          });
+                          setShowEventSelector(false);
+                          handleManagePlan(selectedPlan); // Refresh
+                          loadData(); // Refresh counts
+                        } catch (err: any) {
+                          alert({ title: 'Error', message: err.message, type: 'danger' });
+                        } finally {
+                          setIsSubmitting(false);
+                        }
+                      }}
+                      className="w-full text-left p-4 rounded-2xl border border-border bg-surface hover:border-accent/50 transition-all group"
+                    >
+                      <div className="flex justify-between items-start">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-sm font-black text-foreground">{ev.title}</span>
+                            <span className="px-1.5 py-0.5 rounded-md bg-accent/10 text-accent text-[8px] font-black uppercase">{ev.type}</span>
+                          </div>
+                          <div className="flex flex-wrap gap-3 text-[10px] text-muted">
+                            <span className="flex items-center gap-1"><Calendar size={10} /> {new Date(ev.start_datetime).toLocaleDateString()}</span>
+                            <span className="flex items-center gap-1"><Clock size={10} /> {displayLocalTime(ev.start_datetime)}</span>
+                            <span className="flex items-center gap-1"><MapPin size={10} /> {ev.venue_name}</span>
+                          </div>
+                        </div>
+                        <Plus size={16} className="text-muted group-hover:text-accent transition-colors" />
+                      </div>
+                    </button>
+                  ))
+                )}
+              </div>
+
+              <div className="p-6 border-t border-border bg-surface">
+                <Button variant="ghost" className="w-full rounded-2xl" onClick={() => setShowEventSelector(false)}>
+                  Cerrar
+                </Button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal de Edición de Traslado */}
+      <AnimatePresence>
+        {editingTransfer && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[70] flex items-center justify-center p-4 overflow-y-auto">
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="bg-background border border-border w-full max-w-2xl rounded-[32px] overflow-hidden shadow-2xl my-8"
+            >
+              <div className="p-8 border-b border-border flex justify-between items-center bg-muted/20">
+                <div>
+                  <h3 className="text-2xl font-black text-primary tracking-tighter">Gestionar Traslado</h3>
+                  <p className="text-[10px] text-muted font-black uppercase tracking-widest mt-1">Logística de Desplazamiento</p>
+                </div>
+                <Button variant="ghost" className="rounded-full h-10 w-10 p-0" onClick={() => setEditingTransfer(null)}>
+                  <X size={24} />
+                </Button>
+              </div>
+              
+              <form onSubmit={handleSaveTransfer} className="p-8 space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="col-span-2 space-y-2">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Tipo de Trayecto</label>
+                    <select 
+                      className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none"
+                      value={editingTransfer.type}
+                      onChange={e => setEditingTransfer({...editingTransfer, type: e.target.value})}
+                    >
+                      <option value="airport_to_hotel">Aeropuerto → Hotel</option>
+                      <option value="hotel_to_airport">Hotel → Aeropuerto</option>
+                      <option value="hotel_to_restaurant">Hotel → Restaurante</option>
+                      <option value="restaurant_to_hotel">Restaurante → Hotel</option>
+                      <option value="hotel_to_venue">Hotel → Venue / Sede</option>
+                      <option value="venue_to_hotel">Venue / Sede → Hotel</option>
+                      <option value="custom">Otro / Personalizado</option>
+                    </select>
+                  </div>
+
+                  <FieldReview label="Origen / Recogida" value={editingTransfer.pickup_location} onChange={(v:any) => setEditingTransfer({...editingTransfer, pickup_location: v})} />
+                  <FieldReview label="Destino / Entrega" value={editingTransfer.dropoff_location} onChange={(v:any) => setEditingTransfer({...editingTransfer, dropoff_location: v})} />
+                  <FieldReview label="Fecha y Hora Recogida" type="datetime-local" value={editingTransfer.pickup_datetime} onChange={(v:any) => setEditingTransfer({...editingTransfer, pickup_datetime: v})} />
+                  <FieldReview label="Nombre Pasajero/s" value={editingTransfer.passenger_name} onChange={(v:any) => setEditingTransfer({...editingTransfer, passenger_name: v})} />
+                  
+                  <div className="col-span-2 pt-4 border-t border-border">
+                    <p className="text-[10px] font-black uppercase text-accent tracking-[0.2em] mb-4">Detalles del Servicio</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <FieldReview label="Nombre del Chófer" value={editingTransfer.driver_name} optional={true} onChange={(v:any) => setEditingTransfer({...editingTransfer, driver_name: v})} />
+                      <FieldReview label="Teléfono Chófer" value={editingTransfer.driver_phone} optional={true} onChange={(v:any) => setEditingTransfer({...editingTransfer, driver_phone: v})} />
+                      <FieldReview label="Tipo de Vehículo" value={editingTransfer.vehicle_type} optional={true} onChange={(v:any) => setEditingTransfer({...editingTransfer, vehicle_type: v})} />
+                      <FieldReview label="Empresa de Transporte" value={editingTransfer.company_name} optional={true} onChange={(v:any) => setEditingTransfer({...editingTransfer, company_name: v})} />
+                    </div>
+                  </div>
+
+                  <div className="col-span-2 space-y-4 pt-4 border-t border-border">
+                    <p className="text-[10px] font-black uppercase text-accent tracking-[0.2em]">Asociar Logística (Opcional)</p>
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black uppercase text-muted tracking-widest px-1">Vuelo Relacionado</label>
+                        <select 
+                          className="w-full bg-background border border-border rounded-xl p-3 text-[10px] outline-none focus:border-accent appearance-none"
+                          value={editingTransfer.related_flight_id || ''}
+                          onChange={e => setEditingTransfer({...editingTransfer, related_flight_id: e.target.value || null})}
+                        >
+                          <option value="">Ninguno</option>
+                          {selectedPlan.flights?.map((f:any) => (
+                            <option key={f.id} value={f.id}>{f.flight_number} · {f.departure_location} → {f.arrival_location}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black uppercase text-muted tracking-widest px-1">Hotel Relacionado</label>
+                        <select 
+                          className="w-full bg-background border border-border rounded-xl p-3 text-[10px] outline-none focus:border-accent appearance-none"
+                          value={editingTransfer.related_hotel_id || ''}
+                          onChange={e => setEditingTransfer({...editingTransfer, related_hotel_id: e.target.value || null})}
+                        >
+                          <option value="">Ninguno</option>
+                          {selectedPlan.hotel_stays?.map((h:any) => (
+                            <option key={h.id} value={h.id}>{h.hotel_name} · {h.booking_reference}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black uppercase text-muted tracking-widest px-1">Evento VIP</label>
+                        <select 
+                          className="w-full bg-background border border-border rounded-xl p-3 text-[10px] outline-none focus:border-accent appearance-none"
+                          value={editingTransfer.related_hospitality_id || ''}
+                          onChange={e => setEditingTransfer({...editingTransfer, related_hospitality_id: e.target.value || null})}
+                        >
+                          <option value="">Ninguno</option>
+                          {selectedPlan.hospitality_events?.map((ev:any) => (
+                            <option key={ev.id} value={ev.id}>{ev.title} · {ev.venue_name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="col-span-2 space-y-2">
+                    <FieldReview label="Localizador / Ref. Reserva" value={editingTransfer.booking_reference} optional={true} onChange={(v:any) => setEditingTransfer({...editingTransfer, booking_reference: v})} />
+                  </div>
+
+                  <div className="col-span-2 space-y-2">
+                    <FieldReview label="Notas adicionales" value={editingTransfer.notes} optional={true} onChange={(v:any) => setEditingTransfer({...editingTransfer, notes: v})} />
+                  </div>
+
+                  <div className="col-span-2 grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Estado</label>
+                      <select 
+                        className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none"
+                        value={editingTransfer.status}
+                        onChange={e => setEditingTransfer({...editingTransfer, status: e.target.value})}
+                      >
+                        <option value="planned">Planificado</option>
+                        <option value="confirmed">Confirmado</option>
+                        <option value="cancelled">Cancelado</option>
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-2 pt-6">
+                      <input 
+                        type="checkbox" 
+                        id="transfer_visible"
+                        checked={editingTransfer.visible_to_client}
+                        onChange={e => setEditingTransfer({...editingTransfer, visible_to_client: e.target.checked})}
+                      />
+                      <label htmlFor="transfer_visible" className="text-[10px] font-black uppercase text-muted tracking-widest">Visible al Cliente</label>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-8 border-t border-border flex gap-4">
+                  <Button variant="ghost" type="button" className="flex-1 rounded-2xl py-6 font-bold" onClick={() => setEditingTransfer(null)}>Cancelar</Button>
+                  <Button type="submit" className="flex-2 rounded-2xl py-6 font-black uppercase tracking-widest text-xs" disabled={isSubmitting}>
+                    {isSubmitting ? <Loader2 className="animate-spin" /> : 'Guardar Traslado'}
+                  </Button>
+                </div>
+              </form>
             </motion.div>
           </div>
         )}

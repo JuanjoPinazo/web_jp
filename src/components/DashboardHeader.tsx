@@ -38,8 +38,12 @@ export const DashboardHeader = () => {
             href="/profile"
             className="flex items-center gap-3 px-3 py-1.5 rounded-full border border-border bg-surface hover:border-accent/30 transition-all group"
           >
-            <div className="w-6 h-6 rounded-full bg-accent/10 flex items-center justify-center text-accent text-[8px] font-black uppercase">
-              {initials}
+            <div className="w-6 h-6 rounded-full bg-accent/10 flex items-center justify-center text-accent text-[8px] font-black uppercase overflow-hidden">
+              {session.user?.avatar_url ? (
+                <img src={session.user.avatar_url} alt={session.user.name} className="w-full h-full object-cover" />
+              ) : (
+                initials
+              )}
             </div>
             <span className="text-[10px] font-black uppercase tracking-widest text-muted group-hover:text-foreground hidden sm:block">
               {session.user?.name}

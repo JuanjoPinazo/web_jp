@@ -5,13 +5,13 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useTravelPlans, FullTravelPlan } from '@/hooks/useTravelPlans';
 import { usePlanModules } from '@/hooks/usePlanModules';
-import { 
-  Building2, 
-  MapPin, 
-  CheckCircle2, 
-  Plane, 
-  Car, 
-  Utensils, 
+import {
+  Building2,
+  MapPin,
+  CheckCircle2,
+  Plane,
+  Car,
+  Utensils,
   Loader2,
   FileText,
   Calendar,
@@ -26,11 +26,17 @@ import {
   Navigation,
   MessageSquare,
   AlertCircle,
-  CalendarRange
+  CalendarRange,
+  Ticket,
+  ChevronDown,
+  Check,
+  XCircle
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import { OutcomeDrawer } from '@/components/OutcomeDrawer';
+import { MapModal, type MapLocation } from '@/components/MapModal';
+import { supabase } from '@/lib/supabase';
 
 const WakeLockHandler = () => {
   useEffect(() => {
@@ -75,7 +81,11 @@ export default function DashboardPage() {
   const [selectedQR, setSelectedQR] = useState<any>(null);
   const [selectedPDF, setSelectedPDF] = useState<any>(null);
   const [showTimeline, setShowTimeline] = useState(false);
+  const [showMap, setShowMap] = useState(false);
   const [loading, setLoading] = useState(true);
+  // Attendance confirmation state
+  const [confirmingEventId, setConfirmingEventId] = useState<string | null>(null);
+  const [confirmDietary, setConfirmDietary] = useState('');
 
   useEffect(() => {
     const loadContexts = async () => {
@@ -208,14 +218,14 @@ export default function DashboardPage() {
     });
 
     // 3. TRANSFERS
-    activePlan.transfers.forEach(t => {
+    activePlan.transfers.filter(t => t.visible_to_client).forEach(t => {
       events.push({
         id: `transfer-${t.id}`,
         type: 'transfer',
-        datetime: new Date(t.pickup_time),
-        title: 'Traslado Privado',
+        datetime: new Date(t.pickup_datetime),
+        title: t.type?.replace(/_/g, ' ').toUpperCase().replace('AIRPORT', 'AERO') || 'Traslado Privado',
         location: t.pickup_location,
-        description: `Destino: ${t.dropoff_location}. Chófer: ${t.driver_name || 'Asignado'}.`,
+        description: `Hacia: ${t.dropoff_location}. ${t.driver_name ? `Chófer: ${t.driver_name}` : 'Transporte Confirmado'}`,
         icon: Car,
         color: 'text-amber-500',
         payload: t
@@ -327,6 +337,88 @@ export default function DashboardPage() {
     };
   }, [activePlan]);
 
+  // --- MAP LOCATIONS ---
+  const mapLocations = useMemo((): MapLocation[] => {
+    if (!activePlan) return [];
+    const locs: MapLocation[] = [];
+
+    // Hotel stays
+    activePlan.hotel_stays?.forEach(h => {
+      if (!h.deleted_at) {
+        locs.push({
+          id: `hotel-${h.id}`,
+          type: 'hotel',
+          name: h.hotel_name,
+          address: h.address,
+          extra: `Check-in: ${new Date(h.check_in).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: 'UTC' })} · Check-out: ${new Date(h.check_out).toLocaleDateString('es-ES', { day: 'numeric', month: 'short', timeZone: 'UTC' })}`,
+        });
+      }
+    });
+
+    // Hospitality venues
+    activePlan.hospitality_events
+      ?.filter(e => e.visible_to_client && !e.deleted_at && e.venue_address)
+      .forEach(e => {
+        locs.push({
+          id: `hosp-${e.id}`,
+          type: 'hospitality',
+          name: e.venue_name || e.title,
+          address: e.venue_address,
+          lat: e.venue_lat,
+          lng: e.venue_lng,
+          extra: new Date(e.start_datetime).toLocaleString('es-ES', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }),
+        });
+      });
+
+    // Restaurants (reserved)
+    activePlan.restaurants
+      ?.filter(r => !r.deleted_at && r.address)
+      .forEach(r => {
+        locs.push({
+          id: `rest-${r.id}`,
+          type: 'restaurant',
+          name: r.restaurant_name,
+          address: r.address,
+          extra: r.type === 'reserved' ? `Reserva: ${new Date(r.reservation_time).toLocaleString('es-ES', { hour: '2-digit', minute: '2-digit', day: 'numeric', month: 'short', timeZone: 'UTC' })}` : 'Recomendado',
+        });
+      });
+
+    // Transfers (pickup & dropoff as distinct locations)
+    activePlan.transfers?.filter(t => !t.deleted_at).forEach(t => {
+      locs.push({
+        id: `transfer-${t.id}`,
+        type: 'transfer',
+        name: `Recogida: ${t.pickup_location}`,
+        address: t.pickup_location,
+        extra: `${new Date(t.pickup_datetime).toLocaleString('es-ES', { weekday: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })} → ${t.dropoff_location}`,
+      });
+    });
+
+    return locs;
+  }, [activePlan]);
+
+  // --- ATTENDANCE HANDLER ---
+  const handleAttendanceConfirm = async (attendeeId: string, status: 'confirmed' | 'declined') => {
+    try {
+      await supabase
+        .from('hospitality_event_attendees')
+        .update({
+          attendance_status: status,
+          ...(status === 'confirmed' && confirmDietary ? { dietary_restrictions: confirmDietary } : {}),
+        })
+        .eq('id', attendeeId);
+
+      if (selectedContextId) {
+        const updated = await getMyActivePlan(selectedContextId);
+        setActivePlan(updated);
+      }
+      setConfirmingEventId(null);
+      setConfirmDietary('');
+    } catch (err) {
+      console.error('Error confirming attendance:', err);
+    }
+  };
+
   // --- VARIANTS ---
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -381,7 +473,7 @@ export default function DashboardPage() {
                   <div className="space-y-1">
                     <p className="text-[10px] font-black text-muted uppercase tracking-widest">Salida</p>
                     <p className="text-4xl font-black text-foreground">
-                      {new Date(airportMode.flight.departure_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(airportMode.flight.departure_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
                     </p>
                   </div>
                   <div className="text-right space-y-1">
@@ -398,7 +490,7 @@ export default function DashboardPage() {
                   <div className="space-y-1 text-right">
                     <p className="text-[9px] font-black text-muted uppercase tracking-widest">Check-in</p>
                     <p className="text-xl font-black text-foreground">
-                      {new Date(new Date(airportMode.flight.departure_time).getTime() - 2 * 60 * 60 * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {new Date(new Date(airportMode.flight.departure_time).getTime() - 2 * 60 * 60 * 1000).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
                     </p>
                   </div>
                </div>
@@ -492,7 +584,7 @@ export default function DashboardPage() {
         <div className="flex justify-between items-start">
           <div className="space-y-1">
             <p className="text-[10px] font-black uppercase tracking-[0.3em] text-accent">
-              {new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
+              {(activeDayEvents[0]?.datetime || new Date()).toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' })}
             </p>
             <h1 className="text-3xl font-black tracking-tight text-foreground">
               {selectedContext?.name || 'Tu Evento'}
@@ -588,7 +680,7 @@ export default function DashboardPage() {
                 <div className="space-y-1">
                    <p className="text-[9px] font-black text-muted uppercase tracking-widest">Hora</p>
                    <p className="text-2xl font-black text-foreground">
-                      {nextAction.datetime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      {nextAction.datetime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
                    </p>
                 </div>
                 <div className="h-10 w-px bg-border" />
@@ -628,6 +720,77 @@ export default function DashboardPage() {
         </motion.section>
       )}
 
+      {/* BLOQUE 2.5: ACREDITACIÓN */}
+      {(activePlan?.registrations?.filter(r => !r.deleted_at).length ?? 0) > 0 && (
+        <motion.section variants={itemVariants} className="space-y-4">
+          <div className="flex items-center gap-4 px-2">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted">Acreditación</h3>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+          <div className="space-y-4">
+            {activePlan!.registrations.filter(r => !r.deleted_at).map(reg => (
+              <div key={reg.id} className="relative p-8 rounded-[2.5rem] bg-surface border border-border overflow-hidden">
+                {/* Background decoration */}
+                <div className="absolute top-0 right-0 p-6 opacity-[0.04]">
+                  <Ticket size={110} />
+                </div>
+
+                <div className="relative z-10 space-y-5">
+                  {/* Header row */}
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="space-y-2">
+                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-accent/10 border border-accent/20 text-[9px] font-black text-accent uppercase tracking-widest">
+                        <Ticket size={10} /> Inscripción al Congreso
+                      </div>
+                      <h4 className="text-xl font-black text-foreground leading-tight tracking-tight">
+                        {selectedContext?.name || 'Congreso'}
+                      </h4>
+                    </div>
+                    <div className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border flex-shrink-0 ${
+                      reg.status === 'confirmed'
+                        ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
+                        : reg.status === 'pending'
+                        ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
+                        : 'bg-muted/10 text-muted border-muted/20'
+                    }`}>
+                      {reg.status === 'confirmed' ? '✓ Confirmada' : reg.status === 'pending' ? '· Pendiente' : reg.status}
+                    </div>
+                  </div>
+
+                  {/* Registration code */}
+                  {reg.registration_code && (
+                    <div className="p-5 rounded-2xl bg-background border border-border/60 flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1.5">Código de Inscripción</p>
+                        <p className="text-2xl font-black font-mono text-foreground tracking-widest">{reg.registration_code}</p>
+                      </div>
+                      <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center text-accent flex-shrink-0">
+                        <QrCode size={18} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Notes */}
+                  {reg.notes && (
+                    <p className="text-xs text-muted/80 leading-relaxed italic px-1">{reg.notes}</p>
+                  )}
+
+                  {/* Document CTA */}
+                  {reg.document_url && (
+                    <button
+                      onClick={() => window.open(reg.document_url!)}
+                      className="w-full py-4 rounded-2xl bg-accent text-white font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 shadow-lg shadow-accent/20 active:scale-[0.98] transition-all"
+                    >
+                      <FileText size={14} /> Ver Acreditación
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </motion.section>
+      )}
+
       {/* BLOQUE 3: TIMELINE DEL DÍA */}
       <motion.section variants={itemVariants} className="space-y-8">
         <div className="flex items-center gap-4 px-2">
@@ -643,18 +806,74 @@ export default function DashboardPage() {
             return (
               <div key={event.id} className={`relative group ${isPast ? 'opacity-40' : ''}`}>
                 <div className={`absolute -left-[28.5px] top-1.5 w-1.5 h-1.5 rounded-full border-2 bg-background transition-all duration-500 ${isPast ? 'border-muted scale-75' : 'border-accent scale-100 group-hover:scale-150'}`} />
-                <div className="space-y-2">
+                <div className="space-y-4">
                    <div className="flex justify-between items-baseline">
                       <h4 className="text-lg font-black text-foreground leading-tight tracking-tight">
                         {event.title}
                       </h4>
                       <span className="text-[10px] font-black text-accent shrink-0">
-                        {event.timeString || event.datetime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        {event.timeString || event.datetime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
                       </span>
                    </div>
-                   <p className="text-xs font-medium text-muted/80 leading-relaxed">
-                     {event.description}
-                   </p>
+                   
+                   {event.type === 'transfer' ? (
+                     <div className="bg-surface-subtle border border-border rounded-2xl p-5 space-y-4 shadow-sm group-hover:border-accent/20 transition-all">
+                       <div className="flex items-start gap-3">
+                          <div className="flex flex-col items-center gap-1 pt-1 shrink-0">
+                            <div className="w-1.5 h-1.5 rounded-full bg-accent" />
+                            <div className="w-px h-5 bg-border" />
+                            <div className="w-1.5 h-1.5 rounded-full border border-accent bg-background" />
+                          </div>
+                          <div className="flex-1 space-y-3 min-w-0">
+                            <div>
+                              <p className="text-[7px] font-black text-muted uppercase tracking-widest">Recogida</p>
+                              <p className="text-[11px] font-bold text-foreground truncate">{event.payload.pickup_location}</p>
+                            </div>
+                            <div>
+                              <p className="text-[7px] font-black text-muted uppercase tracking-widest">Hacia</p>
+                              <p className="text-[11px] font-bold text-foreground truncate">{event.payload.dropoff_location}</p>
+                            </div>
+                          </div>
+                       </div>
+
+                       {(event.payload.driver_name || event.payload.vehicle_type) && (
+                         <div className="pt-3 border-t border-border/50 flex items-center justify-between gap-4">
+                           <div className="flex items-center gap-3 overflow-hidden">
+                              <div className="w-8 h-8 rounded-full bg-accent/5 flex items-center justify-center text-accent shrink-0">
+                                <Car size={14} />
+                              </div>
+                              <div className="overflow-hidden">
+                                <p className="text-[10px] font-black text-foreground truncate">{event.payload.driver_name || 'Servicio Confirmado'}</p>
+                                <p className="text-[8px] font-bold text-muted uppercase">{event.payload.vehicle_type || 'Transporte Privado'}</p>
+                              </div>
+                           </div>
+                           <div className="flex gap-1.5">
+                             {event.payload.driver_phone && (
+                               <>
+                                 <a href={`tel:${event.payload.driver_phone}`} className="w-8 h-8 rounded-lg bg-green-500/10 text-green-500 flex items-center justify-center active:scale-90 transition-transform">
+                                   <Phone size={14} />
+                                 </a>
+                                 <a href={`https://wa.me/${event.payload.driver_phone.replace(/\s+/g, '')}`} target="_blank" rel="noopener noreferrer" className="w-8 h-8 rounded-lg bg-emerald-500/10 text-emerald-500 flex items-center justify-center active:scale-90 transition-transform">
+                                   <MessageSquare size={14} />
+                                 </a>
+                               </>
+                             )}
+                           </div>
+                         </div>
+                       )}
+
+                       <button 
+                         onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(event.payload.pickup_location)}`)}
+                         className="w-full py-3 rounded-xl bg-accent text-white font-black uppercase tracking-widest text-[8px] flex items-center justify-center gap-2"
+                       >
+                         <Navigation size={12} /> Cómo llegar a la recogida
+                       </button>
+                     </div>
+                   ) : (
+                     <p className="text-xs font-medium text-muted/80 leading-relaxed">
+                       {event.description}
+                     </p>
+                   )}
                 </div>
               </div>
             );
@@ -786,9 +1005,77 @@ export default function DashboardPage() {
                             </div>
                           )}
 
+                          {/* --- ATTENDANCE CONFIRMATION --- */}
+                          {(() => {
+                            const myAttendee = e.attendees?.find(
+                              (a: any) => !a.deleted_at && (a.profile_id === session.user?.id)
+                            );
+                            if (!myAttendee) return null;
+
+                            if (myAttendee.attendance_status === 'confirmed') {
+                              return (
+                                <div className="flex items-center gap-2 p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
+                                  <Check size={14} className="text-emerald-500 flex-shrink-0" />
+                                  <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Asistencia confirmada</p>
+                                  {myAttendee.dietary_restrictions && (
+                                    <span className="ml-auto text-[9px] text-emerald-600/70 font-medium italic">{myAttendee.dietary_restrictions}</span>
+                                  )}
+                                </div>
+                              );
+                            }
+
+                            if (myAttendee.attendance_status === 'declined') {
+                              return (
+                                <div className="flex items-center gap-2 p-4 rounded-2xl bg-red-500/10 border border-red-500/20">
+                                  <XCircle size={14} className="text-red-500 flex-shrink-0" />
+                                  <p className="text-[10px] font-black text-red-500 uppercase tracking-widest">Asistencia declinada</p>
+                                </div>
+                              );
+                            }
+
+                            // Pending — show confirm UI
+                            return (
+                              <div className="space-y-3 pt-2 border-t border-border/40">
+                                <p className="text-[9px] font-black text-accent uppercase tracking-widest">¿Confirmas tu asistencia?</p>
+                                {confirmingEventId === e.id ? (
+                                  <div className="space-y-3">
+                                    <input
+                                      type="text"
+                                      value={confirmDietary}
+                                      onChange={ev => setConfirmDietary(ev.target.value)}
+                                      placeholder="Restricciones dietéticas (opcional)"
+                                      className="w-full px-4 py-3 rounded-xl bg-background border border-border text-sm text-foreground placeholder:text-muted/50 focus:outline-none focus:border-accent/50 transition-colors"
+                                    />
+                                    <div className="grid grid-cols-2 gap-2">
+                                      <button
+                                        onClick={() => handleAttendanceConfirm(myAttendee.id, 'confirmed')}
+                                        className="py-3 rounded-xl bg-emerald-500 text-white font-black uppercase tracking-widest text-[9px] flex items-center justify-center gap-1.5 active:scale-[0.98] transition-all"
+                                      >
+                                        <Check size={12} /> Confirmar
+                                      </button>
+                                      <button
+                                        onClick={() => handleAttendanceConfirm(myAttendee.id, 'declined')}
+                                        className="py-3 rounded-xl bg-surface-subtle border border-border text-muted font-black uppercase tracking-widest text-[9px] flex items-center justify-center gap-1.5 active:scale-[0.98] transition-all"
+                                      >
+                                        <XCircle size={12} /> Declinar
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => setConfirmingEventId(e.id)}
+                                    className="w-full py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 font-black uppercase tracking-widest text-[9px] flex items-center justify-center gap-1.5 active:scale-[0.98] transition-all"
+                                  >
+                                    <Check size={12} /> Confirmar / Gestionar asistencia
+                                  </button>
+                                )}
+                              </div>
+                            );
+                          })()}
+
                           <div className="flex gap-2">
                             {e.venue_address && (
-                              <button 
+                              <button
                                 onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent((e.venue_name || '') + ' ' + (e.venue_address || ''))}`)}
                                 className="flex-1 py-4 rounded-2xl bg-accent text-white font-black uppercase tracking-widest text-[9px] flex items-center justify-center gap-2 shadow-lg shadow-accent/20 active:scale-[0.98] transition-all"
                               >
@@ -832,8 +1119,11 @@ export default function DashboardPage() {
               </div>
             ))}
           </div>
-          <button className="w-full py-5 rounded-2xl border border-dashed border-border text-muted font-black uppercase tracking-widest text-[9px] hover:bg-surface transition-all">
-            Ver Mapa de Experiencias
+          <button
+            onClick={() => setShowMap(true)}
+            className="w-full py-5 rounded-2xl border border-dashed border-accent/30 text-accent font-black uppercase tracking-widest text-[9px] hover:bg-accent/5 transition-all flex items-center justify-center gap-2"
+          >
+            <MapPin size={13} /> Ver Mapa de Experiencias
           </button>
         </motion.section>
       )}
@@ -973,19 +1263,36 @@ export default function DashboardPage() {
           <div className="flex-1 h-px bg-border" />
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-           <button onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=taxi+transfer+near+me`)} className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-surface border border-border group hover:border-accent/40">
+           <button
+             onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=taxi+${encodeURIComponent(selectedContext?.location || 'transfer')}`)}
+             className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-surface border border-border group hover:border-accent/40 transition-all"
+           >
               <Car size={18} className="text-accent" />
               <span className="text-[8px] font-black uppercase tracking-widest text-muted">Transporte</span>
            </button>
-           <button onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(selectedContext?.location || '')}`)} className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-surface border border-border group hover:border-accent/40">
+           <button
+             onClick={() => setShowMap(true)}
+             className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-surface border border-border group hover:border-accent/40 transition-all relative"
+           >
               <MapPin size={18} className="text-accent" />
               <span className="text-[8px] font-black uppercase tracking-widest text-muted">Mapa</span>
+              {mapLocations.length > 0 && (
+                <div className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-accent flex items-center justify-center text-white text-[8px] font-black">
+                  {mapLocations.length}
+                </div>
+              )}
            </button>
-           <button className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-surface border border-border group hover:border-accent/40">
+           <button
+             onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=restaurantes+${encodeURIComponent(selectedContext?.location || '')}`)}
+             className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-surface border border-border group hover:border-accent/40 transition-all"
+           >
               <Utensils size={18} className="text-accent" />
               <span className="text-[8px] font-black uppercase tracking-widest text-muted">Gastronomía</span>
            </button>
-           <button onClick={() => setShowTimeline(true)} className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-surface border border-border group hover:border-accent/40">
+           <button
+             onClick={() => setShowTimeline(true)}
+             className="flex flex-col items-center gap-3 p-4 rounded-2xl bg-surface border border-border group hover:border-accent/40 transition-all"
+           >
               <Calendar size={18} className="text-accent" />
               <span className="text-[8px] font-black uppercase tracking-widest text-muted">Agenda Full</span>
            </button>
@@ -1003,6 +1310,15 @@ export default function DashboardPage() {
           const flight = activePlan?.flights.find(f => f.id === doc.related_flight_id);
           setSelectedQR({ ...doc, flight });
         }}
+      />
+
+      {/* MAP MODAL */}
+      <MapModal
+        isOpen={showMap}
+        onClose={() => setShowMap(false)}
+        locations={mapLocations}
+        contextName={selectedContext?.name}
+        contextLocation={selectedContext?.location}
       />
 
       {/* QR MODAL (Premium Full-Screen Experience) */}

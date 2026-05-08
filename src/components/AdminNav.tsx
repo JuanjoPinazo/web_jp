@@ -13,7 +13,8 @@ import {
   Settings,
   Clock,
   MapPin,
-  Database
+  Database,
+  Utensils
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Logo } from './Logo';
@@ -24,6 +25,7 @@ const adminLinks = [
   { href: '/admin/contexts', label: 'Eventos', icon: Calendar },
   { href: '/admin/recommendations', label: 'Recomendaciones', icon: Sparkles },
   { href: '/admin/plans', label: 'Logística', icon: MapPin },
+  { href: '/admin/hospitality', label: 'Hospitality', icon: Utensils },
   { href: '/admin/users', label: 'Usuarios', icon: Users },
 ];
 
