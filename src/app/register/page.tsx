@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Mail, User, Building2, ArrowRight, Loader2, ShieldCheck, ArrowLeft, CheckCircle2, Phone, Briefcase, Stethoscope, HelpCircle } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/Button';
 import { supabase } from '@/lib/supabase';
 import { HospitalSelect } from '@/components/HospitalSelect';
@@ -23,7 +24,9 @@ export default function RequestAccessPage() {
     hospital_manual: '',
     department: '',
     departmentId: '',
-    department_manual: ''
+    department_manual: '',
+    professional_type: 'hospital' as 'hospital' | 'empresa',
+    company_name: ''
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -47,28 +50,36 @@ export default function RequestAccessPage() {
       return;
     }
 
-    if (!formData.hospitalId) {
-      setError('Por favor, seleccione su hospital de la lista o introduzca uno manual.');
-      setLoading(false);
-      return;
-    }
+    if (formData.professional_type === 'hospital') {
+      if (!formData.hospitalId) {
+        setError('Por favor, seleccione su hospital de la lista o introduzca uno manual.');
+        setLoading(false);
+        return;
+      }
 
-    if (formData.hospitalId === 'manual' && !formData.hospital_manual.trim()) {
-      setError('Por favor, escriba el nombre de su hospital.');
-      setLoading(false);
-      return;
-    }
+      if (formData.hospitalId === 'manual' && !formData.hospital_manual.trim()) {
+        setError('Por favor, escriba el nombre de su hospital.');
+        setLoading(false);
+        return;
+      }
 
-    if (!formData.departmentId) {
-      setError('Por favor, seleccione su servicio/departamento de la lista o introduzca uno manual.');
-      setLoading(false);
-      return;
-    }
+      if (!formData.departmentId) {
+        setError('Por favor, seleccione su servicio/departamento de la lista o introduzca uno manual.');
+        setLoading(false);
+        return;
+      }
 
-    if (formData.departmentId === 'manual' && !formData.department_manual.trim()) {
-      setError('Por favor, escriba el nombre de su servicio.');
-      setLoading(false);
-      return;
+      if (formData.departmentId === 'manual' && !formData.department_manual.trim()) {
+        setError('Por favor, escriba el nombre de su servicio.');
+        setLoading(false);
+        return;
+      }
+    } else {
+      if (!formData.company_name.trim()) {
+        setError('Por favor, escriba el nombre de su empresa.');
+        setLoading(false);
+        return;
+      }
     }
 
     try {
@@ -80,11 +91,15 @@ export default function RequestAccessPage() {
         status: 'pending',
         professional_role_id: formData.roleId === 'manual' ? null : formData.roleId,
         professional_role_manual: formData.roleId === 'manual' ? formData.role_manual : null,
-        hospital: formData.hospitalId === 'manual' ? formData.hospital_manual : formData.hospital,
-        hospital_id: formData.hospitalId === 'manual' ? null : formData.hospitalId,
-        hospital_manual: formData.hospitalId === 'manual' ? formData.hospital_manual : null,
-        department_id: formData.departmentId === 'manual' ? null : formData.departmentId,
-        department_manual: formData.departmentId === 'manual' ? formData.department_manual : null,
+        professional_type: formData.professional_type,
+        company_name: formData.professional_type === 'empresa' ? formData.company_name : null,
+        hospital: formData.professional_type === 'hospital' 
+          ? (formData.hospitalId === 'manual' ? formData.hospital_manual : formData.hospital)
+          : null,
+        hospital_id: (formData.professional_type === 'hospital' && formData.hospitalId !== 'manual') ? formData.hospitalId : null,
+        hospital_manual: (formData.professional_type === 'hospital' && formData.hospitalId === 'manual') ? formData.hospital_manual : null,
+        department_id: (formData.professional_type === 'hospital' && formData.departmentId !== 'manual') ? formData.departmentId : null,
+        department_manual: (formData.professional_type === 'hospital' && formData.departmentId === 'manual') ? formData.department_manual : null,
       };
 
       const { error: insertError } = await supabase
@@ -160,6 +175,36 @@ export default function RequestAccessPage() {
                 <p className="text-xs font-bold text-muted uppercase tracking-widest leading-relaxed">
                     Plataforma privada de logística y coordinación médica
                 </p>
+
+                {/* Professional Type Selector */}
+                <div className="flex p-1 bg-background/50 border border-border rounded-2xl w-full mt-6">
+                  <button
+                    type="button"
+                    onClick={() => setFormData({...formData, professional_type: 'hospital', roleId: '', roleName: ''})}
+                    className={cn(
+                      "flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                      formData.professional_type === 'hospital' 
+                        ? "bg-accent text-background shadow-lg" 
+                        : "text-muted hover:text-foreground"
+                    )}
+                  >
+                    <Stethoscope size={14} />
+                    Hospital
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFormData({...formData, professional_type: 'empresa', roleId: '', roleName: ''})}
+                    className={cn(
+                      "flex-1 flex items-center justify-center gap-2 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all",
+                      formData.professional_type === 'empresa' 
+                        ? "bg-emerald-500 text-background shadow-lg" 
+                        : "text-muted hover:text-foreground"
+                    )}
+                  >
+                    <Building2 size={14} />
+                    Empresa
+                  </button>
+                </div>
             </header>
 
             <form onSubmit={handleSubmit} className="space-y-8">
@@ -219,6 +264,7 @@ export default function RequestAccessPage() {
                     <RoleSelect 
                       value={formData.roleId}
                       onChange={(id, name) => setFormData({...formData, roleId: id, roleName: name})}
+                      scope={formData.professional_type}
                       className="w-full"
                     />
                 </div>
@@ -241,58 +287,78 @@ export default function RequestAccessPage() {
                   </div>
                 )}
 
-                {/* Hospital */}
-                <div className="space-y-2 md:col-span-2">
-                    <label className="text-[9px] font-black uppercase tracking-widest text-muted ml-1">Centro Hospitalario</label>
-                    <HospitalSelect 
-                      value={formData.hospitalId}
-                      onChange={(id, name) => setFormData({...formData, hospitalId: id, hospital: name})}
-                      className="w-full"
-                    />
-                </div>
+                {formData.professional_type === 'hospital' ? (
+                  <>
+                    {/* Hospital */}
+                    <div className="space-y-2 md:col-span-2">
+                        <label className="text-[9px] font-black uppercase tracking-widest text-muted ml-1">Centro Hospitalario</label>
+                        <HospitalSelect 
+                          value={formData.hospitalId}
+                          onChange={(id, name) => setFormData({...formData, hospitalId: id, hospital: name})}
+                          className="w-full"
+                        />
+                    </div>
 
-                {/* Manual Hospital Fallback */}
-                {formData.hospitalId === 'manual' && (
-                  <div className="space-y-2 md:col-span-2 animate-in fade-in slide-in-from-top-2">
-                      <label className="text-[9px] font-black uppercase tracking-widest text-accent ml-1">Especifique su Hospital</label>
-                      <div className="relative group/field">
-                          <input
-                            type="text"
-                            required
-                            value={formData.hospital_manual}
-                            onChange={(e) => setFormData({...formData, hospital_manual: e.target.value})}
-                            className="w-full bg-background border border-accent/40 rounded-xl py-3 pl-11 pr-4 text-sm focus:border-accent outline-none transition-all"
-                            placeholder="Nombre del centro médico..."
-                          />
-                          <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 text-accent" size={16} />
+                    {/* Manual Hospital Fallback */}
+                    {formData.hospitalId === 'manual' && (
+                      <div className="space-y-2 md:col-span-2 animate-in fade-in slide-in-from-top-2">
+                          <label className="text-[9px] font-black uppercase tracking-widest text-accent ml-1">Especifique su Hospital</label>
+                          <div className="relative group/field">
+                              <input
+                                type="text"
+                                required
+                                value={formData.hospital_manual}
+                                onChange={(e) => setFormData({...formData, hospital_manual: e.target.value})}
+                                className="w-full bg-background border border-accent/40 rounded-xl py-3 pl-11 pr-4 text-sm focus:border-accent outline-none transition-all"
+                                placeholder="Nombre del centro médico..."
+                              />
+                              <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 text-accent" size={16} />
+                          </div>
                       </div>
-                  </div>
-                )}
+                    )}
 
-                {/* Departamento */}
-                <div className="space-y-2 md:col-span-2">
-                    <label className="text-[9px] font-black uppercase tracking-widest text-muted ml-1">Servicio / Departamento</label>
-                    <DepartmentSelect 
-                      value={formData.departmentId}
-                      onChange={(id, name) => setFormData({...formData, departmentId: id, department: name})}
-                      className="w-full"
-                    />
-                </div>
+                    {/* Departamento */}
+                    <div className="space-y-2 md:col-span-2">
+                        <label className="text-[9px] font-black uppercase tracking-widest text-muted ml-1">Servicio / Departamento</label>
+                        <DepartmentSelect 
+                          value={formData.departmentId}
+                          onChange={(id, name) => setFormData({...formData, departmentId: id, department: name})}
+                          className="w-full"
+                        />
+                    </div>
 
-                {/* Manual Department Fallback */}
-                {formData.departmentId === 'manual' && (
+                    {/* Manual Department Fallback */}
+                    {formData.departmentId === 'manual' && (
+                      <div className="space-y-2 md:col-span-2 animate-in fade-in slide-in-from-top-2">
+                          <label className="text-[9px] font-black uppercase tracking-widest text-accent ml-1">Especifique su Servicio</label>
+                          <div className="relative group/field">
+                              <input
+                                type="text"
+                                required
+                                value={formData.department_manual}
+                                onChange={(e) => setFormData({...formData, department_manual: e.target.value})}
+                                className="w-full bg-background border border-accent/40 rounded-xl py-3 pl-11 pr-4 text-sm focus:border-accent outline-none transition-all"
+                                placeholder="Nombre del servicio..."
+                              />
+                              <Stethoscope className="absolute left-4 top-1/2 -translate-y-1/2 text-accent" size={16} />
+                          </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  /* Empresa Field */
                   <div className="space-y-2 md:col-span-2 animate-in fade-in slide-in-from-top-2">
-                      <label className="text-[9px] font-black uppercase tracking-widest text-accent ml-1">Especifique su Servicio</label>
+                      <label className="text-[9px] font-black uppercase tracking-widest text-muted ml-1">Nombre de la Empresa</label>
                       <div className="relative group/field">
                           <input
                             type="text"
                             required
-                            value={formData.department_manual}
-                            onChange={(e) => setFormData({...formData, department_manual: e.target.value})}
-                            className="w-full bg-background border border-accent/40 rounded-xl py-3 pl-11 pr-4 text-sm focus:border-accent outline-none transition-all"
-                            placeholder="Nombre del servicio..."
+                            value={formData.company_name}
+                            onChange={(e) => setFormData({...formData, company_name: e.target.value})}
+                            className="w-full bg-background border border-border rounded-xl py-3 pl-11 pr-4 text-sm focus:border-accent/40 outline-none transition-all"
+                            placeholder="Nombre de su organización o empresa..."
                           />
-                          <Stethoscope className="absolute left-4 top-1/2 -translate-y-1/2 text-accent" size={16} />
+                          <Building2 className="absolute left-4 top-1/2 -translate-y-1/2 text-muted group-focus-within/field:text-accent" size={16} />
                       </div>
                   </div>
                 )}

@@ -9,7 +9,6 @@ interface Hospital {
   id: string;
   name: string;
   city?: string;
-  code?: string;
 }
 
 interface HospitalSelectProps {
@@ -31,7 +30,7 @@ export function HospitalSelect({ value, onChange, className }: HospitalSelectPro
       try {
         const { data, error } = await supabase
           .from('hospitals')
-          .select('id, name, city, code')
+          .select('id, name, city')
           .order('name');
         
         if (error) throw error;
@@ -129,9 +128,8 @@ export function HospitalSelect({ value, onChange, className }: HospitalSelectPro
                 >
                   <div className="flex flex-col gap-0.5">
                     <span>{hospital.name}</span>
-                    {(hospital.city || hospital.code) && (
+                    {(hospital.city) && (
                       <span className="text-[9px] opacity-60 font-medium flex gap-2">
-                        {hospital.code && <span className="text-accent/80 font-bold">[{hospital.code}]</span>}
                         {hospital.city}
                       </span>
                     )}

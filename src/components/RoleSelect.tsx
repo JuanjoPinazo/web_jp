@@ -15,9 +15,10 @@ interface RoleSelectProps {
   value: string;
   onChange: (id: string, name: string) => void;
   className?: string;
+  scope?: string;
 }
 
-export function RoleSelect({ value, onChange, className }: RoleSelectProps) {
+export function RoleSelect({ value, onChange, className, scope }: RoleSelectProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [roles, setRoles] = useState<Role[]>([]);
@@ -56,9 +57,11 @@ export function RoleSelect({ value, onChange, className }: RoleSelectProps) {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filteredRoles = roles.filter(r => 
-    r.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredRoles = roles.filter(r => {
+    const matchesSearch = r.name.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesScope = !scope || r.scope === scope;
+    return matchesSearch && matchesScope;
+  });
 
   const selectedRole = roles.find(r => r.id === value);
 
