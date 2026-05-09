@@ -295,7 +295,8 @@ export default function DashboardPage() {
       .filter(f => f.is_verified)
       .find(f => {
         const depTime = new Date(f.departure_time);
-        return depTime > now && (depTime.getTime() - now.getTime()) < 4 * 60 * 60 * 1000;
+        // Trigger Airport Mode 24 hours before flight
+        return depTime > now && (depTime.getTime() - now.getTime()) < 24 * 60 * 60 * 1000;
       });
 
     if (!nextFlight) return null;
@@ -508,10 +509,10 @@ export default function DashboardPage() {
                     <div className="space-y-4">
                       {airportMode.boardingPass ? (
                         <button 
-                          onClick={() => window.open(airportMode.boardingPass?.file_url)}
+                          onClick={() => setSelectedPDF(airportMode.boardingPass)}
                           className="w-full py-6 rounded-[2rem] bg-foreground text-background font-black uppercase tracking-widest text-xs flex items-center justify-center gap-3 shadow-2xl active:scale-[0.98] transition-all"
                         >
-                          <Download size={20} /> Descargar Tarjeta PDF
+                          <FileText size={20} /> Ver Tarjeta Digital
                         </button>
                       ) : (
                         <div className="p-6 rounded-3xl bg-amber-500/10 border border-amber-500/20 flex gap-4">
@@ -612,6 +613,47 @@ export default function DashboardPage() {
         </div>
       </motion.section>
 
+      {/* BLOQUE 1.5: ACCESO RÁPIDO A TARJETAS */}
+      {(activePlan?.documents?.filter(d => (d.document_type === 'boarding_pass' || d.title?.toLowerCase().includes('tarjeta')) && !d.deleted_at).length ?? 0) > 0 && (
+          <motion.section variants={itemVariants} className="space-y-4">
+            <div className="flex items-center gap-4 px-2">
+              <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted">Tarjetas de Embarque</h3>
+              <div className="flex-1 h-px bg-border" />
+            </div>
+            <div className="flex gap-4 overflow-x-auto pb-4 px-2 -mx-2 no-scrollbar">
+              {activePlan?.documents
+                ?.filter(d => (d.document_type === 'boarding_pass' || d.title?.toLowerCase().includes('tarjeta')) && !d.deleted_at)
+                .map(doc => {
+                  const flight = activePlan?.flights?.find(f => f.id === doc.related_flight_id);
+                  return (
+                    <button 
+                      key={doc.id}
+                      onClick={() => {
+                        if (doc.qr_code || doc.qr_raw_payload) setSelectedQR({ ...doc, flight });
+                        else setSelectedPDF(doc);
+                      }}
+                      className="shrink-0 w-[140px] p-5 rounded-[2rem] bg-surface border border-accent/20 flex flex-col gap-4 shadow-lg hover:shadow-xl transition-all active:scale-95 text-left group relative overflow-hidden"
+                    >
+                      <div className="absolute top-0 right-0 p-3 opacity-5 group-hover:scale-110 transition-transform">
+                        <QrCode size={40} />
+                      </div>
+                      <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center text-accent group-hover:bg-accent group-hover:text-white transition-all shadow-sm">
+                        <QrCode size={20} />
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs font-black text-foreground uppercase tracking-tight truncate">{flight?.arrival_location || 'Vuelo'}</p>
+                        <div className="flex items-center justify-between">
+                           <p className="text-[8px] font-black text-muted uppercase tracking-widest">{flight?.flight_number || 'BOARDING'}</p>
+                           <p className="text-[8px] font-black text-accent uppercase">{doc.seat_assignment || flight?.seat || '—'}</p>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+            </div>
+          </motion.section>
+      )}
+
       {/* FEATURED VIDEO SECTION (Temporarily disabled for mobile optimization) */}
       {/* 
       <motion.section variants={itemVariants} className="relative rounded-[2.5rem] overflow-hidden border border-border bg-surface shadow-xl group">
@@ -697,8 +739,17 @@ export default function DashboardPage() {
                   <button 
                     onClick={() => {
                       if (nextAction.cta.type === 'boarding_pass') {
-                        const doc = activePlan?.documents.find(d => d.related_flight_id === nextAction.payload.id);
-                        if (doc) setSelectedQR(doc);
+                        const doc = activePlan?.documents?.find(d => 
+                          d.related_flight_id === nextAction.payload.id && 
+                          (d.document_type === 'boarding_pass' || d.title?.toLowerCase().includes('tarjeta'))
+                        );
+                        if (doc) {
+                          if (doc.qr_code || doc.qr_raw_payload) setSelectedQR(doc);
+                          else setSelectedPDF(doc);
+                        } else {
+                          const resDoc = activePlan?.documents.find(d => d.related_flight_id === nextAction.payload.id);
+                          if (resDoc) setSelectedPDF(resDoc);
+                        }
                       }
                     }}
                     className="w-full py-4 rounded-2xl bg-accent text-white font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 shadow-xl shadow-accent/20 hover:scale-[1.02] transition-transform"
@@ -870,9 +921,34 @@ export default function DashboardPage() {
                        </button>
                      </div>
                    ) : (
-                     <p className="text-xs font-medium text-muted/80 leading-relaxed">
-                       {event.description}
-                     </p>
+                     <div className="space-y-4">
+                       <p className="text-xs font-medium text-muted/80 leading-relaxed">
+                         {event.description}
+                       </p>
+                       {event.cta && (
+                         <button 
+                           onClick={() => {
+                             if (event.cta.type === 'boarding_pass') {
+                               const doc = activePlan?.documents?.find(d => 
+                                 d.related_flight_id === event.payload.id && 
+                                 (d.document_type === 'boarding_pass' || d.title?.toLowerCase().includes('tarjeta'))
+                               );
+                               if (doc) {
+                                 if (doc.qr_code || doc.qr_raw_payload) setSelectedQR(doc);
+                                 else setSelectedPDF(doc);
+                               } else {
+                                 const resDoc = activePlan?.documents.find(d => d.related_flight_id === event.payload.id);
+                                 if (resDoc) setSelectedPDF(resDoc);
+                               }
+                             }
+                           }}
+                           className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-accent text-white text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-md shadow-accent/20"
+                         >
+                           <QrCode size={14} />
+                           {event.cta.label}
+                         </button>
+                       )}
+                     </div>
                    )}
                 </div>
               </div>
@@ -1135,10 +1211,10 @@ export default function DashboardPage() {
           <div className="flex-1 h-px bg-border" />
         </div>
         <div className="space-y-4">
-          {activePlan?.documents
-            .filter(d => d.visible_to_client !== false && (d.document_type === 'boarding_pass' || d.title.toLowerCase().includes('tarjeta')))
+          {(activePlan?.documents || [])
+            .filter(d => d.visible_to_client !== false && (d.document_type === 'boarding_pass' || d.title?.toLowerCase().includes('tarjeta')))
             .map(doc => {
-              const flight = activePlan?.flights.find(f => f.id === doc.related_flight_id);
+              const flight = activePlan?.flights?.find(f => f.id === doc.related_flight_id);
               const hasQR = !!(doc.qr_code || doc.qr_raw_payload);
               
               return (
@@ -1203,8 +1279,8 @@ export default function DashboardPage() {
 
           {/* 2. Otros Documentos en Grid */}
           <div className="grid grid-cols-2 gap-4">
-            {activePlan?.documents
-              .filter(d => d.visible_to_client !== false && d.document_type !== 'boarding_pass' && !d.title.toLowerCase().includes('tarjeta'))
+            {(activePlan?.documents || [])
+              .filter(d => d.visible_to_client !== false && d.document_type !== 'boarding_pass' && !d.title?.toLowerCase().includes('tarjeta'))
               .slice(0, 4)
               .map(doc => (
                 <div 
