@@ -1504,12 +1504,20 @@ export default function DashboardPage() {
                 </button>
              </div>
              
-             <div className="flex-1 bg-slate-800">
-                <iframe 
-                  src={`${selectedPDF.file_url}#toolbar=0&view=FitH`}
-                  className="w-full h-full border-none"
-                  title="PDF Viewer"
-                />
+             <div className="flex-1 bg-slate-800 overflow-y-auto flex flex-col items-center p-4 pt-10">
+                <div className="relative w-full max-w-2xl bg-white shadow-2xl rounded-sm overflow-hidden">
+                   <img 
+                     src={`/api/documents/preview?id=${selectedPDF.id}`}
+                     className="w-full h-auto"
+                     alt="Document Preview"
+                     onLoad={(e) => {
+                       // Optional: trigger some interaction if needed
+                     }}
+                   />
+                </div>
+                <p className="mt-8 text-[10px] text-slate-400 font-medium text-center max-w-[200px] leading-relaxed italic">
+                  Esta es una vista previa digital optimizada para tu dispositivo.
+                </p>
              </div>
 
              <div className="p-6 bg-surface border-t border-border grid grid-cols-2 gap-4">
