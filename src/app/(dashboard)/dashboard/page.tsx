@@ -193,7 +193,7 @@ export default function DashboardPage() {
     activePlan.hotel_stays?.forEach(h => {
       // Check-in (usually 15:00)
       const checkInDate = new Date(h.check_in);
-      checkInDate.setHours(15, 0, 0);
+      checkInDate.setUTCHours(15, 0, 0);
       events.push({
         id: `hotel-in-${h.id}`,
         type: 'hotel_checkin',
@@ -209,7 +209,7 @@ export default function DashboardPage() {
 
       // Check-out (usually 12:00)
       const checkOutDate = new Date(h.check_out);
-      checkOutDate.setHours(12, 0, 0);
+      checkOutDate.setUTCHours(12, 0, 0);
       events.push({
         id: `hotel-out-${h.id}`,
         type: 'hotel_checkout',
@@ -988,13 +988,25 @@ export default function DashboardPage() {
           </div>
           <div className="grid grid-cols-1 gap-4">
             {activePlan?.restaurants.filter(r => r.type !== 'reserved').map(r => (
-              <div key={r.id} className="p-6 rounded-[2rem] bg-surface border border-border flex items-center gap-6 group hover:border-accent/40 transition-all">
-                <div className="w-14 h-14 rounded-2xl bg-accent/5 border border-accent/10 flex items-center justify-center text-accent group-hover:bg-accent group-hover:text-white transition-all">
-                  <Utensils size={24} />
+              <div key={r.id} className="overflow-hidden rounded-[2.5rem] bg-surface border border-border group hover:border-accent/40 transition-all flex flex-col">
+                <div className="h-48 w-full relative overflow-hidden">
+                   <img 
+                     src={r.restaurant_name?.toLowerCase().includes('kong') 
+                       ? "https://images.unsplash.com/photo-1550966842-2862ba996d44?q=80&w=1200&auto=format&fit=crop" 
+                       : "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=1200&auto=format&fit=crop"} 
+                     alt={r.restaurant_name} 
+                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+                   />
+                   <div className="absolute inset-0 bg-gradient-to-t from-surface via-transparent to-transparent" />
                 </div>
-                <div className="space-y-1">
-                  <h4 className="text-base font-black text-foreground">{r.restaurant_name}</h4>
-                  <p className="text-[10px] font-bold text-muted uppercase tracking-widest">{r.notes || 'Selección Premium'}</p>
+                <div className="p-8 flex items-center gap-6">
+                  <div className="w-14 h-14 rounded-2xl bg-accent/5 border border-accent/10 flex items-center justify-center text-accent group-hover:bg-accent group-hover:text-white transition-all">
+                    <Utensils size={24} />
+                  </div>
+                  <div className="space-y-1">
+                    <h4 className="text-xl font-black text-foreground">{r.restaurant_name}</h4>
+                    <p className="text-[10px] font-bold text-muted uppercase tracking-widest">{r.notes || 'Selección Premium'}</p>
+                  </div>
                 </div>
               </div>
             ))}

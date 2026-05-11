@@ -319,18 +319,28 @@ function buildHtml(data: {
     ${sectionHeader('Restaurantes', 'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?q=80&w=1200&auto=format&fit=crop')}
     ${restaurants.map(r => `
     <tr>
-      <td style="padding: 0 0 16px 0;">
+      <td style="padding: 0 0 24px 0;">
         <table cellpadding="0" cellspacing="0" width="100%" style="background: ${surface}; border: 1px solid ${border}; border-radius: 24px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
           <tr>
-            <td style="padding: 20px 24px; border-bottom: 1px solid ${border}; background: #ffffff;">
+            <td style="padding: 0; background: #000000;">
+              <img src="${r.restaurant_name?.toLowerCase().includes('kong') 
+                ? 'https://images.unsplash.com/photo-1550966842-2862ba996d44?q=80&w=1200&auto=format&fit=crop' 
+                : 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=1200&auto=format&fit=crop'}" 
+                width="600" alt="${r.restaurant_name}" style="width: 100%; display: block;" />
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 24px; border-bottom: 1px solid ${border}; background: #ffffff;">
               <table cellpadding="0" cellspacing="0" width="100%">
                 <tr>
                   <td>
-                    <p style="margin: 0; font-size: 16px; font-weight: 900; color: ${textPrimary};">${r.restaurant_name || '—'}</p>
+                    <p style="margin: 0; font-size: 10px; color: ${accent}; font-weight: 900; text-transform: uppercase; letter-spacing: 3px;">Reserva Gastronómica</p>
+                    <p style="margin: 4px 0 0 0; font-size: 20px; font-weight: 900; color: ${textPrimary};">${r.restaurant_name || '—'}</p>
                   </td>
                   <td style="text-align: right;">
-                    <span style="font-size: 16px; font-weight: 900; color: ${accent};">${fmtTime(r.reservation_time)}</span>
-                    <span style="font-size: 11px; color: ${muted}; margin-left: 6px; font-weight: 600;">${fmtDate(r.reservation_time, { day: '2-digit', month: 'short', timeZone: 'UTC' })}</span>
+                    <span style="font-size: 20px; font-weight: 900; color: ${accent};">${fmtTime(r.reservation_time)}</span>
+                    <br/>
+                    <span style="font-size: 11px; color: ${muted}; font-weight: 600;">${fmtDate(r.reservation_time, { day: '2-digit', month: 'short', timeZone: 'UTC' })}</span>
                   </td>
                 </tr>
               </table>
@@ -341,7 +351,7 @@ function buildHtml(data: {
             <td style="padding: 24px;">
               <table cellpadding="0" cellspacing="0" width="100%">
                 ${r.address ? infoRow('Dirección', r.address) : ''}
-                ${r.reservation_name ? infoRow('Reserva a nombre de', r.reservation_name) : ''}
+                ${r.reservation_name ? infoRow('A nombre de', r.reservation_name) : ''}
                 ${r.notes ? infoRow('Notas', r.notes) : ''}
               </table>
             </td>
