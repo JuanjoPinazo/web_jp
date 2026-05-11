@@ -5,6 +5,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { useTravelPlans, FullTravelPlan } from '@/hooks/useTravelPlans';
 import { usePlanModules } from '@/hooks/usePlanModules';
+import { useTheme } from '@/context/ThemeContext';
 import {
   Building2,
   MapPin,
@@ -30,7 +31,9 @@ import {
   Ticket,
   ChevronDown,
   Check,
-  XCircle
+  XCircle,
+  Sun,
+  Moon
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
@@ -63,6 +66,7 @@ const WakeLockHandler = () => {
 export default function DashboardPage() {
   const router = useRouter();
   const { session } = useAuth();
+  const { theme, toggleTheme } = useTheme();
   const { getMyActivePlan, loading: planLoading } = useTravelPlans();
   const { getEnabledModules } = usePlanModules();
 
@@ -86,6 +90,8 @@ export default function DashboardPage() {
   // Attendance confirmation state
   const [confirmingEventId, setConfirmingEventId] = useState<string | null>(null);
   const [confirmDietary, setConfirmDietary] = useState('');
+  const [isManagerView, setIsManagerView] = useState(false);
+  const [allContextEvents, setAllContextEvents] = useState<any[]>([]);
 
   useEffect(() => {
     const loadContexts = async () => {
@@ -591,14 +597,23 @@ export default function DashboardPage() {
               {selectedContext?.name || 'Tu Evento'}
             </h1>
           </div>
-          <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 overflow-hidden shrink-0">
-             {session.user?.avatar_url ? (
-               <img src={session.user.avatar_url} alt={userName} className="w-full h-full object-cover" />
-             ) : (
-               <div className="w-full h-full flex items-center justify-center text-accent/40 bg-surface">
-                 <User size={24} />
-               </div>
-             )}
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              onClick={toggleTheme}
+              className="w-10 h-10 rounded-xl bg-surface border border-border flex items-center justify-center text-muted hover:text-accent hover:border-accent/40 transition-all active:scale-90"
+              aria-label="Cambiar tema"
+            >
+              {theme === 'dark' ? <Sun size={20} /> : <Moon size={20} />}
+            </button>
+            <div className="w-12 h-12 rounded-2xl bg-accent/10 border border-accent/20 overflow-hidden">
+               {session.user?.avatar_url ? (
+                 <img src={session.user.avatar_url} alt={userName} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-accent/40 bg-surface">
+                    <User size={24} />
+                  </div>
+                )}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -606,6 +621,15 @@ export default function DashboardPage() {
              <CheckCircle2 size={10} />
              <span className="text-[9px] font-black uppercase tracking-widest">Día Activo</span>
            </div>
+           {session.user?.role === 'admin' && (
+             <button 
+               onClick={() => setIsManagerView(!isManagerView)}
+               className={`flex items-center gap-1.5 px-3 py-1 rounded-full border transition-all ${isManagerView ? 'bg-purple-500/10 border-purple-500/20 text-purple-400' : 'bg-surface border-border text-muted'}`}
+             >
+               <Building2 size={10} />
+               <span className="text-[9px] font-black uppercase tracking-widest">{isManagerView ? 'Vista Ejecutiva ON' : 'Vista Ejecutiva'}</span>
+             </button>
+           )}
            <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400">
              <Clock size={10} />
              <span className="text-[9px] font-black uppercase tracking-widest">Todo Planificado</span>
@@ -654,56 +678,11 @@ export default function DashboardPage() {
           </motion.section>
       )}
 
-      {/* FEATURED VIDEO SECTION (Temporarily disabled for mobile optimization) */}
-      {/* 
-      <motion.section variants={itemVariants} className="relative rounded-[2.5rem] overflow-hidden border border-border bg-surface shadow-xl group">
-        <div className="p-8 space-y-4 relative z-10">
-          <div className="inline-flex items-center gap-2 text-accent">
-             <div className="w-1 h-1 rounded-full bg-accent" />
-             <span className="text-[8px] font-black uppercase tracking-[0.3em]">JP Intelligence Experience</span>
-          </div>
-          <h3 className="text-xl font-black text-foreground leading-tight">
-            Descubre la Plataforma
-          </h3>
-          <p className="text-[10px] font-medium text-muted leading-relaxed max-w-[200px]">
-            Visualiza el vídeo de presentación oficial de tu operativa.
-          </p>
-          <button 
-            onClick={() => {
-              const video = document.getElementById('platform-video') as HTMLVideoElement;
-              if (video) {
-                video.muted = false;
-                if (video.requestFullscreen) video.requestFullscreen();
-                video.play();
-              }
-            }}
-            className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-accent hover:gap-3 transition-all"
-          >
-            Ver vídeo <ArrowRight size={12} />
-          </button>
-        </div>
-        <div className="absolute top-0 right-0 bottom-0 w-1/3 overflow-hidden">
-           <video 
-              id="platform-video"
-              autoPlay 
-              muted 
-              loop 
-              playsInline
-              className="w-full h-full object-cover opacity-40 group-hover:scale-110 transition-transform duration-[3000ms]"
-            >
-              <source src="/JP Intelligence Platform Video.mp4" type="video/mp4" />
-            </video>
-            <div className="absolute inset-0 bg-gradient-to-l from-surface via-transparent to-transparent" />
-        </div>
-      </motion.section>
-      */}
-
       {/* BLOQUE 2: PRÓXIMA ACCIÓN (CRÍTICO) */}
       {nextAction && (
         <motion.section variants={itemVariants} className="relative">
           <div className="absolute -inset-1 bg-gradient-to-r from-accent/20 to-purple-500/20 blur-xl opacity-50" />
           <div className="relative p-8 rounded-[2.5rem] bg-surface border border-accent/30 shadow-2xl space-y-6 overflow-hidden">
-             {/* Dynamic Decoration */}
              <div className="absolute top-0 right-0 p-4 opacity-10">
                <nextAction.icon size={120} strokeWidth={1} />
              </div>
@@ -771,82 +750,17 @@ export default function DashboardPage() {
         </motion.section>
       )}
 
-      {/* BLOQUE 2.5: ACREDITACIÓN */}
-      {(activePlan?.registrations?.filter(r => !r.deleted_at).length ?? 0) > 0 && (
-        <motion.section variants={itemVariants} className="space-y-4">
-          <div className="flex items-center gap-4 px-2">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted">Acreditación</h3>
-            <div className="flex-1 h-px bg-border" />
+      {/* BLOQUE 3: ITINERARIO */}
+      <motion.section variants={itemVariants} className="space-y-10">
+        <div className="flex items-center gap-5 px-2">
+          <div className="bg-accent/10 p-3 rounded-2xl border border-accent/20">
+            <Clock className="text-accent" size={24} />
           </div>
-          <div className="space-y-4">
-            {activePlan!.registrations.filter(r => !r.deleted_at).map(reg => (
-              <div key={reg.id} className="relative p-8 rounded-[2.5rem] bg-surface border border-border overflow-hidden">
-                {/* Background decoration */}
-                <div className="absolute top-0 right-0 p-6 opacity-[0.04]">
-                  <Ticket size={110} />
-                </div>
-
-                <div className="relative z-10 space-y-5">
-                  {/* Header row */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="space-y-2">
-                      <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-accent/10 border border-accent/20 text-[9px] font-black text-accent uppercase tracking-widest">
-                        <Ticket size={10} /> Inscripción al Congreso
-                      </div>
-                      <h4 className="text-xl font-black text-foreground leading-tight tracking-tight">
-                        {selectedContext?.name || 'Congreso'}
-                      </h4>
-                    </div>
-                    <div className={`px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border flex-shrink-0 ${
-                      reg.status === 'confirmed'
-                        ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/20'
-                        : reg.status === 'pending'
-                        ? 'bg-amber-500/10 text-amber-500 border-amber-500/20'
-                        : 'bg-muted/10 text-muted border-muted/20'
-                    }`}>
-                      {reg.status === 'confirmed' ? '✓ Confirmada' : reg.status === 'pending' ? '· Pendiente' : reg.status}
-                    </div>
-                  </div>
-
-                  {/* Registration code */}
-                  {reg.registration_code && (
-                    <div className="p-5 rounded-2xl bg-background border border-border/60 flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1.5">Código de Inscripción</p>
-                        <p className="text-2xl font-black font-mono text-foreground tracking-widest">{reg.registration_code}</p>
-                      </div>
-                      <div className="w-10 h-10 rounded-xl bg-accent/10 flex items-center justify-center text-accent flex-shrink-0">
-                        <QrCode size={18} />
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Notes */}
-                  {reg.notes && (
-                    <p className="text-xs text-muted/80 leading-relaxed italic px-1">{reg.notes}</p>
-                  )}
-
-                  {/* Document CTA */}
-                  {reg.document_url && (
-                    <button
-                      onClick={() => window.open(reg.document_url!)}
-                      className="w-full py-4 rounded-2xl bg-accent text-white font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 shadow-lg shadow-accent/20 active:scale-[0.98] transition-all"
-                    >
-                      <FileText size={14} /> Ver Acreditación
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
+          <div>
+            <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-accent">Tu Itinerario</h3>
+            <h2 className="text-3xl font-black text-foreground tracking-tighter">TU DÍA</h2>
           </div>
-        </motion.section>
-      )}
-
-      {/* BLOQUE 3: TIMELINE DEL DÍA */}
-      <motion.section variants={itemVariants} className="space-y-8">
-        <div className="flex items-center gap-4 px-2">
-          <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted">Tu Día</h3>
-          <div className="flex-1 h-px bg-border" />
+          <div className="flex-1 h-px bg-gradient-to-r from-border to-transparent" />
         </div>
         
         <div className="relative pl-6 space-y-10">
@@ -858,17 +772,17 @@ export default function DashboardPage() {
               <div key={event.id} className={`relative group ${isPast ? 'opacity-40' : ''}`}>
                 <div className={`absolute -left-[28.5px] top-1.5 w-1.5 h-1.5 rounded-full border-2 bg-background transition-all duration-500 ${isPast ? 'border-muted scale-75' : 'border-accent scale-100 group-hover:scale-150'}`} />
                 <div className="space-y-4">
-                   <div className="flex justify-between items-baseline">
-                      <h4 className="text-lg font-black text-foreground leading-tight tracking-tight">
-                        {event.title}
-                      </h4>
-                      <span className="text-base font-black text-accent shrink-0">
-                        {event.timeString || event.datetime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
-                      </span>
-                   </div>
+                    <div className="flex flex-col gap-1">
+                       <span className="text-3xl font-black text-accent tracking-tighter tabular-nums leading-none">
+                         {event.timeString || event.datetime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
+                       </span>
+                       <h4 className="text-xl font-black text-foreground leading-tight tracking-tight mt-2">
+                         {event.title}
+                       </h4>
+                    </div>
                    
-                   {event.type === 'transfer' ? (
-                     <div className="bg-surface-subtle border border-border rounded-2xl p-5 space-y-4 shadow-sm group-hover:border-accent/20 transition-all">
+                    {event.type === 'transfer' ? (
+                      <div className="bg-surface border border-border/80 rounded-[32px] p-8 space-y-6 shadow-xl shadow-black/10 group-hover:border-accent/40 transition-all">
                        <div className="flex items-start gap-3">
                           <div className="flex flex-col items-center gap-1 pt-1 shrink-0">
                             <div className="w-1.5 h-1.5 rounded-full bg-accent" />
@@ -960,219 +874,109 @@ export default function DashboardPage() {
         </div>
       </motion.section>
 
-       {/* BLOQUE 4: AGENDA VIP (HOSPITALITY) */}
-      {isModuleEnabled('hospitality') && (activePlan?.hospitality_events?.filter(e => e.visible_to_client).length ?? 0) > 0 && (
-        <motion.section variants={itemVariants} className="space-y-6">
-          <div className="flex items-center gap-4 px-2">
-            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-accent">Agenda VIP</h3>
-            <div className="flex-1 h-px bg-accent/20" />
-          </div>
-          <div className="grid grid-cols-1 gap-6">
-            {activePlan?.hospitality_events.filter(e => e.visible_to_client && !e.deleted_at).map(e => (
-              <div key={e.id} className="relative group overflow-hidden rounded-[2.5rem]">
-                <div className="absolute -inset-0.5 bg-gradient-to-r from-accent/20 to-purple-500/20 blur opacity-50 group-hover:opacity-100 transition-opacity" />
-                <div className="relative bg-surface/80 backdrop-blur-md border border-accent/20 overflow-hidden flex flex-col">
-                   {e.image_url && (
-                     <div className="h-48 w-full relative">
-                        <img src={e.image_url} alt={e.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" />
-                        <div className="absolute inset-0 bg-gradient-to-t from-surface/90 to-transparent" />
-                        {e.status === 'cancelled' && (
-                          <div className="absolute top-4 right-4 px-3 py-1 bg-red-500 text-white text-[8px] font-black uppercase rounded-full shadow-lg">Cancelado</div>
-                        )}
-                        {e.status === 'confirmed' && (
-                          <div className="absolute top-4 right-4 px-3 py-1 bg-green-500 text-white text-[8px] font-black uppercase rounded-full shadow-lg">Confirmado</div>
-                        )}
+        {/* BLOQUE 4: AGENDA VIP / VISTA EJECUTIVA */}
+       {(isManagerView || (isModuleEnabled('hospitality') && (activePlan?.hospitality_events?.filter(e => e.visible_to_client).length ?? 0) > 0)) && (
+         <motion.section variants={itemVariants} className="space-y-6">
+           <div className="flex items-center gap-4 px-2">
+             <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-accent">
+               {isManagerView ? 'Control Operativo Global' : 'Agenda VIP'}
+             </h3>
+             <div className="flex-1 h-px bg-accent/20" />
+           </div>
+           
+           <div className="grid grid-cols-1 gap-8">
+             {(isManagerView ? allContextEvents : (activePlan?.hospitality_events?.filter(e => e.visible_to_client && !e.deleted_at) || [])).map(e => (
+               <div key={e.id} className="relative group overflow-hidden rounded-[3rem] bg-surface border border-border/50 shadow-2xl transition-all hover:border-accent/40">
+                 {e.image_url ? (
+                   <div className="h-64 w-full relative overflow-hidden">
+                     <img src={e.image_url} alt={e.title} className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                     <div className="absolute inset-0 bg-gradient-to-t from-surface via-surface/20 to-transparent" />
+                     <div className="absolute top-6 left-6">
+                        <span className="px-4 py-1.5 rounded-full bg-accent/90 text-white text-[9px] font-black uppercase tracking-[0.2em] shadow-xl backdrop-blur-md">
+                          {e.type} VIP
+                        </span>
                      </div>
-                   )}
-                   <div className="p-8 space-y-6">
-                      <div className="flex justify-between items-start">
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2 mb-1">
-                              <div className="inline-flex items-center gap-2 px-2 py-0.5 rounded-md bg-accent/10 border border-accent/20 text-[8px] font-black text-accent uppercase tracking-widest">
-                                {e.type === 'dinner' ? 'Cena Exclusiva' : e.type === 'lunch' ? 'Comida VIP' : e.type === 'meeting' ? 'Reunión' : 'Experiencia'}
-                              </div>
-                              {!e.image_url && e.status === 'cancelled' && (
-                                <span className="px-2 py-0.5 bg-red-500/10 text-red-500 border border-red-500/20 text-[8px] font-black uppercase rounded-md">Cancelado</span>
-                              )}
-                              {!e.image_url && e.status === 'confirmed' && (
-                                <span className="px-2 py-0.5 bg-green-500/10 text-green-500 border border-green-500/20 text-[8px] font-black uppercase rounded-md">Confirmado</span>
-                              )}
-                            </div>
-                            <h4 className="text-xl font-black text-foreground tracking-tight">{e.title}</h4>
-                          </div>
-                          {!e.image_url && (
-                            <div className="w-12 h-12 rounded-2xl bg-accent/10 flex items-center justify-center text-accent">
-                              {e.type === 'dinner' || e.type === 'lunch' ? <Utensils size={24} /> : <CalendarRange size={24} />}
-                            </div>
-                          )}
-                      </div>
-
-                      <div className="grid grid-cols-2 gap-6 py-4 border-y border-border/50">
-                          <div className="space-y-1">
-                            <p className="text-[9px] font-black text-muted uppercase tracking-widest">Hora</p>
-                            <p className="text-2xl font-black text-foreground tracking-tighter">
-                              {new Date(e.start_datetime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
-                            </p>
-                          </div>
-                          {e.dress_code && (
-                            <div className="space-y-1 text-right">
-                              <p className="text-[9px] font-black text-muted uppercase tracking-widest">Dress Code</p>
-                              <p className="text-xs font-bold text-accent uppercase tracking-tighter">{e.dress_code}</p>
-                            </div>
-                          )}
-                      </div>
-
-                      <div className="space-y-4">
-                          <div className="flex items-start gap-3">
-                            <MapPin size={16} className="text-muted shrink-0 mt-0.5" />
-                            <div className="flex-1">
-                              <p className="text-xs font-bold text-foreground">{e.venue_name || 'Establecimiento por confirmar'}</p>
-                              {e.venue_address && <p className="text-[10px] text-muted leading-relaxed line-clamp-1">{e.venue_address}</p>}
-                            </div>
-                            {e.venue_address && (
-                              <button 
-                                onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent((e.venue_name || '') + ' ' + (e.venue_address || ''))}`)}
-                                className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent active:scale-90 transition-transform"
-                              >
-                                <Navigation size={14} />
-                              </button>
-                            )}
-                          </div>
-
-                          {(e.contact_name || e.contact_phone) && (
-                            <div className="p-4 rounded-2xl bg-surface border border-border flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent">
-                                <User size={14} />
-                              </div>
-                              <div className="flex-1">
-                                <p className="text-[8px] font-black text-muted uppercase tracking-widest">Contacto</p>
-                                <p className="text-[10px] font-bold text-foreground">{e.contact_name || 'Personal del establecimiento'}</p>
-                              </div>
-                              {e.contact_phone && (
-                                <a href={`tel:${e.contact_phone}`} className="w-8 h-8 rounded-lg bg-green-500/10 text-green-500 flex items-center justify-center">
-                                  <Phone size={14} />
-                                </a>
-                              )}
-                            </div>
-                          )}
-
-                          {e.notes && (
-                            <div className="p-4 rounded-2xl bg-accent/5 border border-accent/10">
-                               <p className="text-[8px] font-black text-accent uppercase tracking-widest mb-1">Notas / Menú</p>
-                               <p className="text-[10px] text-foreground leading-relaxed italic">{e.notes}</p>
-                            </div>
-                          )}
-                          
-                          {e.attendees && e.attendees.filter((a:any) => a.attendance_status === 'confirmed' && !a.deleted_at).length > 0 && (
-                            <div className="pt-4 border-t border-border/30">
-                              <p className="text-[8px] font-black text-muted uppercase tracking-widest mb-2">Asistentes Confirmados</p>
-                              <div className="flex flex-wrap gap-2">
-                                {e.attendees.filter((a:any) => a.attendance_status === 'confirmed' && !a.deleted_at).map((a: any) => (
-                                  <div key={a.id} className="flex items-center gap-1.5 bg-accent/5 border border-accent/10 px-2 py-1 rounded-lg">
-                                    <div className="w-4 h-4 rounded-full bg-accent/20 flex items-center justify-center text-[7px] font-black text-accent">
-                                      {(a.guest_name || a.profiles?.nombre || '?')[0].toUpperCase()}
-                                    </div>
-                                    <span className="text-[9px] font-bold text-foreground">
-                                      {a.guest_name || `${a.profiles?.nombre || ''} ${a.profiles?.apellidos || ''}`.trim() || 'Invitado'}
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
-                          {/* --- ATTENDANCE CONFIRMATION --- */}
-                          {(() => {
-                            const myAttendee = e.attendees?.find(
-                              (a: any) => !a.deleted_at && (a.profile_id === session.user?.id)
-                            );
-                            if (!myAttendee) return null;
-
-                            if (myAttendee.attendance_status === 'confirmed') {
-                              return (
-                                <div className="flex items-center gap-2 p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
-                                  <Check size={14} className="text-emerald-500 flex-shrink-0" />
-                                  <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest">Asistencia confirmada</p>
-                                  {myAttendee.dietary_restrictions && (
-                                    <span className="ml-auto text-[9px] text-emerald-600/70 font-medium italic">{myAttendee.dietary_restrictions}</span>
-                                  )}
-                                </div>
-                              );
-                            }
-
-                            if (myAttendee.attendance_status === 'declined') {
-                              return (
-                                <div className="flex items-center gap-2 p-4 rounded-2xl bg-red-500/10 border border-red-500/20">
-                                  <XCircle size={14} className="text-red-500 flex-shrink-0" />
-                                  <p className="text-[10px] font-black text-red-500 uppercase tracking-widest">Asistencia declinada</p>
-                                </div>
-                              );
-                            }
-
-                            // Pending — show confirm UI
-                            return (
-                              <div className="space-y-3 pt-2 border-t border-border/40">
-                                <p className="text-[9px] font-black text-accent uppercase tracking-widest">¿Confirmas tu asistencia?</p>
-                                {confirmingEventId === e.id ? (
-                                  <div className="space-y-3">
-                                    <input
-                                      type="text"
-                                      value={confirmDietary}
-                                      onChange={ev => setConfirmDietary(ev.target.value)}
-                                      placeholder="Restricciones dietéticas (opcional)"
-                                      className="w-full px-4 py-3 rounded-xl bg-background border border-border text-sm text-foreground placeholder:text-muted/50 focus:outline-none focus:border-accent/50 transition-colors"
-                                    />
-                                    <div className="grid grid-cols-2 gap-2">
-                                      <button
-                                        onClick={() => handleAttendanceConfirm(myAttendee.id, 'confirmed')}
-                                        className="py-3 rounded-xl bg-emerald-500 text-white font-black uppercase tracking-widest text-[9px] flex items-center justify-center gap-1.5 active:scale-[0.98] transition-all"
-                                      >
-                                        <Check size={12} /> Confirmar
-                                      </button>
-                                      <button
-                                        onClick={() => handleAttendanceConfirm(myAttendee.id, 'declined')}
-                                        className="py-3 rounded-xl bg-surface-subtle border border-border text-muted font-black uppercase tracking-widest text-[9px] flex items-center justify-center gap-1.5 active:scale-[0.98] transition-all"
-                                      >
-                                        <XCircle size={12} /> Declinar
-                                      </button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <button
-                                    onClick={() => setConfirmingEventId(e.id)}
-                                    className="w-full py-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-600 font-black uppercase tracking-widest text-[9px] flex items-center justify-center gap-1.5 active:scale-[0.98] transition-all"
-                                  >
-                                    <Check size={12} /> Confirmar / Gestionar asistencia
-                                  </button>
-                                )}
-                              </div>
-                            );
-                          })()}
-
-                          <div className="flex gap-2">
-                            {e.venue_address && (
-                              <button
-                                onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent((e.venue_name || '') + ' ' + (e.venue_address || ''))}`)}
-                                className="flex-1 py-4 rounded-2xl bg-accent text-white font-black uppercase tracking-widest text-[9px] flex items-center justify-center gap-2 shadow-lg shadow-accent/20 active:scale-[0.98] transition-all"
-                              >
-                                <Navigation size={14} /> Cómo llegar
-                              </button>
-                            )}
-                            {e.reservation_code && (
-                              <div className="px-4 py-4 rounded-2xl bg-surface-subtle border border-border flex flex-col justify-center items-center min-w-[100px]">
-                                <p className="text-[7px] font-black text-muted uppercase tracking-widest">Reserva</p>
-                                <p className="text-[11px] font-black text-accent font-mono uppercase">{e.reservation_code}</p>
-                              </div>
-                            )}
-                          </div>
-                      </div>
                    </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </motion.section>
-      )}
+                 ) : (
+                   <div className="h-24 w-full bg-accent/5 border-b border-border/30 flex items-center px-8">
+                      <Utensils className="text-accent/20" size={40} />
+                   </div>
+                 )}
+
+                 <div className="p-8 md:p-10 space-y-8">
+                    <div className="flex flex-col md:flex-row justify-between items-start gap-6">
+                       <div className="space-y-2">
+                          <h4 className="text-3xl font-black text-foreground tracking-tighter leading-none">{e.title}</h4>
+                          <div className="flex items-center gap-2 text-muted">
+                             <MapPin size={14} className="text-accent" />
+                             <p className="text-xs font-bold uppercase tracking-widest">{e.venue_name}</p>
+                          </div>
+                       </div>
+                       <div className="flex items-center gap-6 bg-background/50 px-6 py-4 rounded-[2rem] border border-border/50">
+                          <div className="text-center">
+                             <p className="text-[8px] font-black text-muted uppercase tracking-widest mb-1">Hora</p>
+                             <p className="text-2xl font-black text-accent tracking-tighter tabular-nums">
+                               {new Date(e.start_datetime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
+                             </p>
+                          </div>
+                          <div className="w-px h-8 bg-border/50" />
+                          <div className="text-center">
+                             <p className="text-[8px] font-black text-muted uppercase tracking-widest mb-1">Fecha</p>
+                             <p className="text-lg font-black text-foreground tracking-tighter uppercase">
+                               {new Date(e.start_datetime).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' })}
+                             </p>
+                          </div>
+                       </div>
+                    </div>
+
+                    {isManagerView && e.hospitality_event_attendees && (
+                      <div className="space-y-4 p-6 rounded-[2rem] bg-purple-500/5 border border-purple-500/10">
+                         <div className="flex justify-between items-center">
+                            <p className="text-[10px] font-black text-purple-400 uppercase tracking-[0.2em]">Invitados Confirmados ({e.hospitality_event_attendees.length})</p>
+                         </div>
+                         <div className="flex flex-wrap gap-2">
+                            {e.hospitality_event_attendees.map((att: any) => (
+                              <div key={att.id} className="group/att relative px-4 py-2 rounded-xl bg-surface border border-border hover:border-purple-500/40 transition-all cursor-default shadow-sm">
+                                <span className="text-[11px] font-black text-foreground">
+                                  {att.profiles?.nombre} {att.profiles?.apellidos}
+                                </span>
+                              </div>
+                            ))}
+                            {e.hospitality_event_attendees.length === 0 && (
+                              <p className="text-xs italic text-muted/60">No hay invitados confirmados para este evento.</p>
+                            )}
+                         </div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-8 border-t border-border/30">
+                       <div className="space-y-1">
+                          <p className="text-[9px] font-black text-muted uppercase tracking-widest">Dress Code</p>
+                          <p className="text-sm font-bold text-foreground">{e.dress_code || 'Por confirmar'}</p>
+                       </div>
+                       <div className="space-y-1">
+                          <p className="text-[9px] font-black text-muted uppercase tracking-widest">Localización</p>
+                          <button 
+                            onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(e.venue_name + ' ' + (e.venue_address || ''))}`)}
+                            className="text-sm font-bold text-accent hover:underline flex items-center gap-2"
+                          >
+                            Ver en Maps <Navigation size={12} />
+                          </button>
+                       </div>
+                       <div className="space-y-1">
+                          <p className="text-[9px] font-black text-muted uppercase tracking-widest">Estado Reserva</p>
+                          <div className="flex items-center gap-2">
+                             <div className={`w-2 h-2 rounded-full ${e.status === 'confirmed' ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-amber-500'}`} />
+                             <p className="text-sm font-black uppercase tracking-widest">{e.status === 'confirmed' ? 'Confirmado' : 'Pendiente'}</p>
+                          </div>
+                       </div>
+                    </div>
+                 </div>
+               </div>
+             ))}
+           </div>
+          </motion.section>
+        )}
 
       {/* BLOQUE 5: EXPERIENCIA CURADA */}
 
@@ -1204,11 +1008,16 @@ export default function DashboardPage() {
         </motion.section>
       )}
 
-      {/* BLOQUE 5: DOCUMENTOS OPERATIVOS */}
-      <motion.section variants={itemVariants} className="space-y-6">
-        <div className="flex items-center gap-4 px-2">
-          <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-muted">Documentos</h3>
-          <div className="flex-1 h-px bg-border" />
+      <motion.section variants={itemVariants} className="space-y-10">
+        <div className="flex items-center gap-5 px-2">
+          <div className="bg-accent/10 p-3 rounded-2xl border border-accent/20">
+            <FileText className="text-accent" size={24} />
+          </div>
+          <div>
+            <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-accent">Dossier Digital</h3>
+            <h2 className="text-3xl font-black text-foreground tracking-tighter">DOCUMENTOS</h2>
+          </div>
+          <div className="flex-1 h-px bg-gradient-to-r from-border to-transparent" />
         </div>
         <div className="space-y-4">
           {(activePlan?.documents || [])
@@ -1380,8 +1189,8 @@ export default function DashboardPage() {
            </button>
         </div>
       </motion.section>
-        </>
-      )}
+    </>
+  )}
 
       {/* TIMELINE MODAL */}
       <OutcomeDrawer 

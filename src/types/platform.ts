@@ -16,6 +16,7 @@ export interface User {
   invitation_sent_at?: string;
   avatar_url?: string;
   password?: string; // Only for mock auth
+  temp_password?: string;
 }
 
 export interface JPScore {

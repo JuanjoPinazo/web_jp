@@ -71,14 +71,38 @@ export function parseVuelingBoardingPass(text: string): ExtractedFlightData | nu
   }
 
   // 4. HORAS
-  const idxSalidaLlegada = lines.findIndex(l =>
-    l.toUpperCase().includes('SALIDA') && l.toUpperCase().includes('LLEGADA')
-  );
-  if (idxSalidaLlegada >= 0) {
-    const chunk = lines.slice(idxSalidaLlegada, idxSalidaLlegada + 5).join(' ');
-    const hours = [...chunk.matchAll(/(\d{2}:\d{2})\s*H/g)].map(m => m[1]);
-    data.departure_time = hours[0];
-    data.arrival_time = hours[1];
+  // Intentar encontrar el bloque de horas. Vueling suele poner:
+  // SALIDA 09:15H  LLEGADA 10:30H
+  const idxSalida = lines.findIndex(l => l.toUpperCase().includes('SALIDA'));
+  const idxLlegada = lines.findIndex(l => l.toUpperCase().includes('LLEGADA'));
+  
+  if (idxSalida >= 0 || idxLlegada >= 0) {
+    const startIdx = Math.min(idxSalida >= 0 ? idxSalida : idxLlegada, idxLlegada >= 0 ? idxLlegada : idxSalida);
+    const chunk = lines.slice(startIdx, startIdx + 8).join(' ');
+    // Buscamos todas las horas en este bloque. Vueling puede usar : o .
+    const hoursFound = [...chunk.matchAll(/(\d{2}[:\.]\d{2})\s*[hH]?/g)].map(m => m[1].replace('.', ':'));
+    // Eliminar duplicados manteniendo el orden
+    const uniqueHours = hoursFound.filter((h, i) => hoursFound.indexOf(h) === i);
+
+    if (uniqueHours.length >= 1) data.departure_time = uniqueHours[0];
+    if (uniqueHours.length >= 2) {
+      data.arrival_time = uniqueHours[1];
+    } else if (hoursFound.length >= 2) {
+      // Si hay duplicados pero encontramos varias ocurrencias, la segunda suele ser la llegada
+      data.arrival_time = hoursFound[1];
+    }
+  }
+
+  // Fallback: si falta alguna, buscar en TODO el documento
+  if (!data.departure_time || !data.arrival_time) {
+    const allHours = [...text.matchAll(/(\d{2}[:\.]\d{2})\s*[hH]?/g)].map(m => m[1].replace('.', ':'));
+    const uniqueAll = allHours.filter((h, i) => allHours.indexOf(h) === i);
+    
+    if (!data.departure_time && uniqueAll.length >= 1) data.departure_time = uniqueAll[0];
+    if (!data.arrival_time) {
+      if (uniqueAll.length >= 2) data.arrival_time = uniqueAll[1];
+      else if (allHours.length >= 2) data.arrival_time = allHours[allHours.length - 1];
+    }
   }
 
   // 5. ORIGEN / DESTINO
@@ -232,11 +256,13 @@ export function parseVuelingFlightConfirmation(text: string): ExtractedFlightDat
        }
     }
 
-    // 4.3 Horas: "13:00h"
-    const timeMatches = [...flightBlock.matchAll(/(\d{2}:\d{2})h?/gi)];
+    // 4.3 Horas: "13:00h" o "13.00"
+    const timeMatches = [...flightBlock.matchAll(/(\d{2}[:\.]\d{2})\s*h?/gi)];
     if (timeMatches.length >= 2) {
-       data.departure_time = timeMatches[0][1];
-       data.arrival_time = timeMatches[1][1];
+       data.departure_time = timeMatches[0][1].replace('.', ':');
+       data.arrival_time = timeMatches[1][1].replace('.', ':');
+    } else if (timeMatches.length === 1) {
+       data.departure_time = timeMatches[0][1].replace('.', ':');
     }
   }
 

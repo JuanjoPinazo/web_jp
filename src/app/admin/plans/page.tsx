@@ -53,7 +53,7 @@ import { HotelImportModal } from '@/components/HotelImportModal';
 import { QRCodeSVG } from 'qrcode.react';
 
 export default function AdminPlansPage() {
-  const { getUsers, getContexts } = useAdmin();
+  const { isAdmin, getUsers, getContexts } = useAdmin();
   const [isImporting, setIsImporting] = useState(false);
   const [importType, setImportType] = useState('flight_confirmation');
   const [importProvider, setImportProvider] = useState('auto');
@@ -117,6 +117,7 @@ export default function AdminPlansPage() {
   const [attendeeError, setAttendeeError] = useState<string | null>(null);
   const [contextEvents, setContextEvents] = useState<any[]>([]);
   const [showEventSelector, setShowEventSelector] = useState(false);
+  const [sendingEmail, setSendingEmail] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -568,6 +569,35 @@ export default function AdminPlansPage() {
             </div>
           </div>
           <div className="flex gap-2 flex-wrap">
+            <Button
+              variant="outline"
+              className="rounded-xl px-4 flex items-center gap-2 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={sendingEmail}
+              onClick={async () => {
+                if (!selectedPlan?.profiles?.email) {
+                  alert({ title: 'Sin email', message: 'Este asistente no tiene email registrado.', type: 'danger' });
+                  return;
+                }
+                setSendingEmail(true);
+                try {
+                  const res = await fetch('/api/send-logistics-email', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ planId: selectedPlan.id }),
+                  });
+                  const json = await res.json();
+                  if (!res.ok) throw new Error(json.error || 'Error desconocido');
+                  alert({ title: 'Email enviado ✓', message: `Itinerario enviado a ${json.sentTo}`, type: 'success' });
+                } catch (err: any) {
+                  alert({ title: 'Error al enviar', message: err.message, type: 'danger' });
+                } finally {
+                  setSendingEmail(false);
+                }
+              }}
+            >
+              {sendingEmail ? <Loader2 size={18} className="animate-spin" /> : <Mail size={18} />}
+              {sendingEmail ? 'Enviando...' : 'Enviar Email Logístico'}
+            </Button>
             <Button variant="outline" className="rounded-xl px-4 flex items-center gap-2 border-accent/20 text-accent hover:bg-accent hover:text-white" onClick={() => setShowHotelImport(true)}>
               <FileSpreadsheet size={18} /> Importar Alojamientos Excel
             </Button>
@@ -931,6 +961,20 @@ export default function AdminPlansPage() {
                       </div>
                     </div>
                     <div className="flex gap-1">
+                      {(isOwner || isAdmin) && (
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setEditingHospitality(event)}>
+                          <Edit2 size={12} className="text-muted hover:text-accent" />
+                        </Button>
+                      )}
+                      {isOwner && (
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={async () => {
+                          if (await confirm({ title: 'Eliminar Evento', message: '¿Eliminar este evento y todos sus asistentes?' })) {
+                            deleteItem('hospitality_events', event.id).then(() => handleManagePlan(selectedPlan));
+                          }
+                        }}>
+                          <Trash2 size={12} className="text-red-500" />
+                        </Button>
+                      )}
                       {!isOwner && userAttendee && (
                         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={async () => {
                           if (await confirm({ title: 'Eliminar Invitación', message: '¿Eliminar esta invitación del itinerario del usuario?' })) {
@@ -939,20 +983,6 @@ export default function AdminPlansPage() {
                         }}>
                           <Trash2 size={12} className="text-red-500" />
                         </Button>
-                      )}
-                      {isOwner && (
-                        <>
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setEditingHospitality(event)}>
-                            <Edit2 size={12} className="text-muted hover:text-accent" />
-                          </Button>
-                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={async () => {
-                            if (await confirm({ title: 'Eliminar Evento', message: '¿Eliminar este evento y todos sus asistentes?' })) {
-                              deleteItem('hospitality_events', event.id).then(() => handleManagePlan(selectedPlan));
-                            }
-                          }}>
-                            <Trash2 size={12} className="text-red-500" />
-                          </Button>
-                        </>
                       )}
                     </div>
                   </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter } from 'next/navigation';
 import { Lock, Mail, ArrowRight, Loader2, ShieldCheck, ArrowLeft, CheckCircle2, Eye, EyeOff } from 'lucide-react';
@@ -16,6 +16,14 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const { login } = useAuth();
   const router = useRouter();
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const emailParam = params.get('email');
+    const passParam = params.get('pass');
+    if (emailParam) setEmail(emailParam);
+    if (passParam) setPassword(passParam);
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -79,6 +87,12 @@ export default function LoginPage() {
 
             <div className="bg-surface border border-border rounded-[2.5rem] p-10 shadow-2xl backdrop-blur-sm relative group overflow-hidden">
               <div className="absolute top-0 left-0 w-full h-[1px] bg-gradient-to-r from-transparent via-accent/30 to-transparent" />
+              
+              {typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('pass') && (
+                <div className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-600 text-[10px] font-black uppercase tracking-widest text-center animate-pulse">
+                  ⚠️ Contraseña temporal detectada. Cámbiela tras entrar.
+                </div>
+              )}
               
               <form onSubmit={handleSubmit} className="space-y-6">
                 <div className="space-y-2">

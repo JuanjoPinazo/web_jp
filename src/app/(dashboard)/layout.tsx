@@ -19,8 +19,10 @@ export default function DashboardLayout({
   useEffect(() => {
     if (session.status === 'unauthenticated') {
       router.push('/login');
+    } else if (session.status === 'authenticated' && session.user?.temp_password) {
+      router.push('/set-password');
     }
-  }, [session.status, router]);
+  }, [session.status, session.user?.temp_password, router]);
 
   if (session.status === 'loading') {
     return (

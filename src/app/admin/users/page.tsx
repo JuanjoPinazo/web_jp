@@ -486,6 +486,18 @@ export default function AdminUsersPage() {
                     <Phone size={14} className="text-accent shrink-0" />
                     <span className="text-[10px] font-bold">{user.phone || '—'}</span>
                   </div>
+                  {user.temp_password && (
+                    <div className="flex items-center gap-3 p-3 rounded-xl bg-accent/5 border border-accent/10">
+                      <Key size={14} className="text-accent shrink-0" />
+                      <span className="text-[10px] font-mono font-bold text-accent">{user.temp_password}</span>
+                      <button 
+                        onClick={() => { navigator.clipboard.writeText(user.temp_password || ''); }}
+                        className="ml-auto text-accent hover:text-white transition-colors"
+                      >
+                        <Copy size={12} />
+                      </button>
+                    </div>
+                  )}
                   {user.invitation_sent_at && user.onboarding_status !== 'active' && (
                     <div className="flex items-center gap-3 text-muted/60">
                       <Calendar size={12} />
@@ -519,6 +531,18 @@ export default function AdminUsersPage() {
                 <div className="hidden md:flex items-center gap-1.5 text-muted/70 w-32 shrink-0">
                   <Phone size={11} className="shrink-0" />
                   <span className="text-[10px] font-medium truncate">{user.phone || '—'}</span>
+                </div>
+
+                {/* Password if exists */}
+                <div className="hidden xl:flex items-center gap-1.5 text-accent/70 w-32 shrink-0">
+                  {user.temp_password ? (
+                    <>
+                      <Key size={11} className="shrink-0" />
+                      <span className="text-[10px] font-mono font-bold truncate">{user.temp_password}</span>
+                    </>
+                  ) : (
+                    <span className="text-[10px] text-muted/30">—</span>
+                  )}
                 </div>
 
                 {/* Affiliation */}
