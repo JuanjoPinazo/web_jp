@@ -473,7 +473,7 @@ export default function DashboardPage() {
                <div className="flex justify-between items-start">
                   <div className="space-y-1">
                     <p className="text-[10px] font-black text-muted uppercase tracking-widest">Salida</p>
-                    <p className="text-4xl font-black text-foreground">
+                    <p className="text-6xl font-black text-foreground tracking-tighter">
                       {new Date(airportMode.flight.departure_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
                     </p>
                   </div>
@@ -490,7 +490,7 @@ export default function DashboardPage() {
                   </div>
                   <div className="space-y-1 text-right">
                     <p className="text-[9px] font-black text-muted uppercase tracking-widest">Check-in</p>
-                    <p className="text-xl font-black text-foreground">
+                    <p className="text-2xl font-black text-foreground">
                       {new Date(new Date(airportMode.flight.departure_time).getTime() - 2 * 60 * 60 * 1000).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
                     </p>
                   </div>
@@ -641,10 +641,10 @@ export default function DashboardPage() {
                         <QrCode size={20} />
                       </div>
                       <div className="space-y-1">
-                        <p className="text-xs font-black text-foreground uppercase tracking-tight truncate">{flight?.arrival_location || 'Vuelo'}</p>
+                        <p className="text-sm font-black text-foreground uppercase tracking-tight truncate">{flight?.arrival_location || 'Vuelo'}</p>
                         <div className="flex items-center justify-between">
-                           <p className="text-[8px] font-black text-muted uppercase tracking-widest">{flight?.flight_number || 'BOARDING'}</p>
-                           <p className="text-[8px] font-black text-accent uppercase">{doc.seat_assignment || flight?.seat || '—'}</p>
+                           <p className="text-[9px] font-black text-muted uppercase tracking-widest">{flight?.flight_number || 'BOARDING'}</p>
+                           <p className="text-[9px] font-black text-accent uppercase">{doc.seat_assignment || flight?.seat || '—'}</p>
                         </div>
                       </div>
                     </button>
@@ -721,7 +721,7 @@ export default function DashboardPage() {
              <div className="flex items-center gap-8 py-4 border-y border-border/50 relative z-10">
                 <div className="space-y-1">
                    <p className="text-[9px] font-black text-muted uppercase tracking-widest">Hora</p>
-                   <p className="text-2xl font-black text-foreground">
+                   <p className="text-4xl font-black text-foreground tracking-tighter">
                       {nextAction.datetime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
                    </p>
                 </div>
@@ -862,7 +862,7 @@ export default function DashboardPage() {
                       <h4 className="text-lg font-black text-foreground leading-tight tracking-tight">
                         {event.title}
                       </h4>
-                      <span className="text-[10px] font-black text-accent shrink-0">
+                      <span className="text-base font-black text-accent shrink-0">
                         {event.timeString || event.datetime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
                       </span>
                    </div>
@@ -1010,7 +1010,7 @@ export default function DashboardPage() {
                       <div className="grid grid-cols-2 gap-6 py-4 border-y border-border/50">
                           <div className="space-y-1">
                             <p className="text-[9px] font-black text-muted uppercase tracking-widest">Hora</p>
-                            <p className="text-lg font-black text-foreground">
+                            <p className="text-2xl font-black text-foreground tracking-tighter">
                               {new Date(e.start_datetime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
                             </p>
                           </div>
@@ -1236,16 +1236,22 @@ export default function DashboardPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-6 mb-8">
+                  <div className="grid grid-cols-3 gap-4 mb-8">
+                    <div className="space-y-1">
+                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">Hora</p>
+                      <p className="text-xl font-black text-foreground">
+                        {flight?.departure_time ? new Date(flight.departure_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }) : '—'}
+                      </p>
+                    </div>
                     <div className="space-y-1">
                       <p className="text-[9px] font-black text-muted uppercase tracking-widest">Ruta</p>
-                      <p className="text-base font-black text-foreground uppercase">
-                        {flight?.departure_location || '—'} → {flight?.arrival_location || '—'}
+                      <p className="text-sm font-black text-foreground uppercase truncate">
+                        {flight?.arrival_location || '—'}
                       </p>
                     </div>
                     <div className="space-y-1 text-right">
                       <p className="text-[9px] font-black text-muted uppercase tracking-widest">Asiento</p>
-                      <p className="text-2xl font-black text-foreground">{doc.seat_assignment || flight?.seat || '—'}</p>
+                      <p className="text-2xl font-black text-accent">{doc.seat_assignment || flight?.seat || '—'}</p>
                     </div>
                   </div>
 
