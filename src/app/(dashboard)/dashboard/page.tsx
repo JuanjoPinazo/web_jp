@@ -33,7 +33,8 @@ import {
   Check,
   XCircle,
   Sun,
-  Moon
+  Moon,
+  ExternalLink
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
@@ -839,29 +840,42 @@ export default function DashboardPage() {
                        <p className="text-xs font-medium text-muted/80 leading-relaxed">
                          {event.description}
                        </p>
-                       {event.cta && (
-                         <button 
-                           onClick={() => {
-                             if (event.cta.type === 'boarding_pass') {
-                               const doc = activePlan?.documents?.find(d => 
-                                 d.related_flight_id === event.payload.id && 
-                                 (d.document_type === 'boarding_pass' || d.title?.toLowerCase().includes('tarjeta'))
-                               );
-                               if (doc) {
-                                 if (doc.qr_code || doc.qr_raw_payload) setSelectedQR(doc);
-                                 else setSelectedPDF(doc);
-                               } else {
-                                 const resDoc = activePlan?.documents.find(d => d.related_flight_id === event.payload.id);
-                                 if (resDoc) setSelectedPDF(resDoc);
-                               }
-                             }
-                           }}
-                           className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-accent text-white text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-md shadow-accent/20"
-                         >
-                           <QrCode size={14} />
-                           {event.cta.label}
-                         </button>
-                       )}
+                       <div className="flex flex-wrap gap-2">
+                        {event.cta && (
+                          <button 
+                            onClick={() => {
+                              if (event.cta.type === 'boarding_pass') {
+                                const doc = activePlan?.documents?.find(d => 
+                                  d.related_flight_id === event.payload.id && 
+                                  (d.document_type === 'boarding_pass' || d.title?.toLowerCase().includes('tarjeta'))
+                                );
+                                if (doc) {
+                                  if (doc.qr_code || doc.qr_raw_payload) setSelectedQR(doc);
+                                  else setSelectedPDF(doc);
+                                } else {
+                                  const resDoc = activePlan?.documents.find(d => d.related_flight_id === event.payload.id);
+                                  if (resDoc) setSelectedPDF(resDoc);
+                                }
+                              }
+                            }}
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-accent text-white text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-md shadow-accent/20"
+                          >
+                            <QrCode size={14} />
+                            {event.cta.label}
+                          </button>
+                        )}
+                        {event.payload?.website_url && (
+                          <a 
+                            href={event.payload.website_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-surface border border-border text-foreground text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-sm"
+                          >
+                            <ExternalLink size={14} />
+                            Visitar Web
+                          </a>
+                        )}
+                       </div>
                      </div>
                    )}
                 </div>
@@ -991,22 +1005,34 @@ export default function DashboardPage() {
               <div key={r.id} className="overflow-hidden rounded-[2.5rem] bg-surface border border-border group hover:border-accent/40 transition-all flex flex-col">
                 <div className="h-48 w-full relative overflow-hidden">
                    <img 
-                     src={r.restaurant_name?.toLowerCase().includes('kong') 
+                     src={r.image_url || (r.restaurant_name?.toLowerCase().includes('kong') 
                        ? "https://images.unsplash.com/photo-1550966842-2862ba996d44?q=80&w=1200&auto=format&fit=crop" 
-                       : "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=1200&auto=format&fit=crop"} 
+                       : "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=1200&auto=format&fit=crop")} 
                      alt={r.restaurant_name} 
                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
                    />
                    <div className="absolute inset-0 bg-gradient-to-t from-surface via-transparent to-transparent" />
                 </div>
-                <div className="p-8 flex items-center gap-6">
-                  <div className="w-14 h-14 rounded-2xl bg-accent/5 border border-accent/10 flex items-center justify-center text-accent group-hover:bg-accent group-hover:text-white transition-all">
-                    <Utensils size={24} />
+                <div className="p-8 flex items-center justify-between gap-6">
+                  <div className="flex items-center gap-6">
+                    <div className="w-14 h-14 rounded-2xl bg-accent/5 border border-accent/10 flex items-center justify-center text-accent group-hover:bg-accent group-hover:text-white transition-all">
+                      <Utensils size={24} />
+                    </div>
+                    <div className="space-y-1">
+                      <h4 className="text-xl font-black text-foreground">{r.restaurant_name}</h4>
+                      <p className="text-[10px] font-bold text-muted uppercase tracking-widest">{r.notes || 'Selección Premium'}</p>
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <h4 className="text-xl font-black text-foreground">{r.restaurant_name}</h4>
-                    <p className="text-[10px] font-bold text-muted uppercase tracking-widest">{r.notes || 'Selección Premium'}</p>
-                  </div>
+                  {r.website_url && (
+                    <a 
+                      href={r.website_url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="w-12 h-12 rounded-xl bg-accent/10 text-accent flex items-center justify-center hover:bg-accent hover:text-white transition-all active:scale-90"
+                    >
+                      <ExternalLink size={20} />
+                    </a>
+                  )}
                 </div>
               </div>
             ))}

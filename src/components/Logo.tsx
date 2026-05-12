@@ -17,6 +17,7 @@ export const Logo = ({ className = "w-10 h-10" }: { className?: string }) => {
         src={logoSrc}
         alt="JP Intelligence Platform Logo"
         fill
+        sizes="(max-width: 768px) 40px, 48px"
         className="object-contain"
         priority
       />

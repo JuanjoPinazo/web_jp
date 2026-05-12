@@ -323,9 +323,9 @@ function buildHtml(data: {
         <table cellpadding="0" cellspacing="0" width="100%" style="background: ${surface}; border: 1px solid ${border}; border-radius: 24px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
           <tr>
             <td style="padding: 0; background: #000000;">
-              <img src="${r.restaurant_name?.toLowerCase().includes('kong') 
+              <img src="${r.image_url || (r.restaurant_name?.toLowerCase().includes('kong') 
                 ? 'https://images.unsplash.com/photo-1550966842-2862ba996d44?q=80&w=1200&auto=format&fit=crop' 
-                : 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=1200&auto=format&fit=crop'}" 
+                : 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=1200&auto=format&fit=crop')}" 
                 width="600" alt="${r.restaurant_name}" style="width: 100%; display: block;" />
             </td>
           </tr>
@@ -346,13 +346,14 @@ function buildHtml(data: {
               </table>
             </td>
           </tr>
-          ${(r.address || r.reservation_name || r.notes) ? `
+          ${(r.address || r.reservation_name || r.notes || r.website_url) ? `
           <tr>
             <td style="padding: 24px;">
               <table cellpadding="0" cellspacing="0" width="100%">
                 ${r.address ? infoRow('Dirección', r.address) : ''}
                 ${r.reservation_name ? infoRow('A nombre de', r.reservation_name) : ''}
                 ${r.notes ? infoRow('Notas', r.notes) : ''}
+                ${r.website_url ? infoRow('Sitio Web', `<a href="${r.website_url}" style="color: ${accent}; text-decoration: none; font-weight: 800;">Visitar Web →</a>`) : ''}
               </table>
             </td>
           </tr>` : ''}

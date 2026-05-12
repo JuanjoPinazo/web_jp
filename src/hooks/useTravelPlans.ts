@@ -167,6 +167,8 @@ export interface Restaurant {
   address?: string;
   reservation_name?: string;
   type?: 'reserved' | 'recommended';
+  image_url?: string;
+  website_url?: string;
   notes?: string;
   status: string;
   source: string;
