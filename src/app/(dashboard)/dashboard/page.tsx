@@ -36,6 +36,8 @@ import { TimelineSection } from '@/components/premium/TimelineSection';
 import { BottomActionSheet } from '@/components/premium/BottomActionSheet';
 import { TimelineEvent } from '@/components/premium/TimelineEvent';
 
+import { AirportModeView } from '@/components/premium/AirportModeView';
+
 const WakeLockHandler = () => {
   useEffect(() => {
     let wakeLock: any = null;
@@ -119,6 +121,7 @@ export default function DashboardPage() {
   // Premium UI states
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
+  const [showAirportFullView, setShowAirportFullView] = useState(false);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -607,6 +610,12 @@ export default function DashboardPage() {
     };
   }, [activePlan]);
 
+  useEffect(() => {
+    if (airportMode && airportMode.diffMin < 360 && !showAirportFullView) {
+      setShowAirportFullView(true);
+    }
+  }, [airportMode]);
+
   const mapLocations = useMemo((): MapLocation[] => {
     if (!activePlan) return [];
     const locs: MapLocation[] = [];
@@ -673,6 +682,21 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-background relative overflow-hidden flex flex-col">
       <WakeLockHandler />
       
+      <AnimatePresence>
+        {showAirportFullView && airportMode && (
+          <AirportModeView 
+            data={airportMode} 
+            smartDeparture={smartDeparture}
+            onClose={() => setShowAirportFullView(false)}
+            onAction={(action) => {
+              if (action === 'maps') window.open(`https://www.google.com/maps/dir/?api=1&destination=${airportMode.flight.departure_location}`);
+              if (action === 'contact') handleAssistantMessage('Necesito contactar con mi coordinador de viaje');
+              if (action === 'docs') setSelectedPDF(airportMode.boardingPass || activePlan?.documents[0]);
+            }}
+          />
+        )}
+      </AnimatePresence>
+      
       <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
         <motion.div 
           key={activeTab}
@@ -682,7 +706,7 @@ export default function DashboardPage() {
           className="max-w-xl mx-auto px-6 py-10"
         >
           {activeTab === 'home' && (
-            <>
+            <div className="space-y-10">
               <ContextHero 
                 activePlan={activePlan} 
                 userName={userName}
@@ -692,96 +716,142 @@ export default function DashboardPage() {
                 smartDeparture={smartDeparture}
               />
 
-              <div className="space-y-12 mt-12">
-                {/* Timeline Section */}
-                <motion.section variants={itemVariants} className="space-y-6">
-                  <div className="flex items-center justify-between px-2">
+              {/* Next Action Briefing (Tarjeta Activa) */}
+              {nextAction && (
+                <motion.div 
+                  variants={itemVariants}
+                  className="p-8 rounded-[3rem] bg-foreground text-background shadow-2xl relative overflow-hidden group active:scale-[0.98] transition-all"
+                  onClick={() => {
+                    setSelectedEvent(nextAction);
+                    setIsSheetOpen(true);
+                  }}
+                >
+                  <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
+                    <nextAction.icon size={120} strokeWidth={1} />
+                  </div>
+                  <div className="relative z-10 space-y-6">
                     <div className="flex items-center gap-3">
-                      <div className="w-1.5 h-1.5 rounded-full bg-accent" />
-                      <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-accent">Tu Itinerario</h3>
+                      <div className="px-3 py-1 rounded-full bg-accent text-white text-[9px] font-black uppercase tracking-widest">
+                        Próxima Acción
+                      </div>
+                      <span className="text-[10px] font-black uppercase tracking-widest opacity-40">Hoy • {nextAction.time}</span>
                     </div>
+                    <div className="space-y-2">
+                      <h3 className="text-4xl font-black tracking-tighter leading-none">{nextAction.title}</h3>
+                      <p className="text-sm font-medium opacity-60 flex items-center gap-2">
+                        <MapPin size={14} />
+                        {nextAction.location}
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between pt-4 border-t border-background/10">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-accent">
+                          <Navigation size={14} />
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-widest">Ver Detalles</span>
+                      </div>
+                      <ArrowRight size={20} className="opacity-40 group-hover:translate-x-2 transition-transform" />
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* Timeline Section (Unified Flow) */}
+              <motion.section variants={itemVariants} className="space-y-8">
+                <div className="flex items-center justify-between px-2">
+                  <div className="flex items-center gap-4">
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-accent">Tu Itinerario</h3>
+                    <div className="h-px w-12 bg-accent/20" />
+                  </div>
+                  <button 
+                    onClick={() => setShowTimeline(true)}
+                    className="text-[9px] font-black uppercase tracking-widest text-muted hover:text-accent transition-colors"
+                  >
+                    Agenda Completa
+                  </button>
+                </div>
+                
+                <div className="space-y-6">
+                  {activeDayEvents.map((event, idx) => (
+                    <TimelineEvent 
+                      key={event.id}
+                      time={event.time}
+                      title={event.title}
+                      location={event.location}
+                      description={event.description}
+                      icon={event.icon}
+                      isActive={nextAction?.id === event.id}
+                      isLast={idx === activeDayEvents.length - 1}
+                      onClick={() => {
+                        setSelectedEvent(event);
+                        setIsSheetOpen(true);
+                      }}
+                    />
+                  ))}
+                  {activeDayEvents.length === 0 && (
+                    <div className="p-12 rounded-[3rem] border border-dashed border-border/50 flex flex-col items-center text-center gap-4 bg-surface/10">
+                      <div className="w-16 h-16 rounded-[2rem] bg-surface flex items-center justify-center text-muted/20">
+                        <Calendar size={32} />
+                      </div>
+                      <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">No hay eventos programados para hoy</p>
+                    </div>
+                  )}
+                </div>
+              </motion.section>
+
+              {/* Concierge Hub (IA Contextual & Quick Actions) */}
+              <motion.section variants={itemVariants} className="space-y-6">
+                <div className="flex items-center gap-4 px-2">
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-accent">Centro de Asistencia</h3>
+                  <div className="flex-1 h-px bg-accent/20" />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* IA Briefing Block */}
+                  <div className="p-6 rounded-[2.5rem] bg-surface/30 border border-border/40 backdrop-blur-xl space-y-4">
+                    <div className="flex items-center gap-3">
+                      <Sparkles size={18} className="text-accent" />
+                      <span className="text-[10px] font-black uppercase tracking-widest text-foreground">Briefing IA</span>
+                    </div>
+                    <p className="text-xs font-medium text-muted leading-relaxed">
+                      "Cielo despejado en París (18°C). El tráfico hacia el Palacio de Congresos es fluido. Recuerda que tu cena VIP es a las 21:00."
+                    </p>
+                  </div>
+
+                  {/* Quick Actions Grid */}
+                  <div className="grid grid-cols-2 gap-3">
                     <button 
-                      onClick={() => setShowTimeline(true)}
-                      className="text-[9px] font-black uppercase tracking-widest text-muted hover:text-accent transition-colors"
+                      onClick={() => setShowMap(true)}
+                      className="p-5 rounded-2xl bg-surface/30 border border-border/40 flex flex-col items-center justify-center gap-3 hover:bg-surface/60 transition-all"
                     >
-                      Ver Agenda Completa
+                      <MapPin size={20} className="text-accent" />
+                      <span className="text-[9px] font-black uppercase tracking-widest text-muted">Mapa</span>
+                    </button>
+                    <button 
+                      onClick={() => setActiveTab('explore')}
+                      className="p-5 rounded-2xl bg-surface/30 border border-border/40 flex flex-col items-center justify-center gap-3 hover:bg-surface/60 transition-all"
+                    >
+                      <Compass size={20} className="text-accent" />
+                      <span className="text-[9px] font-black uppercase tracking-widest text-muted">Explorar</span>
+                    </button>
+                    <button 
+                      onClick={() => setActiveTab('assistant')}
+                      className="p-5 rounded-2xl bg-surface/30 border border-border/40 flex flex-col items-center justify-center gap-3 hover:bg-surface/60 transition-all"
+                    >
+                      <Sparkles size={20} className="text-accent" />
+                      <span className="text-[9px] font-black uppercase tracking-widest text-muted">IA Concierge</span>
+                    </button>
+                    <button 
+                      onClick={() => setShowAlerts(true)}
+                      className="p-5 rounded-2xl bg-surface/30 border border-border/40 flex flex-col items-center justify-center gap-3 hover:bg-surface/60 transition-all"
+                    >
+                      <Bell size={20} className="text-accent" />
+                      <span className="text-[9px] font-black uppercase tracking-widest text-muted">Alertas</span>
                     </button>
                   </div>
-                  
-                  <div className="space-y-4">
-                    {activeDayEvents.map((event, idx) => (
-                      <TimelineEvent 
-                        key={event.id}
-                        time={event.time}
-                        title={event.title}
-                        location={event.location}
-                        description={event.description}
-                        icon={event.icon}
-                        isActive={nextAction?.id === event.id}
-                        isLast={idx === activeDayEvents.length - 1}
-                        onClick={() => {
-                          setSelectedEvent(event);
-                          setIsSheetOpen(true);
-                        }}
-                      />
-                    ))}
-                    {activeDayEvents.length === 0 && (
-                      <div className="p-8 rounded-[2rem] border border-dashed border-border flex flex-col items-center text-center gap-3">
-                        <Calendar size={24} className="text-muted/30" />
-                        <p className="text-[10px] font-black text-muted uppercase tracking-widest">Sin eventos para hoy</p>
-                      </div>
-                    )}
-                  </div>
-                </motion.section>
-
-                {/* Hospitality / VIP Section */}
-                {(isManagerView || (activePlan?.hospitality_events?.filter(e => e.visible_to_client).length ?? 0) > 0) && (
-                  <motion.section variants={itemVariants} className="space-y-6">
-                    <div className="flex items-center gap-4 px-2">
-                      <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-accent">Agenda VIP</h3>
-                      <div className="flex-1 h-px bg-accent/20" />
-                    </div>
-                    <div className="grid grid-cols-1 gap-4">
-                      {activePlan?.hospitality_events?.filter(e => e.visible_to_client && !e.deleted_at).map(e => (
-                        <CompactRow 
-                          key={e.id}
-                          title={e.title}
-                          subtitle={e.venue_name}
-                          rightText={new Date(e.start_datetime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
-                          icon={Utensils}
-                          onClick={() => {
-                            setSelectedEvent({ ...e, type: 'hospitality', payload: e });
-                            setIsSheetOpen(true);
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </motion.section>
-                )}
-
-                {/* Quick Actions (Concierge Style) */}
-                <motion.section variants={itemVariants} className="grid grid-cols-2 gap-4">
-                  <button 
-                    onClick={() => setShowMap(true)}
-                    className="p-5 rounded-[2rem] bg-surface/30 border border-border/40 flex flex-col items-start gap-4 hover:bg-surface/60 active:scale-[0.98] transition-all"
-                  >
-                    <div className="w-10 h-10 rounded-2xl bg-accent/10 flex items-center justify-center text-accent">
-                      <MapPin size={20} />
-                    </div>
-                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-foreground/80">Mapa Interactivo</span>
-                  </button>
-                  <button 
-                    onClick={() => setActiveTab('explore')}
-                    className="p-5 rounded-[2rem] bg-surface/30 border border-border/40 flex flex-col items-start gap-4 hover:bg-surface/60 active:scale-[0.98] transition-all"
-                  >
-                    <div className="w-10 h-10 rounded-2xl bg-accent/10 flex items-center justify-center text-accent">
-                      <Compass size={20} />
-                    </div>
-                    <span className="text-[10px] font-black uppercase tracking-[0.2em] text-foreground/80">Explorar Destino</span>
-                  </button>
-                </motion.section>
-              </div>
-            </>
+                </div>
+              </motion.section>
+            </div>
           )}
 
           {activeTab === 'explore' && (

@@ -30,7 +30,7 @@ export const ContextHero = ({
       <motion.div 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="relative w-full aspect-[4/3] rounded-[3rem] overflow-hidden group shadow-2xl"
+        className="relative w-full aspect-[4/5] md:aspect-[16/9] rounded-[3rem] overflow-hidden group shadow-2xl"
       >
         <img 
           src={activePlan?.image_url || "https://images.unsplash.com/photo-1502602898657-3e91760cbb34?q=80&w=1200&auto=format&fit=crop"} 
@@ -39,9 +39,10 @@ export const ContextHero = ({
         />
         <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
         
+        {/* Top Overlay: Identity */}
         <div className="absolute top-8 left-8 right-8 flex justify-between items-start">
           <div className="space-y-1">
-            <p className="text-[10px] font-black text-white/60 uppercase tracking-[0.4em]">Bienvenido</p>
+            <p className="text-[10px] font-black text-white/60 uppercase tracking-[0.4em]">Briefing de Viaje</p>
             <h2 className="text-3xl font-black text-white tracking-tighter">{userName}</h2>
           </div>
           <button 
@@ -57,27 +58,39 @@ export const ContextHero = ({
           </button>
         </div>
 
+        {/* Bottom Overlay: Context */}
         <div className="absolute bottom-8 left-8 right-8">
-          <div className="space-y-2">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent text-white text-[10px] font-black uppercase tracking-widest">
-              <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
-              {activePlan?.status?.toUpperCase() || 'VIAJE ACTIVO'}
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-accent text-white text-[10px] font-black uppercase tracking-widest">
+                <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+                {activePlan?.status?.toUpperCase() || 'ACTIVO'}
+              </div>
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 backdrop-blur-md text-white text-[10px] font-black uppercase tracking-widest border border-white/10">
+                <Calendar size={12} />
+                EuroPCR 2026
+              </div>
             </div>
-            <h1 className="text-4xl font-black text-white tracking-tighter leading-none">
-              {nextContext?.name || 'Tu Próximo Destino'}
-            </h1>
+            
+            <div className="space-y-1">
+              <h1 className="text-5xl font-black text-white tracking-tighter leading-none">
+                {nextContext?.name || 'Tu Destino'}
+              </h1>
+              <p className="text-sm font-medium text-white/60 uppercase tracking-widest">
+                Mayo 19 — 22, 2026
+              </p>
+            </div>
           </div>
         </div>
       </motion.div>
 
-      {/* Smart Contextual Banners */}
+      {/* Smart Contextual Briefing */}
       <AnimatePresence mode="wait">
         {airportMode ? (
           <motion.div 
             key="airport"
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
             className={cn("p-6 rounded-[2.5rem] border shadow-xl flex items-center justify-between", airportMode.statusColor)}
           >
             <div className="flex items-center gap-4">
@@ -85,13 +98,13 @@ export const ContextHero = ({
                 <Plane size={24} />
               </div>
               <div>
-                <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Modo Aeropuerto</p>
+                <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Control Aéreo</p>
                 <h3 className="text-lg font-black tracking-tight">{airportMode.statusText}</h3>
               </div>
             </div>
             <div className="text-right">
               <p className="text-2xl font-black tracking-tighter">{airportMode.diffMin} min</p>
-              <p className="text-[10px] font-bold uppercase opacity-60">Para salida</p>
+              <p className="text-[10px] font-bold uppercase opacity-60">Para despegue</p>
             </div>
           </motion.div>
         ) : smartDeparture ? (
@@ -99,10 +112,10 @@ export const ContextHero = ({
             key="departure"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="p-6 rounded-[2.5rem] bg-indigo-500/10 border border-indigo-500/20 shadow-xl flex items-center justify-between text-indigo-500"
+            className="p-6 rounded-[2.5rem] bg-accent/5 border border-accent/20 shadow-xl flex items-center justify-between text-accent"
           >
             <div className="flex items-center gap-4">
-              <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 flex items-center justify-center">
+              <div className="w-12 h-12 rounded-2xl bg-accent/10 flex items-center justify-center">
                 <Zap size={24} />
               </div>
               <div>
@@ -110,7 +123,7 @@ export const ContextHero = ({
                 <h3 className="text-lg font-black tracking-tight">Sal en {smartDeparture.recommendedDepartureMinutes} min</h3>
               </div>
             </div>
-            <div className="w-10 h-10 rounded-full border border-indigo-500/20 flex items-center justify-center">
+            <div className="w-10 h-10 rounded-full border border-accent/20 flex items-center justify-center">
               <ChevronRight size={20} />
             </div>
           </motion.div>
