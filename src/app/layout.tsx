@@ -13,13 +13,23 @@ const sora = Sora({
 });
 
 export const metadata: Metadata = {
-  title: "JP Intelligence Platform | Sistemas de Decisión Inteligente",
+  title: "JP Intelligence | Premium Concierge",
   description: "Plataforma operacional y sistemas de decisión inteligente de JP Intelligence Platform.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "JP Intel",
+  },
+  formatDetection: {
+    telephone: false,
+  },
 };
 
 import { AuthProvider } from "@/context/AuthContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { DialogProvider } from "@/context/DialogContext";
+import { InstallAppPrompt } from "@/components/InstallAppPrompt";
 
 export default function RootLayout({
   children,
@@ -29,11 +39,7 @@ export default function RootLayout({
   return (
     <html lang="es" suppressHydrationWarning>
       <head>
-        <link rel="manifest" href="/manifest.json" />
-        <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-        <meta name="apple-mobile-web-app-title" content="JP Intel" />
-        <meta name="theme-color" content="#000000" />
+        <meta name="theme-color" content="#00D1FF" />
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0, viewport-fit=cover" />
         <script
           dangerouslySetInnerHTML={{
@@ -54,7 +60,7 @@ export default function RootLayout({
               if ('serviceWorker' in navigator) {
                 window.addEventListener('load', function() {
                   navigator.serviceWorker.register('/sw.js').then(function(registration) {
-                    console.log('ServiceWorker registration successful with scope: ', registration.scope);
+                    console.log('ServiceWorker registration successful');
                   }, function(err) {
                     console.log('ServiceWorker registration failed: ', err);
                   });
@@ -71,6 +77,7 @@ export default function RootLayout({
           <AuthProvider>
             <DialogProvider>
               {children}
+              <InstallAppPrompt />
             </DialogProvider>
           </AuthProvider>
         </ThemeProvider>

@@ -18,7 +18,9 @@ import {
   MoreVertical,
   User as UserIcon,
   Globe,
-  Utensils
+  Utensils,
+  LayoutGrid,
+  List
 } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { cn } from '@/lib/utils';
@@ -36,6 +38,8 @@ export default function CatalogsPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<any>(null);
   const [isSaving, setIsSaving] = useState(false);
+  
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   
   // Form states
   const [formData, setFormData] = useState<any>({});
@@ -104,12 +108,56 @@ export default function CatalogsPage() {
     e.preventDefault();
     setIsSaving(true);
     try {
-      const table = activeTab === 'roles' ? 'professional_roles' : (activeTab === 'hotels' ? 'hotels_master' : (activeTab === 'restaurants' ? 'restaurants_master' : activeTab));
+      const isRole = activeTab === 'roles';
+      const isHotel = activeTab === 'hotels';
+      const isRestaurant = activeTab === 'restaurants';
+      
+      const table = isRole ? 'professional_roles' : (isHotel ? 'hotels_master' : (isRestaurant ? 'restaurants_master' : activeTab));
+      
+      // Limpiar y preparar datos según la tabla
+      const { id, created_at, updated_at, ...rawUpdateData } = formData;
+      const updateData: any = {};
+
+      // Campos comunes
+      if (rawUpdateData.name) updateData.name = rawUpdateData.name;
+      if (rawUpdateData.city) updateData.city = rawUpdateData.city;
+      
+      if (isHotel || isRestaurant) {
+        if (rawUpdateData.address) updateData.address = rawUpdateData.address;
+        if (rawUpdateData.phone) updateData.phone = rawUpdateData.phone;
+        if (rawUpdateData.website) updateData.website = rawUpdateData.website;
+        if (rawUpdateData.latitude !== undefined) updateData.latitude = rawUpdateData.latitude;
+        if (rawUpdateData.longitude !== undefined) updateData.longitude = rawUpdateData.longitude;
+        if (rawUpdateData.rating !== undefined) updateData.rating = rawUpdateData.rating;
+        if (rawUpdateData.google_place_id) updateData.google_place_id = rawUpdateData.google_place_id;
+      }
+
+      if (isHotel) {
+        if (rawUpdateData.stars !== undefined) updateData.stars = rawUpdateData.stars;
+        if (rawUpdateData.country) updateData.country = rawUpdateData.country;
+        if (rawUpdateData.postal_code) updateData.postal_code = rawUpdateData.postal_code;
+        if (rawUpdateData.preferred !== undefined) updateData.preferred = rawUpdateData.preferred;
+      }
+
+      if (isRestaurant) {
+        if (rawUpdateData.cuisine_type) updateData.cuisine_type = rawUpdateData.cuisine_type;
+        if (rawUpdateData.price_level !== undefined) updateData.price_level = rawUpdateData.price_level;
+        if (rawUpdateData.preferred !== undefined) updateData.preferred = rawUpdateData.preferred;
+      }
+
+      if (isRole) {
+        if (rawUpdateData.scope) updateData.scope = rawUpdateData.scope;
+      }
+
+      if (activeTab === 'hospitals') {
+        if (rawUpdateData.code) updateData.code = rawUpdateData.code;
+      }
+
+      if (activeTab === 'companies') {
+        if (rawUpdateData.tax_id) updateData.tax_id = rawUpdateData.tax_id;
+      }
+
       let error;
-
-      // Limpiar datos protegidos antes de enviar
-      const { id, created_at, ...updateData } = formData;
-
       if (editingItem) {
         const { error: err } = await supabase
           .from(table)
@@ -124,7 +172,14 @@ export default function CatalogsPage() {
       }
 
       if (error) {
-        console.error('Supabase Error:', error);
+        console.error('Detailed Supabase Error:', {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+          table: table,
+          dataSent: updateData
+        });
         throw new Error(error.message || 'Error desconocido en la base de datos');
       }
       
@@ -235,15 +290,38 @@ export default function CatalogsPage() {
           })}
         </div>
 
-        <div className="relative w-full lg:w-96">
-          <input
-            type="text"
-            placeholder={`Buscar en ${activeTab === 'hospitals' ? 'hospitales' : activeTab === 'companies' ? 'empresas' : activeTab === 'departments' ? 'servicios' : activeTab === 'hotels' ? 'hoteles' : activeTab === 'restaurants' ? 'restaurantes' : 'cargos'}...`}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full bg-background/50 border border-border rounded-2xl py-3 pl-11 pr-4 text-xs font-bold outline-none focus:border-accent/40 transition-all placeholder:text-muted/50"
-          />
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted" size={16} />
+        <div className="flex items-center gap-4 w-full lg:w-auto">
+          <div className="relative flex-1 lg:w-96">
+            <input
+              type="text"
+              placeholder={`Buscar en ${activeTab === 'hospitals' ? 'hospitales' : activeTab === 'companies' ? 'empresas' : activeTab === 'departments' ? 'servicios' : activeTab === 'hotels' ? 'hoteles' : activeTab === 'restaurants' ? 'restaurantes' : 'cargos'}...`}
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full bg-background/50 border border-border rounded-2xl py-3 pl-11 pr-4 text-xs font-bold outline-none focus:border-accent/40 transition-all placeholder:text-muted/50"
+            />
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted" size={16} />
+          </div>
+
+          <div className="flex gap-1 p-1 bg-background/50 rounded-xl border border-border/50">
+            <button
+              onClick={() => setViewMode('grid')}
+              className={cn(
+                "p-2 rounded-lg transition-all",
+                viewMode === 'grid' ? "bg-accent text-background shadow-md" : "text-muted hover:text-white"
+              )}
+            >
+              <LayoutGrid size={16} />
+            </button>
+            <button
+              onClick={() => setViewMode('list')}
+              className={cn(
+                "p-2 rounded-lg transition-all",
+                viewMode === 'list' ? "bg-accent text-background shadow-md" : "text-muted hover:text-white"
+              )}
+            >
+              <List size={16} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -260,91 +338,143 @@ export default function CatalogsPage() {
           <motion.div 
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"
+            className={cn(
+              viewMode === 'grid' 
+                ? "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4" 
+                : "flex flex-col gap-3"
+            )}
           >
             {filteredData.length > 0 ? (
               filteredData.map((item) => (
-                <div 
-                  key={item.id}
-                  className="group bg-surface border border-border rounded-[2rem] p-6 hover:border-accent/30 transition-all duration-300 relative overflow-hidden"
-                >
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-accent/5 blur-3xl rounded-full translate-x-1/2 -translate-y-1/2 pointer-events-none group-hover:bg-accent/10 transition-colors" />
-                  
-                  <div className="flex items-start justify-between relative z-10">
-                    <div className="space-y-4 flex-1">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-2">
-                          {activeTab === 'hospitals' && <Globe className="text-accent" size={14} />}
-                          {activeTab === 'hotels' && <Building2 className="text-accent" size={14} />}
-                          {activeTab === 'restaurants' && <Utensils className="text-accent" size={14} />}
-                          {activeTab === 'companies' && <Briefcase className="text-accent" size={14} />}
-                          {activeTab === 'departments' && <Stethoscope className="text-accent" size={14} />}
-                          {activeTab === 'roles' && <UserIcon className="text-accent" size={14} />}
-                          <h3 className="font-bold text-white leading-tight flex items-center gap-2">
-                            {item.name}
-                            {item.preferred && <span className="text-[8px] bg-amber-500/20 text-amber-500 border border-amber-500/30 px-1.5 py-0.5 rounded uppercase font-black tracking-tighter">Top</span>}
-                          </h3>
+                viewMode === 'grid' ? (
+                  <div 
+                    key={item.id}
+                    className="group bg-surface border border-border rounded-[2rem] p-6 hover:border-accent/30 transition-all duration-300 relative overflow-hidden"
+                  >
+                    <div className="absolute top-0 right-0 w-32 h-32 bg-accent/5 blur-3xl rounded-full translate-x-1/2 -translate-y-1/2 pointer-events-none group-hover:bg-accent/10 transition-colors" />
+                    
+                    <div className="flex items-start justify-between relative z-10">
+                      <div className="space-y-4 flex-1">
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2">
+                            {activeTab === 'hospitals' && <Globe className="text-accent" size={14} />}
+                            {activeTab === 'hotels' && <Building2 className="text-accent" size={14} />}
+                            {activeTab === 'restaurants' && <Utensils className="text-accent" size={14} />}
+                            {activeTab === 'companies' && <Briefcase className="text-accent" size={14} />}
+                            {activeTab === 'departments' && <Stethoscope className="text-accent" size={14} />}
+                            {activeTab === 'roles' && <UserIcon className="text-accent" size={14} />}
+                            <h3 className="font-bold text-white leading-tight flex items-center gap-2">
+                              {item.name}
+                              {item.preferred && <span className="text-[8px] bg-amber-500/20 text-amber-500 border border-amber-500/30 px-1.5 py-0.5 rounded uppercase font-black tracking-tighter">Top</span>}
+                            </h3>
+                          </div>
+                          
+                          {(activeTab === 'hospitals' || activeTab === 'companies' || activeTab === 'hotels' || activeTab === 'restaurants') && (
+                            <div className="flex flex-wrap gap-2 pt-1">
+                              {(item.code || item.tax_id) && (
+                                <span className="px-2 py-0.5 rounded bg-accent/10 border border-accent/20 text-accent text-[8px] font-black uppercase tracking-widest">
+                                  [{item.code || item.tax_id}]
+                                </span>
+                              )}
+                              {item.city && (
+                                <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-muted text-[8px] font-bold uppercase tracking-widest">
+                                  {item.city}
+                                </span>
+                              )}
+                              {activeTab === 'restaurants' && item.cuisine_type && (
+                                <span className="px-2 py-0.5 rounded bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[8px] font-black uppercase tracking-widest">
+                                  {item.cuisine_type}
+                                </span>
+                              )}
+                              {activeTab === 'restaurants' && item.price_level && (
+                                <span className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[8px] font-black uppercase tracking-widest">
+                                  {'€'.repeat(item.price_level)}
+                                </span>
+                              )}
+                              {activeTab === 'hotels' && item.stars && (
+                                <span className="px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[8px] font-black uppercase tracking-widest">
+                                  {item.stars} ★
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {activeTab === 'roles' && item.scope && (
+                            <span className={cn(
+                              "inline-block px-2 py-0.5 rounded border text-[8px] font-black uppercase tracking-widest",
+                              item.scope === 'hospital' ? "bg-blue-500/10 border-blue-500/20 text-blue-400" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                            )}>
+                              {item.scope}
+                            </span>
+                          )}
                         </div>
                         
-                        {(activeTab === 'hospitals' || activeTab === 'companies' || activeTab === 'hotels' || activeTab === 'restaurants') && (
-                          <div className="flex flex-wrap gap-2 pt-1">
-                            {(item.code || item.tax_id) && (
-                              <span className="px-2 py-0.5 rounded bg-accent/10 border border-accent/20 text-accent text-[8px] font-black uppercase tracking-widest">
-                                [{item.code || item.tax_id}]
-                              </span>
-                            )}
-                            {item.city && (
-                              <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-muted text-[8px] font-bold uppercase tracking-widest">
-                                {item.city}
-                              </span>
-                            )}
-                            {activeTab === 'restaurants' && item.cuisine_type && (
-                              <span className="px-2 py-0.5 rounded bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[8px] font-black uppercase tracking-widest">
-                                {item.cuisine_type}
-                              </span>
-                            )}
-                            {activeTab === 'restaurants' && item.price_level && (
-                              <span className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[8px] font-black uppercase tracking-widest">
-                                {'€'.repeat(item.price_level)}
-                              </span>
-                            )}
-                            {activeTab === 'hotels' && item.stars && (
-                              <span className="px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[8px] font-black uppercase tracking-widest">
-                                {item.stars} ★
-                              </span>
-                            )}
-                          </div>
-                        )}
-
-                        {activeTab === 'roles' && item.scope && (
-                          <span className={cn(
-                            "inline-block px-2 py-0.5 rounded border text-[8px] font-black uppercase tracking-widest",
-                            item.scope === 'hospital' ? "bg-blue-500/10 border-blue-500/20 text-blue-400" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
-                          )}>
-                            {item.scope}
-                          </span>
-                        )}
-                      </div>
-                      
-                      <div className="flex items-center gap-2 pt-2">
-                        <button 
-                          onClick={() => handleOpenModal(item)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-background border border-border text-muted hover:text-accent hover:border-accent/40 transition-all text-[10px] font-bold uppercase tracking-widest"
-                        >
-                          <Edit2 size={12} />
-                          Editar
-                        </button>
-                        <button 
-                          onClick={() => handleDelete(item.id)}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-background border border-border text-muted hover:text-red-500 hover:border-red-500/40 transition-all text-[10px] font-bold uppercase tracking-widest"
-                        >
-                          <Trash2 size={12} />
-                          Borrar
-                        </button>
+                        <div className="flex items-center gap-2 pt-2">
+                          <button 
+                            onClick={() => handleOpenModal(item)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-background border border-border text-muted hover:text-accent hover:border-accent/40 transition-all text-[10px] font-bold uppercase tracking-widest"
+                          >
+                            <Edit2 size={12} />
+                            Editar
+                          </button>
+                          <button 
+                            onClick={() => handleDelete(item.id)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-background border border-border text-muted hover:text-red-500 hover:border-red-500/40 transition-all text-[10px] font-bold uppercase tracking-widest"
+                          >
+                            <Trash2 size={12} />
+                            Borrar
+                          </button>
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <div 
+                    key={item.id}
+                    className="group bg-surface/40 hover:bg-surface border border-border rounded-2xl p-4 flex items-center justify-between gap-4 transition-all hover:border-accent/30"
+                  >
+                    <div className="flex items-center gap-4 min-w-0">
+                      <div className="w-10 h-10 rounded-xl bg-background border border-border flex items-center justify-center text-accent shrink-0 group-hover:bg-accent/5 group-hover:border-accent/20 transition-all">
+                        {activeTab === 'hospitals' && <Globe size={18} />}
+                        {activeTab === 'hotels' && <Building2 size={18} />}
+                        {activeTab === 'restaurants' && <Utensils size={18} />}
+                        {activeTab === 'companies' && <Briefcase size={18} />}
+                        {activeTab === 'departments' && <Stethoscope size={18} />}
+                        {activeTab === 'roles' && <UserIcon size={18} />}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p className="font-bold text-white truncate">{item.name}</p>
+                          {item.preferred && <span className="text-[7px] bg-amber-500/20 text-amber-500 px-1 py-0.5 rounded uppercase font-black">Top</span>}
+                        </div>
+                        <div className="flex items-center gap-3 text-[10px] text-muted">
+                          {item.city && <span>{item.city}</span>}
+                          {(item.code || item.tax_id) && <span className="font-mono text-accent/60">[{item.code || item.tax_id}]</span>}
+                          {activeTab === 'hotels' && item.stars && <span className="text-amber-500/60">{item.stars}★</span>}
+                          {activeTab === 'restaurants' && item.cuisine_type && <span>{item.cuisine_type}</span>}
+                          {activeTab === 'roles' && item.scope && <span className="uppercase text-[8px] font-black">{item.scope}</span>}
+                        </div>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button 
+                        onClick={() => handleOpenModal(item)}
+                        className="p-2 rounded-lg bg-background border border-border text-muted hover:text-accent hover:border-accent/40 transition-all"
+                        title="Editar"
+                      >
+                        <Edit2 size={14} />
+                      </button>
+                      <button 
+                        onClick={() => handleDelete(item.id)}
+                        className="p-2 rounded-lg bg-background border border-border text-muted hover:text-red-500 hover:border-red-500/40 transition-all"
+                        title="Borrar"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                )
               ))
             ) : (
               <div className="col-span-full py-20 text-center space-y-4">
@@ -420,6 +550,15 @@ export default function CatalogsPage() {
                                 if (res.success) {
                                   setImportResults(res.results || []);
                                   setShowImportList(true);
+                                  if (res.results?.length === 0) {
+                                    await alert({ title: 'Sin resultados', message: 'No se encontraron lugares con ese nombre.', type: 'warning' });
+                                  }
+                                } else {
+                                  await alert({ 
+                                    title: 'Error de Google', 
+                                    message: res.error || 'Error al buscar en Google Places. Verifica que la Places API esté habilitada.', 
+                                    type: 'danger' 
+                                  });
                                 }
                                 setIsSearchingGoogle(false);
                               }
@@ -471,8 +610,12 @@ export default function CatalogsPage() {
                                     const details = await getPlaceDetailsAction(result.place_id);
                                     if (details.success && details.place) {
                                       const p = details.place;
-                                      const city = p.address_components?.find((c: any) => c.types.includes('locality'))?.long_name || 
-                                                 p.address_components?.find((c: any) => c.types.includes('administrative_area_level_2'))?.long_name || '';
+                                      const getComponent = (type: string) => 
+                                        p.address_components?.find((c: any) => c.types.includes(type))?.long_name || '';
+
+                                      const city = getComponent('locality') || getComponent('administrative_area_level_2');
+                                      const country = getComponent('country');
+                                      const postalCode = getComponent('postal_code');
                                       
                                       const newFormData = {
                                         ...formData,
@@ -484,6 +627,8 @@ export default function CatalogsPage() {
                                         google_place_id: p.place_id,
                                         latitude: p.geometry?.location?.lat,
                                         longitude: p.geometry?.location?.lng,
+                                        country: country || 'España', // Fallback for mandatory field
+                                        postal_code: postalCode,
                                         rating: p.rating
                                       };
 
@@ -530,6 +675,14 @@ export default function CatalogsPage() {
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">Ciudad</label>
                         <input required type="text" value={formData.city || ''} onChange={(e) => setFormData({...formData, city: e.target.value})} className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all" placeholder="Ciudad" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">País</label>
+                        <input required type="text" value={formData.country || ''} onChange={(e) => setFormData({...formData, country: e.target.value})} className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all" placeholder="País" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">CP</label>
+                        <input type="text" value={formData.postal_code || ''} onChange={(e) => setFormData({...formData, postal_code: e.target.value})} className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all" placeholder="Código Postal" />
                       </div>
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">Dirección</label>
@@ -589,6 +742,14 @@ export default function CatalogsPage() {
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">Ciudad</label>
                         <input required type="text" value={formData.city || ''} onChange={(e) => setFormData({...formData, city: e.target.value})} className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all" placeholder="Ciudad" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">País</label>
+                        <input type="text" value={formData.country || ''} onChange={(e) => setFormData({...formData, country: e.target.value})} className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all" placeholder="País" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">CP</label>
+                        <input type="text" value={formData.postal_code || ''} onChange={(e) => setFormData({...formData, postal_code: e.target.value})} className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all" placeholder="Código Postal" />
                       </div>
                       <div className="space-y-2">
                         <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">Tipo de Cocina</label>

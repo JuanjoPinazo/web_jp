@@ -402,7 +402,7 @@ export const useTravelPlans = () => {
         .select(`
           *,
           profiles:user_id (nombre, apellidos, email, avatar_url),
-          contexts:context_id (name)
+          contexts:context_id (name, latitude, longitude)
         `)
         .eq('user_id', userId)
         .eq('context_id', contextId)
@@ -552,28 +552,34 @@ export const useTravelPlans = () => {
     }
   };
 
-  const saveTravelDocument = async (payload: any) => {
-    const { data: { user } } = await supabase.auth.getUser();
-    
-    const { data, error } = await supabase
-      .from('travel_documents')
-      .upsert({
-        ...payload,
-        last_updated_by: user?.id,
-        last_updated_at: new Date().toISOString(),
-        source: payload.source || 'manual'
-      })
-      .select()
-      .single();
-    if (error) throw error;
-    
-    // Trigger sync
-    if (data.plan_id) {
-      triggerMediCRMSync(data.plan_id, 'travel_documents', data.id);
-    }
-
-    return data;
-  };
+   const saveTravelDocument = async (payload: any) => {
+     const { data: { user } } = await supabase.auth.getUser();
+     
+     if (!payload.plan_id) throw new Error('Falta el plan_id del documento');
+     if (!payload.file_url) throw new Error('Falta la URL del archivo');
+     
+     const finalPayload = {
+       ...payload,
+       title: payload.title || payload.display_title || 'Documento sin título',
+       last_updated_by: user?.id,
+       last_updated_at: new Date().toISOString(),
+       source: payload.source || 'manual'
+     };
+ 
+     const { data, error } = await supabase
+       .from('travel_documents')
+       .upsert(finalPayload)
+       .select()
+       .single();
+     if (error) throw error;
+     
+     // Trigger sync
+     if (data.plan_id) {
+       triggerMediCRMSync(data.plan_id, 'travel_documents', data.id);
+     }
+ 
+     return data;
+   };
 
   const getLogisticContacts = useCallback(async () => {
     const { data, error } = await supabase.from('logistic_contacts').select('*').order('name');

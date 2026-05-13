@@ -167,3 +167,101 @@ export async function saveHotelMasterFromPlaceAction(place: any) {
     };
   }
 }
+
+/**
+ * Searches for nearby places using Google Places API (Nearby Search)
+ * @param location { lat, lng } coordinates
+ * @param category The category to search for (e.g. 'restaurant', 'cafe', 'museum', 'pharmacy')
+ * @param radius Search radius in meters (max 50000)
+ */
+export async function searchNearbyPlacesAction(location: { lat: number; lng: number }, category: string, radius: number = 2000) {
+  if (!API_KEY) {
+    throw new Error('Configuración de API de Google Maps no encontrada.');
+  }
+
+  try {
+    const url = new URL('https://maps.googleapis.com/maps/api/place/nearbysearch/json');
+    url.searchParams.append('location', `${location.lat},${location.lng}`);
+    url.searchParams.append('radius', radius.toString());
+    url.searchParams.append('type', category);
+    url.searchParams.append('key', API_KEY);
+    url.searchParams.append('language', 'es');
+
+    console.log(`[GooglePlaces] Nearby Search: Category ${category} at ${location.lat},${location.lng} (Radius ${radius}m)`);
+
+    const response = await fetch(url.toString(), {
+      next: { revalidate: 3600 }
+    });
+
+    if (!response.ok) {
+      throw new Error(`Google API error: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    if (data.status !== 'OK' && data.status !== 'ZERO_RESULTS') {
+      throw new Error(`Google API status error: ${data.status} - ${data.error_message || 'Unknown error'}`);
+    }
+
+    return {
+      success: true,
+      results: data.results || [],
+      status: data.status
+    };
+  } catch (error: any) {
+    console.error('[GooglePlaces] Nearby Search Error:', error.message);
+    return {
+      success: false,
+      error: error.message || 'Error al buscar lugares cercanos'
+    };
+  }
+}
+
+/**
+ * Saves a place to the saved_places table for a specific plan
+ */
+export async function saveSavedPlaceAction(params: {
+  plan_id: string;
+  profile_id: string;
+  place: any;
+  category: string;
+}) {
+  const { plan_id, profile_id, place, category } = params;
+
+  const { getSupabaseAdmin } = await import('@/lib/supabase-admin');
+  const supabaseAdmin = getSupabaseAdmin();
+
+  try {
+    const saveData = {
+      plan_id,
+      profile_id,
+      google_place_id: place.place_id,
+      name: place.name,
+      address: place.vicinity || place.formatted_address,
+      latitude: place.geometry?.location?.lat,
+      longitude: place.geometry?.location?.lng,
+      category: category,
+      created_at: new Date().toISOString()
+    };
+
+    const { data, error } = await supabaseAdmin
+      .from('saved_places')
+      .insert([saveData])
+      .select()
+      .single();
+
+    if (error) throw error;
+
+    return {
+      success: true,
+      data,
+      message: 'Lugar guardado en tus favoritos.'
+    };
+  } catch (error: any) {
+    console.error('[GooglePlaces] Save Favorite Error:', error.message);
+    return {
+      success: false,
+      error: error.message || 'Error al guardar el lugar en favoritos'
+    };
+  }
+}

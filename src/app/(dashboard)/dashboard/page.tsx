@@ -42,7 +42,13 @@ import { OutcomeDrawer } from '@/components/OutcomeDrawer';
 import { MapModal, type MapLocation } from '@/components/MapModal';
 import { supabase } from '@/lib/supabase';
 import { getPlanRoutesAction } from '@/actions/travel-routes-actions';
-import { Footprints, Bus, Zap, Info } from 'lucide-react';
+import { Footprints, Bus, Zap, Info, Compass, Coffee, Landmark, Pill, BusFront, ShoppingCart, Star, Heart, Search, Sparkles, ShieldAlert, MessageCircle, Send, History } from 'lucide-react';
+import { searchNearbyPlacesAction, saveSavedPlaceAction } from '@/actions/google-places-actions';
+import { getAIRecommendationsAction } from '@/actions/ai-recommendation-actions';
+import { askContextualAssistantAction } from '@/actions/ai-assistant-actions';
+import { fetchAlertsAction, processPlanAlertsAction, markAlertAsReadAction } from '@/actions/alert-actions';
+import { cn } from '@/lib/utils';
+import { Bell } from 'lucide-react';
 
 const WakeLockHandler = () => {
   useEffect(() => {
@@ -96,6 +102,211 @@ export default function DashboardPage() {
   const [isManagerView, setIsManagerView] = useState(false);
   const [allContextEvents, setAllContextEvents] = useState<any[]>([]);
   const [planRoutes, setPlanRoutes] = useState<any[]>([]);
+  
+  // Exploration states
+  const [explorationResults, setExplorationResults] = useState<any[]>([]);
+  const [isSearchingPlaces, setIsSearchingPlaces] = useState(false);
+  const [searchCategory, setSearchCategory] = useState('restaurant');
+  const [searchRadius, setSearchRadius] = useState(1000);
+  const [searchReference, setSearchReference] = useState<'hotel' | 'congress' | 'current'>('hotel');
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [savedPlaces, setSavedPlaces] = useState<any[]>([]);
+  const [isSavingPlaceId, setIsSavingPlaceId] = useState<string | null>(null);
+  const [aiRecommendations, setAiRecommendations] = useState<any[]>([]);
+  const [isRecommendingWithIA, setIsRecommendingWithIA] = useState(false);
+  
+  // Navigation & Assistant states
+  const [activeTab, setActiveTab] = useState<'home' | 'explore' | 'assistant' | 'profile'>('home');
+  const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'assistant'; content: string; actions?: any[] }[]>([]);
+  const [currentMessage, setCurrentMessage] = useState('');
+  const [isThinking, setIsThinking] = useState(false);
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [showAlerts, setShowAlerts] = useState(false);
+  const unreadAlertsCount = alerts.filter(a => !a.read_at).length;
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          setUserLocation({
+            lat: position.coords.latitude,
+            lng: position.coords.longitude
+          });
+        },
+        (error) => {
+          console.warn('Geolocation error:', error);
+        }
+      );
+    }
+  }, []);
+
+  useEffect(() => {
+    const fetchSavedPlaces = async () => {
+      if (!activePlan?.id) return;
+      const { data } = await supabase
+        .from('saved_places')
+        .select('*')
+        .eq('plan_id', activePlan.id);
+      setSavedPlaces(data || []);
+    };
+    fetchSavedPlaces();
+  }, [activePlan?.id]);
+
+  useEffect(() => {
+    const handleAlerts = async () => {
+      if (!activePlan || !session.user?.id) return;
+      await processPlanAlertsAction(activePlan, session.user.id);
+      const data = await fetchAlertsAction(activePlan.id, session.user.id);
+      setAlerts(data);
+    };
+    handleAlerts();
+    const interval = setInterval(handleAlerts, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [activePlan?.id, session.user?.id]);
+
+  const handleExplore = async () => {
+    let location = null;
+    if (searchReference === 'hotel') {
+      const hotel = activePlan?.hotel_stays?.[0];
+      if (hotel?.latitude && hotel?.longitude) {
+        location = { lat: hotel.latitude, lng: hotel.longitude };
+      }
+    } else if (searchReference === 'congress') {
+      const congress = activePlan?.contexts;
+      if (congress?.latitude && congress?.longitude) {
+        location = { lat: congress.latitude, lng: congress.longitude };
+      } else {
+        // Fallback: search for first context coordinates in DB if not in activePlan
+        const { data } = await supabase.from('contexts').select('latitude, longitude').eq('id', selectedContextId).single();
+        if (data?.latitude && data?.longitude) {
+          location = { lat: data.latitude, lng: data.longitude };
+        }
+      }
+    } else if (searchReference === 'current' && userLocation) {
+      location = userLocation;
+    }
+
+    if (!location) {
+      alert('No se pudo determinar la ubicación de referencia.');
+      return;
+    }
+
+    setIsSearchingPlaces(true);
+    try {
+      const res = await searchNearbyPlacesAction(location, searchCategory, searchRadius);
+      if (res.success) {
+        setExplorationResults(res.results || []);
+      } else {
+        console.error('Explore error:', res.error);
+      }
+    } catch (err) {
+      console.error('Explore catch:', err);
+    } finally {
+      setIsSearchingPlaces(false);
+    }
+  };
+
+  const handleAIRecommend = async () => {
+    if (!activePlan?.id || !session?.user?.id || explorationResults.length === 0) return;
+
+    setIsRecommendingWithIA(true);
+    try {
+      // Map category to intent
+      let intent: any = 'quick_lunch';
+      if (searchCategory === 'restaurant') intent = 'business_dinner';
+      if (searchCategory === 'cafe') intent = 'coffee_nearby';
+      if (searchCategory === 'museum') intent = 'museum_short_visit';
+      if (searchCategory === 'tourist_attraction') intent = 'tourist_walk';
+      if (searchCategory === 'pharmacy') intent = 'pharmacy';
+
+      const res = await getAIRecommendationsAction({
+        planId: activePlan.id,
+        profileId: session.user.id,
+        places: explorationResults.map(p => ({
+          google_place_id: p.place_id,
+          name: p.name,
+          category: searchCategory,
+          rating: p.rating,
+          address: p.vicinity || p.formatted_address || '',
+          distance_meters: 0, // Calculated by AI if needed
+          open_now: p.opening_hours?.open_now,
+          latitude: p.geometry?.location?.lat,
+          longitude: p.geometry?.location?.lng,
+          price_level: p.price_level,
+          user_ratings_total: p.user_ratings_total
+        })),
+        intent,
+        category: searchCategory
+      });
+
+      if (res.success) {
+        setAiRecommendations(res.recommendations || []);
+      }
+    } catch (err) {
+      console.error('AI Recommend error:', err);
+    } finally {
+      setIsRecommendingWithIA(false);
+    }
+  };
+
+  const handleAssistantMessage = async (msg?: string) => {
+    const text = msg || currentMessage;
+    if (!text.trim() || !activePlan?.id || !session?.user?.id) return;
+
+    const userMsg = { role: 'user' as const, content: text };
+    setChatHistory(prev => [...prev, userMsg]);
+    setCurrentMessage('');
+    setIsThinking(true);
+
+    try {
+      const res = await askContextualAssistantAction({
+        planId: activePlan.id,
+        profileId: session.user.id,
+        message: text,
+        history: chatHistory.map(h => ({ role: h.role, content: h.content }))
+      });
+
+      if (res.success) {
+        setChatHistory(prev => [...prev, { 
+          role: 'assistant', 
+          content: res.answer || '', 
+          actions: res.actions 
+        }]);
+      } else {
+        setChatHistory(prev => [...prev, { 
+          role: 'assistant', 
+          content: 'Lo siento, he tenido un problema conectando con mi base de conocimientos. ¿Puedes repetirlo?' 
+        }]);
+      }
+    } catch (err) {
+      console.error('Assistant error:', err);
+    } finally {
+      setIsThinking(false);
+    }
+  };
+
+  const handleSavePlace = async (place: any) => {
+    if (!activePlan?.id || !session?.user?.id) return;
+    
+    setIsSavingPlaceId(place.place_id);
+    try {
+      const res = await saveSavedPlaceAction({
+        plan_id: activePlan.id,
+        profile_id: session.user.id,
+        place,
+        category: searchCategory
+      });
+      
+      if (res.success) {
+        setSavedPlaces(prev => [...prev, res.data]);
+      }
+    } catch (err) {
+      console.error('Save place error:', err);
+    } finally {
+      setIsSavingPlaceId(null);
+    }
+  };
+
 
   useEffect(() => {
     const loadContexts = async () => {
@@ -456,12 +667,17 @@ export default function DashboardPage() {
   }
 
   return (
-    <motion.div 
-      variants={containerVariants}
-      initial="hidden"
-      animate="visible"
-      className="max-w-xl mx-auto px-6 py-10 space-y-12 pb-32"
-    >
+    <div className="min-h-screen bg-background relative overflow-hidden flex flex-col">
+      <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
+        <motion.div 
+          key={activeTab}
+          variants={containerVariants}
+          initial="hidden"
+          animate="visible"
+          className="max-w-xl mx-auto px-6 py-10 space-y-12"
+        >
+          {activeTab === 'home' && (
+            <>
       {airportMode ? (
         /* --- VIEW: AIRPORT MODE --- */
         <motion.div variants={itemVariants} className="space-y-10 pt-4">
@@ -608,6 +824,18 @@ export default function DashboardPage() {
             </h1>
           </div>
           <div className="flex items-center gap-3 shrink-0">
+            <button
+              onClick={() => setShowAlerts(true)}
+              className="relative w-10 h-10 rounded-xl bg-surface border border-border flex items-center justify-center text-muted hover:text-accent hover:border-accent/40 transition-all active:scale-90"
+              aria-label="Ver alertas"
+            >
+              <Bell size={20} />
+              {unreadAlertsCount > 0 && (
+                <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-accent text-white text-[10px] font-black flex items-center justify-center border-2 border-background">
+                  {unreadAlertsCount}
+                </span>
+              )}
+            </button>
             <button
               onClick={toggleTheme}
               className="w-10 h-10 rounded-xl bg-surface border border-border flex items-center justify-center text-muted hover:text-accent hover:border-accent/40 transition-all active:scale-90"
@@ -787,77 +1015,98 @@ export default function DashboardPage() {
         </motion.section>
       )}
       {/* BLOQUE 2.5: MOVILIDAD INTELIGENTE */}
-      {planRoutes.length > 0 && (
-        <motion.section variants={itemVariants} className="space-y-6">
-          <div className="flex items-center gap-4 px-2">
+      <motion.section variants={itemVariants} className="space-y-6">
+        <div className="flex items-center justify-between px-2">
+          <div className="flex items-center gap-4">
             <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-accent">Movilidad Inteligente</h3>
-            <div className="flex-1 h-px bg-accent/20" />
+            <div className="w-1.5 h-1.5 rounded-full bg-accent/30" />
           </div>
+          {session.user?.role === 'admin' && (
+            <button 
+              onClick={() => router.push('/admin/plans')}
+              className="text-[9px] font-black text-muted hover:text-accent uppercase tracking-widest flex items-center gap-1.5 transition-colors"
+            >
+              <Zap size={10} /> Recalcular
+            </button>
+          )}
+        </div>
 
+        {planRoutes.length > 0 ? (
           <div className="grid grid-cols-1 gap-4">
-            {/* Filter routes to show only key ones (Hotel -> X) */}
+            {/* Rutas Críticas Estructuradas */}
             {(() => {
-              const hotel = activePlan?.hotel_stays?.[0];
-              const uniqueRoutes = planRoutes.filter((r, i, self) => 
-                i === self.findIndex((t) => (
-                  t.origin_label === r.origin_label && t.destination_label === r.destination_label
-                ))
-              );
+              const hotelName = activePlan?.hotel_stays?.[0]?.hotel_name || 'Hotel';
+              const contextName = selectedContext?.name || 'Sede';
+              
+              // Definir pares de rutas prioritarias
+              const priorityPairs = [
+                { from: hotelName, to: contextName, icon: Building2 },
+                { from: contextName, to: hotelName, icon: Building2 },
+                { from: hotelName, to: 'Aeropuerto', icon: Plane },
+                { from: 'Aeropuerto', to: hotelName, icon: Plane }
+              ];
 
-              return uniqueRoutes.map(route => {
+              return priorityPairs.map(pair => {
                 const rts = planRoutes.filter(r => 
-                  r.origin_label === route.origin_label && 
-                  r.destination_label === route.destination_label
+                  (r.origin_label?.toLowerCase().includes(pair.from.toLowerCase()) && r.destination_label?.toLowerCase().includes(pair.to.toLowerCase())) ||
+                  (pair.to === 'Aeropuerto' && r.destination_label?.toLowerCase().includes('aeropuerto'))
                 );
+                
+                if (rts.length === 0) return null;
+
+                const baseRoute = rts[0];
                 const walking = rts.find(r => r.travel_mode === 'WALKING');
                 const driving = rts.find(r => r.travel_mode === 'DRIVING');
                 const transit = rts.find(r => r.travel_mode === 'TRANSIT');
 
                 return (
-                  <div key={`${route.origin_label}-${route.destination_label}`} className="p-6 rounded-[2.5rem] bg-surface border border-border/50 shadow-xl space-y-5">
+                  <div key={`${pair.from}-${pair.to}`} className="p-6 rounded-[2.5rem] bg-surface border border-border/50 shadow-xl space-y-5 group hover:border-accent/30 transition-all">
                     <div className="flex justify-between items-start">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-2xl bg-accent/5 border border-accent/10 flex items-center justify-center text-accent">
-                          <Navigation size={18} />
+                          <pair.icon size={18} />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-[8px] font-black text-muted uppercase tracking-widest leading-none mb-1">{route.origin_label} ➔ {route.destination_label}</p>
-                          <p className="text-sm font-black text-foreground truncate">{route.distance_text || 'Calculando...'}</p>
+                          <p className="text-[8px] font-black text-muted uppercase tracking-widest leading-none mb-1">{pair.from} ➔ {pair.to}</p>
+                          <p className="text-sm font-black text-foreground truncate">{baseRoute.distance_text || 'Consultando...'}</p>
                         </div>
                       </div>
                       <button 
-                        onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(route.origin_label || '')}&destination=${encodeURIComponent(route.destination_label || '')}`)}
-                        className="p-3 rounded-2xl bg-surface-subtle border border-border text-accent hover:bg-accent/10 transition-colors"
+                        onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(pair.from)}&destination=${encodeURIComponent(pair.to)}`)}
+                        className="p-3 rounded-2xl bg-surface-subtle border border-border text-accent hover:bg-accent hover:text-white transition-all active:scale-90"
                       >
-                        <ExternalLink size={14} />
+                        <Navigation size={14} />
                       </button>
                     </div>
 
                     <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border/30">
-                      <div className="flex flex-col items-center gap-1 py-2">
-                        <Footprints size={12} className="text-muted" />
-                        <span className="text-[10px] font-black text-foreground">{walking?.duration_text || '—'}</span>
+                      <div className="flex flex-col items-center gap-1 py-2 rounded-2xl hover:bg-white/5 transition-colors">
+                        <Footprints size={12} className={walking ? "text-foreground" : "text-muted/30"} />
+                        <span className={`text-[10px] font-black ${walking ? "text-foreground" : "text-muted/30"}`}>{walking?.duration_text || '—'}</span>
                         <span className="text-[7px] font-black text-muted uppercase">A pie</span>
                       </div>
-                      <div className="flex flex-col items-center gap-1 py-2 bg-accent/5 rounded-2xl">
+                      <div className="flex flex-col items-center gap-1 py-2 bg-accent/5 rounded-2xl border border-accent/10">
                         <Car size={12} className="text-accent" />
                         <span className="text-[10px] font-black text-accent">{driving?.duration_text || '—'}</span>
                         <span className="text-[7px] font-black text-accent uppercase">Taxi</span>
                       </div>
-                      <div className="flex flex-col items-center gap-1 py-2">
-                        <Bus size={12} className="text-blue-400" />
-                        <span className="text-[10px] font-black text-blue-400">{transit?.duration_text || '—'}</span>
-                        <span className="text-[7px] font-black text-muted uppercase">Transporte</span>
+                      <div className="flex flex-col items-center gap-1 py-2 rounded-2xl hover:bg-white/5 transition-colors">
+                        <Bus size={12} className={transit ? "text-blue-400" : "text-muted/30"} />
+                        <span className={`text-[10px] font-black ${transit ? "text-blue-400" : "text-muted/30"}`}>{transit?.duration_text || '—'}</span>
+                        <span className="text-[7px] font-black text-muted uppercase">Bus/Metro</span>
                       </div>
                     </div>
 
                     <div className="flex gap-2">
-                      <button className="flex-1 py-3 rounded-xl bg-surface-subtle border border-border text-[8px] font-black uppercase tracking-widest text-muted hover:text-accent transition-colors">
+                      <button 
+                        onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(pair.from)}&destination=${encodeURIComponent(pair.to)}&travelmode=transit`)}
+                        className="flex-1 py-3 rounded-xl bg-surface-subtle border border-border text-[8px] font-black uppercase tracking-widest text-muted hover:text-accent transition-colors"
+                      >
                         Ver Alternativas
                       </button>
                       <button 
-                        onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(route.destination_label || '')}`)}
-                        className="flex-1 py-3 rounded-xl bg-accent/10 border border-accent/20 text-[8px] font-black uppercase tracking-widest text-accent"
+                        onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(pair.from)}&destination=${encodeURIComponent(pair.to)}&travelmode=driving`)}
+                        className="flex-1 py-3 rounded-xl bg-accent/10 border border-accent/20 text-[8px] font-black uppercase tracking-widest text-accent hover:bg-accent hover:text-white transition-all"
                       >
                         Pedir Taxi
                       </button>
@@ -867,10 +1116,230 @@ export default function DashboardPage() {
               });
             })()}
           </div>
-        </motion.section>
+        ) : (
+          session.user?.role === 'admin' ? (
+            <div className="p-8 rounded-[2.5rem] border border-dashed border-accent/30 bg-accent/5 flex flex-col items-center gap-4 text-center">
+              <div className="w-12 h-12 rounded-full bg-accent/10 flex items-center justify-center text-accent">
+                <Navigation size={24} />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs font-black text-foreground uppercase tracking-widest">Rutas no calculadas</p>
+                <p className="text-[10px] text-muted leading-relaxed">Como administrador, puedes iniciar el cálculo de distancias inteligentes.</p>
+              </div>
+              <button 
+                onClick={() => router.push('/admin/plans')}
+                className="px-6 py-3 rounded-xl bg-accent text-white text-[10px] font-black uppercase tracking-widest shadow-lg shadow-accent/20 active:scale-95 transition-all"
+              >
+                Calcular Distancias
+              </button>
+            </div>
+          ) : null
+        )}
+      </motion.section>
+
+            </>
+          )}
+        </>
       )}
 
-      {/* BLOQUE 3: ITINERARIO */}
+          {activeTab === 'explore' && (
+            <motion.div variants={itemVariants} className="space-y-8 pt-4">
+              <div className="space-y-1">
+                <p className="text-[10px] font-black text-accent uppercase tracking-[0.3em]">Destino activo</p>
+                <h1 className="text-4xl font-black text-foreground tracking-tighter">EXPLORAR</h1>
+              </div>
+      <motion.section variants={itemVariants} className="space-y-6">
+        <div className="flex items-center justify-between px-2">
+          <div className="flex items-center gap-4">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-accent">Explorar Destino</h3>
+            <div className="w-1.5 h-1.5 rounded-full bg-accent/30" />
+          </div>
+          <Compass size={14} className="text-muted/40" />
+        </div>
+
+        <div className="bg-surface border border-border/50 rounded-[2.5rem] p-6 space-y-6 shadow-xl">
+          {/* Controles de búsqueda */}
+          <div className="grid grid-cols-1 gap-6">
+            <div className="space-y-3">
+              <p className="text-[9px] font-black text-muted uppercase tracking-widest px-1">Punto de referencia</p>
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { id: 'hotel', label: 'Mi Hotel', icon: Building2 },
+                  { id: 'congress', label: 'Sede', icon: Landmark },
+                  { id: 'current', label: 'Cerca de mí', icon: MapPin }
+                ].map(ref => (
+                  <button
+                    key={ref.id}
+                    onClick={() => setSearchReference(ref.id as any)}
+                    className={cn(
+                      "flex flex-col items-center gap-2 p-4 rounded-2xl border transition-all",
+                      searchReference === ref.id 
+                        ? "bg-accent border-accent text-white shadow-lg shadow-accent/20" 
+                        : "bg-background/50 border-border text-muted hover:border-accent/30"
+                    )}
+                  >
+                    <ref.icon size={16} />
+                    <span className="text-[8px] font-black uppercase tracking-widest">{ref.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <p className="text-[9px] font-black text-muted uppercase tracking-widest px-1">Categoría</p>
+              <div className="flex gap-2 overflow-x-auto no-scrollbar pb-2">
+                {[
+                  { id: 'restaurant', label: 'Restaurantes', icon: Utensils },
+                  { id: 'cafe', label: 'Cafeterías', icon: Coffee },
+                  { id: 'tourist_attraction', label: 'Turismo', icon: Landmark },
+                  { id: 'museum', label: 'Museos', icon: Landmark },
+                  { id: 'pharmacy', label: 'Farmacias', icon: Pill },
+                  { id: 'transit_station', label: 'Transporte', icon: BusFront },
+                  { id: 'supermarket', label: 'Supermercado', icon: ShoppingCart }
+                ].map(cat => (
+                  <button
+                    key={cat.id}
+                    onClick={() => setSearchCategory(cat.id)}
+                    className={cn(
+                      "flex items-center gap-2 px-6 py-3 rounded-full border whitespace-nowrap transition-all",
+                      searchCategory === cat.id 
+                        ? "bg-foreground text-background border-foreground shadow-lg" 
+                        : "bg-background/50 border-border text-muted hover:border-accent/30"
+                    )}
+                  >
+                    <cat.icon size={14} />
+                    <span className="text-[10px] font-black uppercase tracking-widest">{cat.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-4">
+              <div className="flex-1 space-y-2">
+                <p className="text-[9px] font-black text-muted uppercase tracking-widest px-1">Radio de búsqueda</p>
+                <div className="flex gap-1 p-1 bg-background/50 rounded-xl border border-border/50">
+                  {[
+                    { v: 500, l: '500m' },
+                    { v: 1000, l: '1km' },
+                    { v: 2000, l: '2km' },
+                    { v: 5000, l: '5km' }
+                  ].map(r => (
+                    <button
+                      key={r.v}
+                      onClick={() => setSearchRadius(r.v)}
+                      className={cn(
+                        "flex-1 py-2 text-[8px] font-black uppercase rounded-lg transition-all",
+                        searchRadius === r.v ? "bg-accent text-white shadow-sm" : "text-muted hover:text-foreground"
+                      )}
+                    >
+                      {r.l}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <button
+                onClick={handleExplore}
+                disabled={isSearchingPlaces}
+                className="mt-6 h-12 w-12 rounded-2xl bg-accent text-white flex items-center justify-center shadow-lg shadow-accent/20 active:scale-90 transition-all disabled:opacity-50"
+              >
+                {isSearchingPlaces ? <Loader2 className="animate-spin" size={20} /> : <Compass size={20} />}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Resultados */}
+        <div className="grid grid-cols-1 gap-4">
+          {explorationResults.length > 0 ? (
+            explorationResults.slice(0, 8).map((place) => {
+              const isSaved = savedPlaces.some(p => p.google_place_id === place.place_id);
+              return (
+                <motion.div 
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  key={place.place_id} 
+                  className="p-5 rounded-[2.5rem] bg-surface border border-border/50 shadow-xl space-y-4 group hover:border-accent/30 transition-all"
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="flex gap-4">
+                      {place.photos?.[0] ? (
+                        <img 
+                          src={`https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=${place.photos[0].photo_reference}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY}`} 
+                          alt={place.name}
+                          className="w-16 h-16 rounded-2xl object-cover shadow-lg"
+                        />
+                      ) : (
+                        <div className="w-16 h-16 rounded-2xl bg-accent/5 flex items-center justify-center text-accent border border-accent/10 shadow-inner">
+                          <MapPin size={24} />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <h4 className="text-sm font-black text-foreground truncate">{place.name}</h4>
+                        <p className="text-[10px] text-muted truncate max-w-[200px] mb-1">{place.vicinity}</p>
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1">
+                            <Star size={10} className="text-amber-500 fill-amber-500" />
+                            <span className="text-[10px] font-black text-foreground">{place.rating || 'N/A'}</span>
+                          </div>
+                          {place.opening_hours && (
+                            <span className={cn(
+                              "px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest",
+                              place.opening_hours.open_now ? "bg-emerald-500/10 text-emerald-500" : "bg-red-500/10 text-red-500"
+                            )}>
+                              {place.opening_hours.open_now ? 'Abierto' : 'Cerrado'}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleSavePlace(place)}
+                      disabled={isSaved || isSavingPlaceId === place.place_id}
+                      className={cn(
+                        "w-10 h-10 rounded-xl flex items-center justify-center transition-all",
+                        isSaved 
+                          ? "bg-emerald-500 text-white" 
+                          : "bg-surface-subtle border border-border text-muted hover:text-accent hover:border-accent/30"
+                      )}
+                    >
+                      {isSavingPlaceId === place.place_id ? <Loader2 className="animate-spin" size={14} /> : (isSaved ? <Check size={16} /> : <Heart size={16} />)}
+                    </button>
+                  </div>
+                  
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(place.name + ' ' + place.vicinity)}`)}
+                      className="flex-1 py-3 rounded-xl bg-accent/10 border border-accent/20 text-[8px] font-black uppercase tracking-widest text-accent flex items-center justify-center gap-2 transition-all active:scale-95"
+                    >
+                      <Navigation size={12} /> Cómo llegar
+                    </button>
+                    <button 
+                      onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(place.name)}&query_place_id=${place.place_id}`)}
+                      className="px-4 py-3 rounded-xl bg-surface-subtle border border-border text-[8px] font-black uppercase tracking-widest text-muted hover:bg-border transition-colors"
+                    >
+                      Ver en Maps
+                    </button>
+                  </div>
+                </motion.div>
+              );
+            })
+          ) : (
+            !isSearchingPlaces && explorationResults.length === 0 && (
+              <div className="p-12 rounded-[2.5rem] border border-dashed border-border/50 bg-background/30 flex flex-col items-center gap-4 text-center">
+                <Compass size={40} className="text-muted/30" />
+                <p className="text-[10px] font-black text-muted uppercase tracking-widest">Busca lugares cercanos para explorar el destino</p>
+              </div>
+            )
+          )}
+        </div>
+      </motion.section>
+
+            </motion.div>
+          )}
+
+          {activeTab === 'home' && (
+            <>
+              {/* BLOQUE 3: ITINERARIO */}
       <motion.section variants={itemVariants} className="space-y-10">
         <div className="flex items-center gap-5 px-2">
           <div className="bg-accent/10 p-3 rounded-2xl border border-accent/20">
@@ -916,27 +1385,74 @@ export default function DashboardPage() {
 
                         <div className="pt-6 border-t border-border/50 space-y-4">
                           <p className="text-[10px] font-black text-accent uppercase tracking-widest flex items-center gap-2">
-                             <Zap size={10} /> Movilidad desde el Hotel
+                             <Zap size={10} /> Tiempos de Desplazamiento
                           </p>
                           <div className="grid grid-cols-1 gap-2">
-                            {planRoutes.filter(r => r.origin_label?.toLowerCase().includes('hotel') && r.travel_mode === 'DRIVING').map(route => (
-                              <div key={route.id} className="flex items-center justify-between p-3 rounded-2xl bg-background/50 border border-border/50">
-                                <div className="flex items-center gap-3">
-                                  <Car size={12} className="text-muted" />
-                                  <span className="text-[10px] font-bold text-foreground">Al {route.destination_label}</span>
+                            {/* Al Congreso */}
+                            {(() => {
+                              const route = planRoutes.find(r => 
+                                r.origin_label?.toLowerCase().includes('hotel') && 
+                                r.destination_label?.toLowerCase().includes(selectedContext?.name?.toLowerCase() || 'sede') &&
+                                r.travel_mode === 'DRIVING'
+                              );
+                              if (!route) return null;
+                              return (
+                                <div className="flex items-center justify-between p-3 rounded-2xl bg-background/50 border border-border/50">
+                                  <div className="flex items-center gap-3">
+                                    <Building2 size={12} className="text-muted" />
+                                    <span className="text-[10px] font-bold text-foreground">Al Congreso</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Car size={10} className="text-accent" />
+                                    <span className="text-[10px] font-black text-accent">{route.duration_text}</span>
+                                  </div>
                                 </div>
-                                <span className="text-[10px] font-black text-accent">{route.duration_text}</span>
-                              </div>
-                            ))}
-                            {planRoutes.filter(r => r.origin_label?.toLowerCase().includes('hotel') && r.travel_mode === 'WALKING' && r.duration_seconds < 1800).map(route => (
-                              <div key={route.id} className="flex items-center justify-between p-3 rounded-2xl bg-background/50 border border-border/50">
-                                <div className="flex items-center gap-3">
-                                  <Footprints size={12} className="text-muted" />
-                                  <span className="text-[10px] font-bold text-foreground">Al {route.destination_label} (A pie)</span>
+                              );
+                            })()}
+                            
+                            {/* A la Cena */}
+                            {(() => {
+                              const route = planRoutes.find(r => 
+                                r.origin_label?.toLowerCase().includes('hotel') && 
+                                r.destination_label?.toLowerCase().includes('restaurante') &&
+                                r.travel_mode === 'DRIVING'
+                              );
+                              if (!route) return null;
+                              return (
+                                <div className="flex items-center justify-between p-3 rounded-2xl bg-background/50 border border-border/50">
+                                  <div className="flex items-center gap-3">
+                                    <Utensils size={12} className="text-muted" />
+                                    <span className="text-[10px] font-bold text-foreground">A la Cena</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Car size={10} className="text-accent" />
+                                    <span className="text-[10px] font-black text-accent">{route.duration_text}</span>
+                                  </div>
                                 </div>
-                                <span className="text-[10px] font-black text-foreground">{route.duration_text}</span>
-                              </div>
-                            ))}
+                              );
+                            })()}
+
+                            {/* Al Aeropuerto */}
+                            {(() => {
+                              const route = planRoutes.find(r => 
+                                r.origin_label?.toLowerCase().includes('hotel') && 
+                                r.destination_label?.toLowerCase().includes('aeropuerto') &&
+                                r.travel_mode === 'DRIVING'
+                              );
+                              if (!route) return null;
+                              return (
+                                <div className="flex items-center justify-between p-3 rounded-2xl bg-background/50 border border-border/50">
+                                  <div className="flex items-center gap-3">
+                                    <Plane size={12} className="text-muted" />
+                                    <span className="text-[10px] font-bold text-foreground">Al Aeropuerto</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Car size={10} className="text-accent" />
+                                    <span className="text-[10px] font-black text-accent">{route.duration_text}</span>
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
                         </div>
 
@@ -1165,7 +1681,8 @@ export default function DashboardPage() {
                             <Car size={14} className="text-accent" />
                             <p className="text-sm font-bold text-foreground">
                               {planRoutes.find(r => 
-                                r.destination_label?.toLowerCase().includes(e.venue_name?.toLowerCase() || '') && 
+                                r.origin_label?.toLowerCase().includes('hotel') && 
+                                (r.destination_label?.toLowerCase().includes(e.venue_name?.toLowerCase() || '') || r.destination_label?.toLowerCase().includes('restaurante')) && 
                                 r.travel_mode === 'DRIVING'
                               )?.duration_text || '—'}
                             </p>
@@ -1181,7 +1698,7 @@ export default function DashboardPage() {
                             onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(e.venue_name + ' ' + (e.venue_address || ''))}`)}
                             className="text-sm font-bold text-accent hover:underline flex items-center gap-2"
                           >
-                            Ver en Maps <Navigation size={12} />
+                            Cómo llegar <Navigation size={12} />
                           </button>
                        </div>
                        <div className="space-y-1">
@@ -1434,8 +1951,6 @@ export default function DashboardPage() {
            </button>
         </div>
       </motion.section>
-    </>
-  )}
 
       {/* TIMELINE MODAL */}
       <OutcomeDrawer 
@@ -1457,6 +1972,226 @@ export default function DashboardPage() {
         contextLocation={selectedContext?.location}
       />
 
+            </>
+          )}
+
+          {activeTab === 'assistant' && (
+            /* --- VIEW: ASSISTANT --- */
+            <motion.div variants={itemVariants} className="space-y-8 pt-4 h-full flex flex-col">
+              <div className="space-y-1">
+                <p className="text-[10px] font-black text-accent uppercase tracking-[0.3em]">Concierge Premium</p>
+                <h1 className="text-4xl font-black text-foreground tracking-tighter">ASISTENTE</h1>
+              </div>
+
+              {/* Chat Window */}
+              <div className="flex-1 min-h-[500px] flex flex-col bg-surface border border-border/50 rounded-[3rem] shadow-2xl overflow-hidden relative">
+                <div className="flex-1 p-6 overflow-y-auto space-y-6 no-scrollbar pb-24">
+                  {chatHistory.length === 0 && (
+                    <div className="h-full flex flex-col items-center justify-center text-center space-y-6 p-4">
+                      <div className="w-20 h-20 rounded-[2.5rem] bg-accent/10 flex items-center justify-center text-accent">
+                        <Sparkles size={40} />
+                      </div>
+                      <div className="space-y-2">
+                        <h3 className="text-xl font-black text-foreground uppercase tracking-tight">¿En qué puedo ayudarte?</h3>
+                        <p className="text-xs text-muted leading-relaxed font-medium">Pregúntame sobre tu hotel, tus vuelos, cómo llegar a un evento o pide recomendaciones locales.</p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 w-full pt-4">
+                        {[
+                          "¿Dónde ceno hoy?",
+                          "Cómo llegar al hotel",
+                          "Próximo evento",
+                          "Café cercano"
+                        ].map(q => (
+                          <button 
+                            key={q}
+                            onClick={() => handleAssistantMessage(q)}
+                            className="p-4 rounded-2xl bg-surface-subtle border border-border text-[9px] font-black uppercase tracking-widest text-muted hover:text-accent hover:border-accent/30 transition-all"
+                          >
+                            {q}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {chatHistory.map((msg, idx) => (
+                    <motion.div 
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      key={idx} 
+                      className={cn(
+                        "flex flex-col gap-2 max-w-[85%]",
+                        msg.role === 'user' ? "ml-auto items-end" : "mr-auto items-start"
+                      )}
+                    >
+                      <div className={cn(
+                        "p-5 rounded-[2rem]",
+                        msg.role === 'user' 
+                          ? "bg-foreground text-background rounded-tr-sm shadow-lg" 
+                          : "bg-surface-subtle border border-border rounded-tl-sm"
+                      )}>
+                        <p className="text-sm font-medium leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                      </div>
+                      
+                      {msg.actions && msg.actions.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-1">
+                          {msg.actions.map((act, i) => (
+                            <button
+                              key={i}
+                              onClick={() => {
+                                if (act.type === 'map') window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(act.payload)}`);
+                                if (act.type === 'contact') window.open(`tel:${act.payload}`);
+                              }}
+                              className="px-4 py-2 rounded-xl bg-accent text-white text-[9px] font-black uppercase tracking-widest flex items-center gap-2 shadow-lg shadow-accent/20"
+                            >
+                              {act.type === 'map' ? <MapPin size={12} /> : <Phone size={12} />}
+                              {act.label}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </motion.div>
+                  ))}
+
+                  {isThinking && (
+                    <div className="flex items-center gap-3 text-accent animate-pulse">
+                      <div className="flex gap-1">
+                        <div className="w-1.5 h-1.5 rounded-full bg-current" />
+                        <div className="w-1.5 h-1.5 rounded-full bg-current delay-100" />
+                        <div className="w-1.5 h-1.5 rounded-full bg-current delay-200" />
+                      </div>
+                      <span className="text-[9px] font-black uppercase tracking-[0.2em]">Concierge pensando...</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Input Area (Pinned to bottom of card) */}
+                <div className="absolute bottom-0 left-0 right-0 p-4 bg-surface/80 backdrop-blur-md border-t border-border">
+                  <div className="flex gap-3 p-2 rounded-[2rem] bg-surface border border-border shadow-inner focus-within:border-accent transition-all">
+                    <input 
+                      value={currentMessage}
+                      onChange={(e) => setCurrentMessage(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && handleAssistantMessage()}
+                      placeholder="Escribe tu duda aquí..."
+                      className="flex-1 bg-transparent px-4 py-2 text-sm font-medium focus:outline-none placeholder:text-muted/50"
+                    />
+                    <button 
+                      onClick={() => handleAssistantMessage()}
+                      disabled={!currentMessage.trim() || isThinking}
+                      className="w-10 h-10 rounded-full bg-accent text-white flex items-center justify-center shadow-lg shadow-accent/20 disabled:opacity-30 active:scale-90 transition-all"
+                    >
+                      <Send size={18} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'profile' && (
+            /* --- VIEW: PROFILE --- */
+            <motion.div variants={itemVariants} className="space-y-8 pt-4">
+              <div className="space-y-1">
+                <p className="text-[10px] font-black text-accent uppercase tracking-[0.3em]">Tu cuenta</p>
+                <h1 className="text-4xl font-black text-foreground tracking-tighter">PERFIL</h1>
+              </div>
+
+              <div className="relative group">
+                <div className="absolute -inset-1 bg-gradient-to-r from-accent/20 to-purple-500/20 blur-xl opacity-0 group-hover:opacity-100 transition-opacity" />
+                <div className="relative p-8 rounded-[3rem] bg-surface border border-border shadow-2xl flex flex-col items-center text-center space-y-6">
+                  <div className="w-24 h-24 rounded-[2.5rem] bg-accent/10 border-4 border-surface shadow-xl flex items-center justify-center text-accent text-4xl font-black">
+                    {userName[0]}
+                  </div>
+                  <div className="space-y-1">
+                    <h2 className="text-2xl font-black text-foreground tracking-tight">{userName}</h2>
+                    <p className="text-xs font-medium text-muted uppercase tracking-widest">{session.user?.role || 'CLIENTE VIP'}</p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 w-full">
+                    <div className="p-5 rounded-2xl bg-surface-subtle border border-border space-y-1">
+                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">Viajes Activos</p>
+                      <p className="text-xl font-black text-foreground">1</p>
+                    </div>
+                    <div className="p-5 rounded-2xl bg-surface-subtle border border-border space-y-1">
+                      <p className="text-[9px] font-black text-muted uppercase tracking-widest">Mensajes IA</p>
+                      <p className="text-xl font-black text-foreground">{chatHistory.length}</p>
+                    </div>
+                  </div>
+
+                  <button 
+                    onClick={() => supabase.auth.signOut().then(() => router.push('/login'))}
+                    className="w-full py-5 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-500 text-[10px] font-black uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all shadow-xl shadow-red-500/10"
+                  >
+                    Cerrar Sesión
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-6 rounded-[2.5rem] bg-accent/5 border border-accent/20 flex items-center justify-between group">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-accent/10 flex items-center justify-center text-accent">
+                    <Smartphone size={24} />
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-black text-foreground">Instalar Aplicación</p>
+                    <p className="text-[10px] text-muted leading-tight">Accede más rápido desde tu inicio.</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => window.dispatchEvent(new CustomEvent('trigger-pwa-install'))}
+                  className="px-5 py-2.5 rounded-xl bg-accent text-white text-[10px] font-black uppercase tracking-widest shadow-lg shadow-accent/20 active:scale-95 transition-all"
+                >
+                  Instalar
+                </button>
+              </div>
+
+              {/* Version Info */}
+              <div className="flex flex-col items-center gap-4 py-4">
+                 <div className="flex items-center gap-3">
+                   <div className="w-2 h-2 rounded-full bg-emerald-500" />
+                   <p className="text-[9px] font-black text-muted uppercase tracking-widest">JP Intelligence v2.1.0 - PWA Ready</p>
+                 </div>
+              </div>
+            </motion.div>
+          )}
+        </motion.div>
+      </div>
+
+      {/* BOTTOM NAV */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 px-6 pt-2 bg-gradient-to-t from-background via-background/90 to-transparent pb-[calc(2rem+env(safe-area-inset-bottom,0px))]">
+        <div className="max-w-xl mx-auto flex items-center justify-between p-2 rounded-[2.5rem] bg-surface/90 backdrop-blur-xl border border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.1)]">
+          {[
+            { id: 'home', label: 'Inicio', icon: Building2 },
+            { id: 'explore', label: 'Explorar', icon: Compass },
+            { id: 'assistant', label: 'Asistente', icon: Sparkles },
+            { id: 'profile', label: 'Perfil', icon: User },
+          ].map(tab => (
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id as any)}
+              className={cn(
+                "relative flex-1 flex flex-col items-center gap-1.5 py-3 transition-all",
+                activeTab === tab.id ? "text-accent" : "text-muted hover:text-foreground"
+              )}
+            >
+              {activeTab === tab.id && (
+                <motion.div 
+                  layoutId="activeNav"
+                  className="absolute inset-0 bg-accent/10 rounded-2xl -z-10"
+                  transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                />
+              )}
+              <tab.icon size={22} className={cn(
+                "transition-transform",
+                activeTab === tab.id ? "scale-110" : ""
+              )} />
+              <span className="text-[8px] font-black uppercase tracking-[0.1em]">{tab.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* MODALES GLOBALES */}
       {/* QR MODAL (Premium Full-Screen Experience) */}
       <AnimatePresence>
         {selectedQR && (
@@ -1482,12 +2217,9 @@ export default function DashboardPage() {
                     <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
                     <span className="text-[10px] font-black uppercase tracking-widest">Tarjeta de Embarque</span>
                   </div>
-                  <h3 className="text-4xl font-black tracking-tighter text-slate-900 leading-none">
-                    {selectedQR.flight?.departure_location || '—'} ➔ {selectedQR.flight?.arrival_location || '—'}
-                  </h3>
-                  <p className="text-sm font-bold text-slate-500 uppercase tracking-widest">
-                    {selectedQR.flight?.airline} · {selectedQR.flight?.flight_number}
-                  </p>
+                  <h2 className="text-3xl font-black text-slate-900 tracking-tighter leading-tight">
+                    {selectedQR.title}
+                  </h2>
                 </div>
                 <button 
                   onClick={() => setSelectedQR(null)}
@@ -1538,6 +2270,158 @@ export default function DashboardPage() {
                      Cerrar
                    </button>
                  </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ALERTS MODAL */}
+      <AnimatePresence>
+        {showAlerts && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[500] flex items-end justify-center sm:items-center p-0 sm:p-4 bg-background/80 backdrop-blur-sm"
+          >
+            <motion.div 
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              className="w-full max-w-xl bg-surface border-t sm:border border-border rounded-t-[2.5rem] sm:rounded-[2.5rem] shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+            >
+              <div className="p-8 border-b border-border flex items-center justify-between sticky top-0 bg-surface z-10">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-accent/10 flex items-center justify-center text-accent">
+                    <Bell size={24} />
+                  </div>
+                  <div>
+                    <h3 className="text-xl font-black text-foreground">Alertas Inteligentes</h3>
+                    <p className="text-[10px] font-black text-muted uppercase tracking-widest">
+                      {unreadAlertsCount > 0 ? `${unreadAlertsCount} Notificaciones Nuevas` : 'Todo al día'}
+                    </p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => setShowAlerts(false)}
+                  className="w-12 h-12 rounded-full bg-surface-subtle flex items-center justify-center text-foreground hover:bg-border transition-all"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto no-scrollbar p-6 space-y-4">
+                {alerts.length === 0 ? (
+                  <div className="py-20 flex flex-col items-center justify-center text-center space-y-4">
+                    <div className="w-20 h-20 rounded-full bg-surface-subtle flex items-center justify-center text-muted/30">
+                      <Bell size={40} />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-black text-foreground uppercase tracking-widest">Sin alertas</p>
+                      <p className="text-xs text-muted">Te avisaremos cuando haya novedades en tu plan.</p>
+                    </div>
+                  </div>
+                ) : (
+                  alerts.map((alert) => (
+                    <div 
+                      key={alert.id}
+                      className={cn(
+                        "p-6 rounded-[2rem] border transition-all relative overflow-hidden group",
+                        alert.read_at ? "bg-surface-subtle border-border opacity-70" : "bg-surface border-accent/20 shadow-xl"
+                      )}
+                    >
+                      {!alert.read_at && (
+                        <div className="absolute top-6 right-6 w-2 h-2 rounded-full bg-accent animate-pulse" />
+                      )}
+                      
+                      <div className="flex gap-5">
+                        <div className={cn(
+                          "w-12 h-12 rounded-2xl flex items-center justify-center shrink-0",
+                          alert.type === 'flight' ? "bg-blue-500/10 text-blue-500" :
+                          alert.type === 'boarding_pass' ? "bg-accent/10 text-accent" :
+                          alert.type === 'dining' ? "bg-orange-500/10 text-orange-500" :
+                          alert.type === 'transfer' ? "bg-purple-500/10 text-purple-500" :
+                          "bg-surface-subtle text-muted"
+                        )}>
+                          {alert.type === 'flight' ? <Plane size={24} /> :
+                           alert.type === 'boarding_pass' ? <QrCode size={24} /> :
+                           alert.type === 'dining' ? <Utensils size={24} /> :
+                           alert.type === 'transfer' ? <Car size={24} /> :
+                           <AlertCircle size={24} />}
+                        </div>
+                        
+                        <div className="space-y-3 flex-1">
+                          <div className="space-y-1">
+                            <p className="text-[9px] font-black text-muted uppercase tracking-[0.2em]">{alert.type}</p>
+                            <h4 className="text-base font-black text-foreground leading-tight">{alert.title}</h4>
+                            <p className="text-xs text-muted leading-relaxed">{alert.message}</p>
+                          </div>
+                          
+                          <div className="flex items-center gap-3 pt-2">
+                            {alert.action_label && (
+                              <button 
+                                onClick={async () => {
+                                  // Manejar acciones
+                                  if (alert.action_url?.startsWith('show_qr:')) {
+                                    const docId = alert.action_url.split(':')[1];
+                                    const doc = activePlan?.documents.find(d => d.id === docId);
+                                    if (doc) setSelectedQR({ ...doc, flight: activePlan?.flights.find(f => f.id === doc.related_flight_id) });
+                                    setShowAlerts(false);
+                                  } else if (alert.action_url?.startsWith('view_event:')) {
+                                     setActiveTab('home');
+                                     setShowAlerts(false);
+                                  } else if (alert.action_url) {
+                                    router.push(alert.action_url);
+                                    setShowAlerts(false);
+                                  }
+                                  
+                                  // Marcar como leída
+                                  if (!alert.read_at) {
+                                    await markAlertAsReadAction(alert.id);
+                                    const updatedAlerts = alerts.map(a => 
+                                      a.id === alert.id ? { ...a, read_at: new Date().toISOString() } : a
+                                    );
+                                    setAlerts(updatedAlerts);
+                                  }
+                                }}
+                                className="px-5 py-2.5 rounded-xl bg-accent text-white text-[10px] font-black uppercase tracking-widest shadow-lg shadow-accent/20 active:scale-95 transition-all"
+                              >
+                                {alert.action_label}
+                              </button>
+                            )}
+                            {!alert.read_at && !alert.action_label && (
+                              <button 
+                                onClick={async () => {
+                                  await markAlertAsReadAction(alert.id);
+                                  const updatedAlerts = alerts.map(a => 
+                                    a.id === alert.id ? { ...a, read_at: new Date().toISOString() } : a
+                                  );
+                                  setAlerts(updatedAlerts);
+                                }}
+                                className="text-[9px] font-black text-accent uppercase tracking-widest"
+                              >
+                                Marcar como leída
+                              </button>
+                            )}
+                            <p className="text-[9px] font-medium text-muted/60 italic ml-auto">
+                              {new Date(alert.created_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+              
+              <div className="p-6 bg-surface-subtle border-t border-border">
+                 <button 
+                  onClick={() => setShowAlerts(false)}
+                  className="w-full py-5 rounded-2xl bg-surface border border-border text-foreground font-black uppercase tracking-widest text-[10px] shadow-sm active:scale-95 transition-all"
+                 >
+                   Cerrar
+                 </button>
               </div>
             </motion.div>
           </motion.div>
@@ -1605,6 +2489,6 @@ export default function DashboardPage() {
           </div>
         )}
       </AnimatePresence>
-    </motion.div>
+    </div>
   );
 }

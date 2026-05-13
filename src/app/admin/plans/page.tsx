@@ -189,7 +189,7 @@ export default function AdminPlansPage() {
         .select(`
           *,
           profiles:user_id (id, nombre, apellidos, email, avatar_url),
-          contexts:context_id (name),
+          contexts:context_id (name, latitude, longitude),
           flights:travel_flights(count),
           hotels:travel_hotels(count),
           hotel_stays:hotel_stays(count),
