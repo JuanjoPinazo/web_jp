@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
 import { BottomNav } from '@/components/BottomNav';
 import { DashboardHeader } from '@/components/DashboardHeader';
@@ -15,6 +15,7 @@ export default function DashboardLayout({
 }) {
   const { session, logout } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     if (session.status === 'unauthenticated') {
@@ -48,7 +49,8 @@ export default function DashboardLayout({
         </div>
       </main>
 
-      <BottomNav />
+      {/* Hide global BottomNav on the premium dashboard to avoid double navigation bars */}
+      {router && !pathname.endsWith('/dashboard') && <BottomNav />}
     </div>
   );
 }

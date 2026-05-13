@@ -1,5 +1,6 @@
 import { supabase } from '@/lib/supabase';
 import { FullTravelPlan } from '@/hooks/useTravelPlans';
+import { sendPushToProfile } from '@/modules/push/push-service';
 
 export interface Alert {
   id?: string;
@@ -120,6 +121,54 @@ export const generatePlanAlerts = async (plan: FullTravelPlan, profileId: string
     }
   });
 
+  // 6. Smart Departure (Salida ahora)
+  const { data: userLocs } = await supabase.from('user_locations').select('*').eq('profile_id', profileId);
+  const defaultLoc = userLocs?.find((l: any) => l.is_default_departure) || userLocs?.[0];
+
+  if (defaultLoc) {
+    // Vuelos: Buffer 120min + trayecto
+    for (const flight of plan.flights) {
+      const depTime = new Date(flight.departure_time);
+      // Asumimos 45 min de trayecto medio si no tenemos cálculo real aquí (o podríamos llamar al servicio)
+      // Para simplificar en el engine, usamos una regla de 3 horas antes del vuelo
+      const recommendedDeparture = new Date(depTime.getTime() - 180 * 60 * 1000); 
+      
+      if (now >= recommendedDeparture && now < depTime) {
+        alerts.push({
+          plan_id: plan.id,
+          profile_id: profileId,
+          type: 'flight',
+          title: 'Sal ahora hacia el aeropuerto',
+          message: `Es hora de salir hacia el aeropuerto para tu vuelo ${flight.flight_number}. Tráfico estimado: Normal.`,
+          priority: 'urgent',
+          action_label: 'Cómo llegar',
+          action_url: `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(flight.departure_location)}`,
+          metadata: { dedupe_key: `smart_departure_flight_${flight.id}` }
+        });
+      }
+    }
+
+    // Eventos: Buffer 15min + trayecto (aprox 45 min antes)
+    for (const event of plan.hospitality_events) {
+      const startTime = new Date(event.start_datetime);
+      const recommendedDeparture = new Date(startTime.getTime() - 45 * 60 * 1000);
+      
+      if (now >= recommendedDeparture && now < startTime) {
+        alerts.push({
+          plan_id: plan.id,
+          profile_id: profileId,
+          type: 'dining',
+          title: 'Sal ahora hacia tu evento',
+          message: `Es hora de salir hacia ${event.title}. Tu reserva comienza pronto.`,
+          priority: 'high',
+          action_label: 'Cómo llegar',
+          action_url: `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(event.venue_name || '')}`,
+          metadata: { dedupe_key: `smart_departure_event_${event.id}` }
+        });
+      }
+    }
+  }
+
   // Guardar en DB (evitando duplicados por dedupe_key)
   for (const alert of alerts) {
     const { data: existing } = await supabase
@@ -130,6 +179,19 @@ export const generatePlanAlerts = async (plan: FullTravelPlan, profileId: string
 
     if (!existing) {
       await supabase.from('alerts').insert(alert);
+
+      // Enviar push si es alta prioridad
+      if (alert.priority === 'high' || alert.priority === 'urgent') {
+        try {
+          await sendPushToProfile(profileId, {
+            title: alert.title,
+            body: alert.message,
+            data: { url: '/dashboard' }
+          });
+        } catch (err) {
+          console.error('Error sending push for alert:', err);
+        }
+      }
     }
   }
 };

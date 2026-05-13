@@ -4,30 +4,32 @@ import { UserTravelContext } from './types';
 /**
  * Builds a clean and safe travel context for a user and plan
  */
-export async function buildUserTravelContext(planId: string, profileId: string): Promise<UserTravelContext> {
+export async function buildUserTravelContext(planId: string, profileId: string, client?: any): Promise<UserTravelContext> {
+  const db = client || supabase;
+  
   // Fetch everything in parallel
   const [planRes, hotelStaysRes, hospitalityRes, flightsRes, savedPlacesRes] = await Promise.all([
-    supabase
+    db
       .from('contact_travel_plans')
       .select('*, contexts(*)')
       .eq('id', planId)
       .single(),
-    supabase
+    db
       .from('hotel_stays')
       .select('*')
       .eq('plan_id', planId)
       .is('deleted_at', null),
-    supabase
+    db
       .from('hospitality_events')
       .select('*')
       .eq('plan_id', planId)
       .is('deleted_at', null),
-    supabase
+    db
       .from('travel_flights')
       .select('*')
       .eq('plan_id', planId)
       .is('deleted_at', null),
-    supabase
+    db
       .from('saved_places')
       .select('*')
       .eq('plan_id', planId)

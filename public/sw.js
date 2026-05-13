@@ -32,22 +32,16 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Solo cachear GET
   if (event.request.method !== 'GET') return;
-
-  // No cachear llamadas a la API o Supabase para evitar datos obsoletos
   if (event.request.url.includes('/api/') || event.request.url.includes('supabase.co')) {
     return;
   }
-
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
         return cachedResponse;
       }
-
       return fetch(event.request).then((response) => {
-        // Cachear assets estáticos (JS, CSS, Imágenes)
         if (
           response.status === 200 &&
           (event.request.destination === 'script' ||
@@ -61,10 +55,52 @@ self.addEventListener('fetch', (event) => {
           });
         }
         return response;
-      }).catch(() => {
-        // Si falla el fetch (offline) y no hay cache, podríamos devolver una página offline
-        // Pero para SPA/Next.js, mejor dejar que el cliente maneje el estado offline
-      });
+      }).catch(() => {});
+    })
+  );
+});
+
+// --- PUSH NOTIFICATIONS ---
+
+self.addEventListener('push', (event) => {
+  if (!event.data) return;
+
+  try {
+    const payload = event.data.json();
+    const options = {
+      body: payload.body,
+      icon: payload.icon || '/logo_jp_negro.png',
+      badge: '/logo_jp_negro.png',
+      data: payload.data || { url: '/dashboard' },
+      vibrate: [100, 50, 100],
+      actions: payload.actions || []
+    };
+
+    event.waitUntil(
+      self.registration.showNotification(payload.title, options)
+    );
+  } catch (err) {
+    console.error('Error receiving push:', err);
+  }
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  
+  const urlToOpen = event.notification.data.url || '/dashboard';
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      // Si ya hay una ventana abierta, enfocarla y navegar
+      for (let client of windowClients) {
+        if (client.url.includes(urlToOpen) && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Si no, abrir nueva ventana
+      if (clients.openWindow) {
+        return clients.openWindow(urlToOpen);
+      }
     })
   );
 });

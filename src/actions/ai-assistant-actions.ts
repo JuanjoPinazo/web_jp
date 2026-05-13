@@ -19,8 +19,10 @@ TU PERSONALIDAD:
 - Formas parte del equipo de JP Intelligence (Quilpro Cardio, S.L.). 
 - Puedes hablar como si fueras Juanjo Pinazo (CEO y fundador de JP Intelligence).
 - Recuerda que nuestro máximo jefe es Nicolás Quiles, dueño de Quilpro Cardio, S.L. y que debes tratarlo con el máximo respeto.
-- Todos los usuarios son médicos y/o enfermeros/as
-- Debes hacerles sentir especiales, como si fueras un amigo íntimo que les está ayudando en todo
+- Todos los usuarios son médicos y/o enfermeros/as.
+- Debes hacerles sentir especiales, como si fueras un amigo íntimo que les está ayudando en todo.
+- Dirígete al usuario por su nombre de pila.
+- TRATO CERCANO: Si el usuario tiene un nombre compuesto (ej: Francisco Miguel, Ana María), en tu primera interacción o cuando lo consideres natural, pregúntale amablemente si prefiere que le llames por un nombre más corto o diminutivo (ej: Paco, Ana) para que la comunicación sea más fluida y cercana.
 
 TU CONOCIMIENTO:
 Tienes acceso al CONTEXTO REAL del viaje del usuario (vuelos, hotel, agenda, eventos de hospitalidad).
@@ -35,7 +37,7 @@ REGLAS DE RESPUESTA:
 DATOS SENSIBLES:
 - Nunca reveles datos de otros usuarios.
 - Solo puedes mencionar nombres de coordinadores si están en el contexto.
-- Los usuarios de Quilpro Cardio son 3 personas: Juanjo Pinazo, Raúl Folgado y Jaime Morales
+- Los usuarios de Quilpro Cardio son 3 personas: Juanjo Pinazo, Raúl Folgado y Jaime Morales.
 
 FORMATO DE RESPUESTA (SIEMPRE JSON):
 {
@@ -51,22 +53,25 @@ FORMATO DE RESPUESTA (SIEMPRE JSON):
 export async function askContextualAssistantAction(params: {
   planId: string;
   profileId: string;
+  userName: string;
   message: string;
   history: { role: 'user' | 'assistant'; content: string }[];
 }) {
-  const { planId, profileId, message, history } = params;
+  const { planId, profileId, userName, message, history } = params;
 
   if (!process.env.OPENAI_API_KEY) {
     return { success: false, error: 'Asistente no configurado.' };
   }
 
   try {
+    const supabaseAdmin = getSupabaseAdmin();
     // 1. Build Context
-    const context = await buildUserTravelContext(planId, profileId);
+    const context = await buildUserTravelContext(planId, profileId, supabaseAdmin);
 
     // 2. Prepare Messages
     const messages: any[] = [
       { role: 'system', content: ASSISTANT_SYSTEM_PROMPT },
+      { role: 'system', content: `USUARIO ACTUAL: ${userName}` },
       { role: 'system', content: `CONTEXTO ACTUAL DEL VIAJE:\n${JSON.stringify(context, null, 2)}` },
       ...history.slice(-6), // Keep last 6 messages for context
       { role: 'user', content: message }
@@ -77,7 +82,7 @@ export async function askContextualAssistantAction(params: {
       model: 'gpt-4o-mini',
       messages,
       response_format: { type: 'json_object' },
-      temperature: 0.5,
+      temperature: 0.7,
     });
 
     const content = response.choices[0].message.content;

@@ -66,6 +66,10 @@ export interface Flight {
   status: string;
   source: string;
   is_verified: boolean;
+  departure_lat?: number;
+  departure_lng?: number;
+  arrival_lat?: number;
+  arrival_lng?: number;
   external_id?: string;
   last_updated_at?: string;
   last_updated_by?: string;
@@ -154,6 +158,10 @@ export interface Transfer {
   related_flight_id?: string;
   related_hotel_id?: string;
   related_hospitality_id?: string;
+  pickup_lat?: number;
+  pickup_lng?: number;
+  dropoff_lat?: number;
+  dropoff_lng?: number;
   source: string;
   external_id?: string;
   last_updated_at?: string;
@@ -172,6 +180,8 @@ export interface Restaurant {
   type?: 'reserved' | 'recommended';
   image_url?: string;
   website_url?: string;
+  latitude?: number;
+  longitude?: number;
   notes?: string;
   status: string;
   source: string;

@@ -28,6 +28,7 @@
     "sharp": "^0.34.5",
     "tailwind-merge": "^3.5.0",
     "tmp-promise": "^3.0.3",
+    "web-push": "^3.6.7",
     "xlsx": "^0.18.5",
     "zod": "^4.3.6",
     "zxing-wasm": "^3.0.3"
@@ -38,6 +39,7 @@
     "@types/pdf-parse": "^1.1.5",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "babel-plugin-react-compiler": "1.0.0",
     "dotenv": "^17.4.2",
     "eslint": "^9",
