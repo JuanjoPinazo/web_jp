@@ -41,6 +41,8 @@ import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import { OutcomeDrawer } from '@/components/OutcomeDrawer';
 import { MapModal, type MapLocation } from '@/components/MapModal';
 import { supabase } from '@/lib/supabase';
+import { getPlanRoutesAction } from '@/actions/travel-routes-actions';
+import { Footprints, Bus, Zap, Info } from 'lucide-react';
 
 const WakeLockHandler = () => {
   useEffect(() => {
@@ -93,6 +95,7 @@ export default function DashboardPage() {
   const [confirmDietary, setConfirmDietary] = useState('');
   const [isManagerView, setIsManagerView] = useState(false);
   const [allContextEvents, setAllContextEvents] = useState<any[]>([]);
+  const [planRoutes, setPlanRoutes] = useState<any[]>([]);
 
   useEffect(() => {
     const loadContexts = async () => {
@@ -140,6 +143,12 @@ export default function DashboardPage() {
       if (plan) {
         const modules = await getEnabledModules(plan.id);
         setEnabledModules(modules);
+        
+        // Load routes
+        const routeRes = await getPlanRoutesAction(plan.id);
+        if (routeRes.success) {
+          setPlanRoutes(routeRes.routes || []);
+        }
       }
     };
     loadPlan();
@@ -715,6 +724,33 @@ export default function DashboardPage() {
              </div>
 
              <div className="flex flex-col gap-3 relative z-10">
+                {/* --- SMART ROUTES FOR NEXT ACTION --- */}
+                {(() => {
+                  const locationName = nextAction.location.toLowerCase();
+                  const walking = planRoutes.find(r => r.destination_label?.toLowerCase().includes(locationName) && r.travel_mode === 'WALKING');
+                  const driving = planRoutes.find(r => r.destination_label?.toLowerCase().includes(locationName) && r.travel_mode === 'DRIVING');
+                  const transit = planRoutes.find(r => r.destination_label?.toLowerCase().includes(locationName) && r.travel_mode === 'TRANSIT');
+
+                  if (!walking && !driving && !transit) return null;
+
+                  return (
+                    <div className="grid grid-cols-3 gap-2 mb-2">
+                      <div className="p-3 rounded-2xl bg-surface-subtle border border-border/50 flex flex-col items-center gap-1">
+                        <Footprints size={12} className="text-muted" />
+                        <span className="text-[10px] font-black text-foreground">{walking?.duration_text || '—'}</span>
+                      </div>
+                      <div className="p-3 rounded-2xl bg-accent/5 border border-accent/20 flex flex-col items-center gap-1">
+                        <Car size={12} className="text-accent" />
+                        <span className="text-[10px] font-black text-accent">{driving?.duration_text || '—'}</span>
+                      </div>
+                      <div className="p-3 rounded-2xl bg-blue-500/5 border border-blue-500/20 flex flex-col items-center gap-1">
+                        <Bus size={12} className="text-blue-400" />
+                        <span className="text-[10px] font-black text-blue-400">{transit?.duration_text || '—'}</span>
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {nextAction.cta ? (
                   <button 
                     onClick={() => {
@@ -750,6 +786,89 @@ export default function DashboardPage() {
           </div>
         </motion.section>
       )}
+      {/* BLOQUE 2.5: MOVILIDAD INTELIGENTE */}
+      {planRoutes.length > 0 && (
+        <motion.section variants={itemVariants} className="space-y-6">
+          <div className="flex items-center gap-4 px-2">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-accent">Movilidad Inteligente</h3>
+            <div className="flex-1 h-px bg-accent/20" />
+          </div>
+
+          <div className="grid grid-cols-1 gap-4">
+            {/* Filter routes to show only key ones (Hotel -> X) */}
+            {(() => {
+              const hotel = activePlan?.hotel_stays?.[0];
+              const uniqueRoutes = planRoutes.filter((r, i, self) => 
+                i === self.findIndex((t) => (
+                  t.origin_label === r.origin_label && t.destination_label === r.destination_label
+                ))
+              );
+
+              return uniqueRoutes.map(route => {
+                const rts = planRoutes.filter(r => 
+                  r.origin_label === route.origin_label && 
+                  r.destination_label === route.destination_label
+                );
+                const walking = rts.find(r => r.travel_mode === 'WALKING');
+                const driving = rts.find(r => r.travel_mode === 'DRIVING');
+                const transit = rts.find(r => r.travel_mode === 'TRANSIT');
+
+                return (
+                  <div key={`${route.origin_label}-${route.destination_label}`} className="p-6 rounded-[2.5rem] bg-surface border border-border/50 shadow-xl space-y-5">
+                    <div className="flex justify-between items-start">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-2xl bg-accent/5 border border-accent/10 flex items-center justify-center text-accent">
+                          <Navigation size={18} />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-[8px] font-black text-muted uppercase tracking-widest leading-none mb-1">{route.origin_label} ➔ {route.destination_label}</p>
+                          <p className="text-sm font-black text-foreground truncate">{route.distance_text || 'Calculando...'}</p>
+                        </div>
+                      </div>
+                      <button 
+                        onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(route.origin_label || '')}&destination=${encodeURIComponent(route.destination_label || '')}`)}
+                        className="p-3 rounded-2xl bg-surface-subtle border border-border text-accent hover:bg-accent/10 transition-colors"
+                      >
+                        <ExternalLink size={14} />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border/30">
+                      <div className="flex flex-col items-center gap-1 py-2">
+                        <Footprints size={12} className="text-muted" />
+                        <span className="text-[10px] font-black text-foreground">{walking?.duration_text || '—'}</span>
+                        <span className="text-[7px] font-black text-muted uppercase">A pie</span>
+                      </div>
+                      <div className="flex flex-col items-center gap-1 py-2 bg-accent/5 rounded-2xl">
+                        <Car size={12} className="text-accent" />
+                        <span className="text-[10px] font-black text-accent">{driving?.duration_text || '—'}</span>
+                        <span className="text-[7px] font-black text-accent uppercase">Taxi</span>
+                      </div>
+                      <div className="flex flex-col items-center gap-1 py-2">
+                        <Bus size={12} className="text-blue-400" />
+                        <span className="text-[10px] font-black text-blue-400">{transit?.duration_text || '—'}</span>
+                        <span className="text-[7px] font-black text-muted uppercase">Transporte</span>
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button className="flex-1 py-3 rounded-xl bg-surface-subtle border border-border text-[8px] font-black uppercase tracking-widest text-muted hover:text-accent transition-colors">
+                        Ver Alternativas
+                      </button>
+                      <button 
+                        onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(route.destination_label || '')}`)}
+                        className="flex-1 py-3 rounded-xl bg-accent/10 border border-accent/20 text-[8px] font-black uppercase tracking-widest text-accent"
+                      >
+                        Pedir Taxi
+                      </button>
+                    </div>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        </motion.section>
+      )}
 
       {/* BLOQUE 3: ITINERARIO */}
       <motion.section variants={itemVariants} className="space-y-10">
@@ -782,7 +901,53 @@ export default function DashboardPage() {
                        </h4>
                     </div>
                    
-                    {event.type === 'transfer' ? (
+                    {event.type === 'hotel_checkin' ? (
+                      <div className="bg-surface border border-border/80 rounded-[32px] p-8 space-y-6 shadow-xl shadow-black/10 group-hover:border-accent/40 transition-all">
+                        <div className="flex items-start gap-4">
+                          <div className="p-4 rounded-2xl bg-accent/5 text-accent border border-accent/10">
+                            <Building2 size={24} />
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-[8px] font-black text-muted uppercase tracking-[0.2em]">Tu Alojamiento</p>
+                            <p className="text-lg font-black text-foreground">{event.payload.hotel_name}</p>
+                            <p className="text-[10px] font-medium text-muted">{event.payload.address}</p>
+                          </div>
+                        </div>
+
+                        <div className="pt-6 border-t border-border/50 space-y-4">
+                          <p className="text-[10px] font-black text-accent uppercase tracking-widest flex items-center gap-2">
+                             <Zap size={10} /> Movilidad desde el Hotel
+                          </p>
+                          <div className="grid grid-cols-1 gap-2">
+                            {planRoutes.filter(r => r.origin_label?.toLowerCase().includes('hotel') && r.travel_mode === 'DRIVING').map(route => (
+                              <div key={route.id} className="flex items-center justify-between p-3 rounded-2xl bg-background/50 border border-border/50">
+                                <div className="flex items-center gap-3">
+                                  <Car size={12} className="text-muted" />
+                                  <span className="text-[10px] font-bold text-foreground">Al {route.destination_label}</span>
+                                </div>
+                                <span className="text-[10px] font-black text-accent">{route.duration_text}</span>
+                              </div>
+                            ))}
+                            {planRoutes.filter(r => r.origin_label?.toLowerCase().includes('hotel') && r.travel_mode === 'WALKING' && r.duration_seconds < 1800).map(route => (
+                              <div key={route.id} className="flex items-center justify-between p-3 rounded-2xl bg-background/50 border border-border/50">
+                                <div className="flex items-center gap-3">
+                                  <Footprints size={12} className="text-muted" />
+                                  <span className="text-[10px] font-bold text-foreground">Al {route.destination_label} (A pie)</span>
+                                </div>
+                                <span className="text-[10px] font-black text-foreground">{route.duration_text}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <button 
+                          onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.payload.hotel_name + ' ' + (event.payload.address || ''))}`)}
+                          className="w-full py-4 rounded-2xl bg-accent text-white font-black uppercase tracking-widest text-[9px] flex items-center justify-center gap-2 shadow-lg shadow-accent/20"
+                        >
+                          <Navigation size={14} /> Cómo llegar
+                        </button>
+                      </div>
+                    ) : event.type === 'transfer' ? (
                       <div className="bg-surface border border-border/80 rounded-[32px] p-8 space-y-6 shadow-xl shadow-black/10 group-hover:border-accent/40 transition-all">
                        <div className="flex items-start gap-3">
                           <div className="flex flex-col items-center gap-1 pt-1 shrink-0">
@@ -943,6 +1108,36 @@ export default function DashboardPage() {
                        </div>
                     </div>
 
+                    {(e.description || e.venue_address || e.website_url) && (
+                      <div className="space-y-4">
+                        {e.description && (
+                          <p className="text-sm text-muted/80 leading-relaxed italic">
+                            {e.description}
+                          </p>
+                        )}
+                        <div className="flex flex-wrap gap-2">
+                          {e.venue_address && (
+                            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-surface border border-border text-foreground text-[10px] font-black uppercase tracking-widest shadow-sm">
+                              <MapPin size={12} className="text-accent" />
+                              {e.venue_address}
+                            </div>
+                          )}
+                          {e.website_url && (
+                            <a 
+                              href={e.website_url} 
+                              target="_blank" 
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-accent/10 border border-accent/20 text-accent text-[10px] font-black uppercase tracking-widest active:scale-95 transition-all shadow-sm"
+                            >
+                              <ExternalLink size={14} />
+                              Sitio Web
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+
                     {isManagerView && e.hospitality_event_attendees && (
                       <div className="space-y-4 p-6 rounded-[2rem] bg-purple-500/5 border border-purple-500/10">
                          <div className="flex justify-between items-center">
@@ -963,7 +1158,19 @@ export default function DashboardPage() {
                       </div>
                     )}
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-8 border-t border-border/30">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 pt-8 border-t border-border/30">
+                       <div className="space-y-1">
+                          <p className="text-[9px] font-black text-muted uppercase tracking-widest">Desde Hotel</p>
+                          <div className="flex items-center gap-2">
+                            <Car size={14} className="text-accent" />
+                            <p className="text-sm font-bold text-foreground">
+                              {planRoutes.find(r => 
+                                r.destination_label?.toLowerCase().includes(e.venue_name?.toLowerCase() || '') && 
+                                r.travel_mode === 'DRIVING'
+                              )?.duration_text || '—'}
+                            </p>
+                          </div>
+                       </div>
                        <div className="space-y-1">
                           <p className="text-[9px] font-black text-muted uppercase tracking-widest">Dress Code</p>
                           <p className="text-sm font-bold text-foreground">{e.dress_code || 'Por confirmar'}</p>

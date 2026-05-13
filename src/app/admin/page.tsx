@@ -10,7 +10,8 @@ import {
   ArrowUpRight, 
   Plus, 
   LayoutDashboard,
-  Clock
+  Clock,
+  MapPin
 } from 'lucide-react';
 import Link from 'next/link';
 
@@ -105,7 +106,7 @@ export default function AdminPage() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                  {[
                    { label: 'Nueva Recomendación', href: '/admin/recommendations', icon: Sparkles, desc: 'Generar contenido para usuarios' },
-                   { label: 'Revisar Solicitudes', href: '/admin/requests', icon: Clock, desc: 'Pendientes de aprobación' },
+                   { label: 'Test Google Places', href: '/admin/google-test', icon: MapPin, desc: 'Probar búsqueda de hoteles y lugares' },
                    { label: 'Registrar Cliente', href: '/admin/clients', icon: Building2, desc: 'Alta de nuevas instituciones' },
                    { label: 'Gestión de Usuarios', href: '/admin/users', icon: Users, desc: 'Panel de control de acceso' },
                  ].map((action, i) => (

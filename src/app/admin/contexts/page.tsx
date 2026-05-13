@@ -3,11 +3,12 @@
 import React, { useEffect, useState } from 'react';
 import { useAdmin } from '@/hooks/useAdmin';
 import { User } from '@/types/platform';
-import { Trophy, Navigation, Plus, Users, Calendar, MapPin, X, CheckCircle2, Building2, Loader2, Edit2, Trash2, AlignLeft, Info } from 'lucide-react';
+import { Trophy, Navigation, Plus, Users, Calendar, MapPin, X, CheckCircle2, Building2, Loader2, Edit2, Trash2, AlignLeft, Info, Search, Plane } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { useDialog } from '@/context/DialogContext';
 import { supabase } from '@/lib/supabase';
 import { motion, AnimatePresence } from 'framer-motion';
+import { searchPlacesAction, getPlaceDetailsAction } from '@/actions/google-places-actions';
 
 export default function AdminContextsPage() {
   const { 
@@ -30,6 +31,10 @@ export default function AdminContextsPage() {
   const [editingContext, setEditingContext] = useState<any | null>(null);
   const [assigningTo, setAssigningTo] = useState<any | null>(null);
   const [assigningClientTo, setAssigningClientTo] = useState<any | null>(null);
+  const [placeSearch, setPlaceSearch] = useState('');
+  const [placeResults, setPlaceResults] = useState<any[]>([]);
+  const [isSearchingPlaces, setIsSearchingPlaces] = useState(false);
+  const [showPlaceList, setShowPlaceList] = useState(false);
   const { confirm, alert } = useDialog();
 
   const [newContext, setNewContext] = useState({
@@ -38,7 +43,9 @@ export default function AdminContextsPage() {
     location: '',
     description: '',
     start_date: '',
-    end_date: ''
+    end_date: '',
+    latitude: undefined as number | undefined,
+    longitude: undefined as number | undefined
   });
 
   useEffect(() => {
@@ -78,7 +85,11 @@ export default function AdminContextsPage() {
       }
       setIsCreating(false);
       setEditingContext(null);
-      setNewContext({ name: '', type: 'event', location: '', description: '', start_date: '', end_date: '' });
+      setNewContext({ 
+        name: '', type: 'event', location: '', description: '', 
+        start_date: '', end_date: '', 
+        latitude: undefined, longitude: undefined 
+      });
       loadData();
     } catch (err) {
       console.error(err);
@@ -94,7 +105,9 @@ export default function AdminContextsPage() {
       location: ctx.location || '',
       description: ctx.description || '',
       start_date: ctx.start_date ? ctx.start_date.slice(0, 10) : '',
-      end_date: ctx.end_date ? ctx.end_date.slice(0, 10) : ''
+      end_date: ctx.end_date ? ctx.end_date.slice(0, 10) : '',
+      latitude: ctx.latitude,
+      longitude: ctx.longitude
     });
     setIsCreating(true);
   };
@@ -137,6 +150,44 @@ export default function AdminContextsPage() {
     } catch (err) {
       console.error(err);
       await alert({ title: 'Error', message: 'No se pudo desvincular el cliente.', type: 'danger' });
+    }
+  };
+
+  const handleSearchPlaces = async () => {
+    if (!placeSearch) return;
+    setIsSearchingPlaces(true);
+    try {
+      const res = await searchPlacesAction(placeSearch);
+      if (res.success) {
+        setPlaceResults(res.results || []);
+        setShowPlaceList(true);
+      } else {
+        await alert({ title: 'Error', message: res.error || 'Error al buscar en Google', type: 'danger' });
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSearchingPlaces(false);
+    }
+  };
+
+  const handleSelectPlace = async (placeId: string) => {
+    try {
+      const res = await getPlaceDetailsAction(placeId);
+      if (res.success && res.place) {
+        const place = res.place;
+        setNewContext(prev => ({
+          ...prev,
+          name: prev.name || place.name,
+          location: place.formatted_address,
+          latitude: place.geometry?.location?.lat,
+          longitude: place.geometry?.location?.lng
+        }));
+        setPlaceSearch('');
+        setShowPlaceList(false);
+      }
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -222,8 +273,12 @@ export default function AdminContextsPage() {
                   <div className="flex flex-wrap gap-2">
                     {users.filter(u => u.context_users?.some((cu: any) => cu.context_id === ctx.id)).map(u => (
                       <div key={u.id} className="group/user relative">
-                        <div className="w-9 h-9 rounded-xl bg-background border border-border flex items-center justify-center text-[10px] font-bold text-accent shadow-sm" title={u.name || u.email}>
-                          {(u.name || u.email).split(' ').map((n:string)=>n[0]).slice(0,2).join('').toUpperCase()}
+                        <div className="w-9 h-9 rounded-xl bg-background border border-border flex items-center justify-center text-[10px] font-bold text-accent shadow-sm overflow-hidden" title={u.name || u.email}>
+                          {u.avatar_url ? (
+                            <img src={u.avatar_url} alt={u.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <span>{(u.name || u.email).split(' ').map((n:string)=>n[0]).slice(0,2).join('').toUpperCase()}</span>
+                          )}
                         </div>
                         <button onClick={() => handleUnassignUser(u.id, ctx.id)} className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white flex items-center justify-center opacity-0 group-hover/user:opacity-100 transition-opacity"><X size={10} /></button>
                       </div>
@@ -251,7 +306,53 @@ export default function AdminContextsPage() {
                   <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Nombre del Evento</label>
                   <input className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none focus:border-accent" placeholder="Ej: EuroPCR 2026" value={newContext.name} onChange={e => setNewContext({...newContext, name: e.target.value})} />
                 </div>
-                <div className="grid grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 bg-accent/5 rounded-3xl border border-accent/10">
+                  <div className="col-span-full space-y-2">
+                    <label className="text-[10px] font-black uppercase text-accent tracking-widest px-1 flex items-center gap-2">
+                      <Search size={12} /> Buscar Ubicación en Google
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <input 
+                          className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none focus:border-accent" 
+                          placeholder="Nombre del recinto, palacio de congresos..." 
+                          value={placeSearch} 
+                          onChange={e => setPlaceSearch(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && handleSearchPlaces()}
+                        />
+                        {isSearchingPlaces && <Loader2 size={16} className="absolute right-4 top-4 animate-spin text-accent" />}
+                        
+                        <AnimatePresence>
+                          {showPlaceList && placeResults.length > 0 && (
+                            <motion.div 
+                              initial={{ opacity: 0, y: 10 }} 
+                              animate={{ opacity: 1, y: 0 }} 
+                              className="absolute left-0 right-0 top-full mt-2 bg-surface border border-border rounded-2xl shadow-2xl z-[110] max-h-60 overflow-y-auto"
+                            >
+                              {placeResults.map(place => (
+                                <button
+                                  key={place.place_id}
+                                  type="button"
+                                  className="w-full text-left p-4 hover:bg-accent/10 border-b border-border/50 last:border-0 flex justify-between items-center group"
+                                  onClick={() => handleSelectPlace(place.place_id)}
+                                >
+                                  <div>
+                                    <p className="text-xs font-black text-foreground group-hover:text-accent transition-colors">{place.name}</p>
+                                    <p className="text-[10px] text-muted">{place.formatted_address}</p>
+                                  </div>
+                                  <Plus size={16} className="text-accent opacity-0 group-hover:opacity-100 transition-all" />
+                                </button>
+                              ))}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                      <Button variant="outline" className="rounded-xl px-4 border-accent/20 text-accent hover:bg-accent/10" onClick={handleSearchPlaces} disabled={isSearchingPlaces}>
+                        Buscar
+                      </Button>
+                    </div>
+                  </div>
+
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Tipo</label>
                     <select className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none appearance-none" value={newContext.type} onChange={e => setNewContext({...newContext, type: e.target.value})}>
@@ -260,8 +361,18 @@ export default function AdminContextsPage() {
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Ubicación</label>
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Ubicación Seleccionada</label>
                     <input className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none focus:border-accent" placeholder="Ciudad, País" value={newContext.location} onChange={e => setNewContext({...newContext, location: e.target.value})} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Latitud</label>
+                    <input type="number" step="any" className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none focus:border-accent" placeholder="0.0000" value={newContext.latitude || ''} onChange={e => setNewContext({...newContext, latitude: parseFloat(e.target.value)})} />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Longitud</label>
+                    <input type="number" step="any" className="w-full bg-background border border-border rounded-xl p-4 text-xs outline-none focus:border-accent" placeholder="0.0000" value={newContext.longitude || ''} onChange={e => setNewContext({...newContext, longitude: parseFloat(e.target.value)})} />
                   </div>
                 </div>
                 <div className="space-y-2">

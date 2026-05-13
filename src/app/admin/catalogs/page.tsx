@@ -17,14 +17,16 @@ import {
   ChevronRight,
   MoreVertical,
   User as UserIcon,
-  Globe
+  Globe,
+  Utensils
 } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDialog } from '@/context/DialogContext';
+import { searchPlacesAction, getPlaceDetailsAction } from '@/actions/google-places-actions';
 
-type CatalogType = 'hospitals' | 'departments' | 'roles' | 'companies' | 'hotels';
+type CatalogType = 'hospitals' | 'departments' | 'roles' | 'companies' | 'hotels' | 'restaurants';
 
 export default function CatalogsPage() {
   const [activeTab, setActiveTab] = useState<CatalogType>('hospitals');
@@ -38,6 +40,13 @@ export default function CatalogsPage() {
   // Form states
   const [formData, setFormData] = useState<any>({});
   const { confirm, alert } = useDialog();
+  
+  // Google Import State
+  const [importSearch, setImportSearch] = useState('');
+  const [importResults, setImportResults] = useState<any[]>([]);
+  const [isSearchingGoogle, setIsSearchingGoogle] = useState(false);
+  const [isSelectingPlace, setIsSelectingPlace] = useState(false);
+  const [showImportList, setShowImportList] = useState(false);
 
   useEffect(() => {
     fetchData();
@@ -45,6 +54,9 @@ export default function CatalogsPage() {
 
   const fetchData = async () => {
     setLoading(true);
+    setImportSearch('');
+    setImportResults([]);
+    setShowImportList(false);
     try {
       let query;
       if (activeTab === 'hospitals') {
@@ -54,7 +66,9 @@ export default function CatalogsPage() {
       } else if (activeTab === 'companies') {
         query = supabase.from('companies').select('*').order('name');
       } else if (activeTab === 'hotels') {
-        query = supabase.from('hotels').select('*').order('preferred', { ascending: false }).order('name');
+        query = supabase.from('hotels_master').select('*').order('name');
+      } else if (activeTab === 'restaurants') {
+        query = supabase.from('restaurants_master').select('*').order('name');
       } else {
         query = supabase.from('professional_roles').select('*').order('name');
       }
@@ -62,8 +76,12 @@ export default function CatalogsPage() {
       const { data: result, error } = await query;
       if (error) throw error;
       setData(result || []);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching data:', err);
+      if (err.message) console.error('Error Message:', err.message);
+      if (err.details) console.error('Error Details:', err.details);
+      if (err.hint) console.error('Error Hint:', err.hint);
+      if (err.code) console.error('Error Code:', err.code);
     } finally {
       setLoading(false);
     }
@@ -76,6 +94,9 @@ export default function CatalogsPage() {
     } else {
       setFormData(activeTab === 'roles' ? { scope: 'hospital' } : {});
     }
+    setImportSearch('');
+    setImportResults([]);
+    setShowImportList(false);
     setIsModalOpen(true);
   };
 
@@ -83,7 +104,7 @@ export default function CatalogsPage() {
     e.preventDefault();
     setIsSaving(true);
     try {
-      const table = activeTab === 'roles' ? 'professional_roles' : activeTab;
+      const table = activeTab === 'roles' ? 'professional_roles' : (activeTab === 'hotels' ? 'hotels_master' : (activeTab === 'restaurants' ? 'restaurants_master' : activeTab));
       let error;
 
       // Limpiar datos protegidos antes de enviar
@@ -131,7 +152,7 @@ export default function CatalogsPage() {
     if (!isConfirmed) return;
     
     try {
-      const table = activeTab === 'roles' ? 'professional_roles' : activeTab;
+      const table = activeTab === 'roles' ? 'professional_roles' : (activeTab === 'hotels' ? 'hotels_master' : (activeTab === 'restaurants' ? 'restaurants_master' : activeTab));
       const { error } = await supabase
         .from(table)
         .delete()
@@ -176,7 +197,7 @@ export default function CatalogsPage() {
           className="gap-2 rounded-2xl py-6 px-8 shadow-xl shadow-accent/20"
         >
           <Plus size={18} />
-          {activeTab === 'hospitals' ? 'Nuevo Hospital' : activeTab === 'companies' ? 'Nueva Empresa' : activeTab === 'departments' ? 'Nuevo Servicio' : activeTab === 'hotels' ? 'Nuevo Hotel' : 'Nuevo Cargo'}
+          {activeTab === 'hospitals' ? 'Nuevo Hospital' : activeTab === 'companies' ? 'Nueva Empresa' : activeTab === 'departments' ? 'Nuevo Servicio' : activeTab === 'hotels' ? 'Nuevo Hotel' : activeTab === 'restaurants' ? 'Nuevo Restaurante' : 'Nuevo Cargo'}
         </Button>
       </div>
 
@@ -185,6 +206,7 @@ export default function CatalogsPage() {
         <div className="flex gap-1 p-1 bg-background/50 rounded-2xl w-full lg:w-auto overflow-x-auto no-scrollbar">
           {[
             { id: 'hotels', label: 'Hoteles', icon: Building2 },
+            { id: 'restaurants', label: 'Restaurantes', icon: Utensils },
             { id: 'hospitals', label: 'Hospitales', icon: Globe },
             { id: 'companies', label: 'Empresas', icon: Briefcase },
             { id: 'departments', label: 'Servicios', icon: Stethoscope },
@@ -216,7 +238,7 @@ export default function CatalogsPage() {
         <div className="relative w-full lg:w-96">
           <input
             type="text"
-            placeholder={`Buscar en ${activeTab === 'hospitals' ? 'hospitales' : activeTab === 'companies' ? 'empresas' : activeTab === 'departments' ? 'servicios' : activeTab === 'hotels' ? 'hoteles' : 'cargos'}...`}
+            placeholder={`Buscar en ${activeTab === 'hospitals' ? 'hospitales' : activeTab === 'companies' ? 'empresas' : activeTab === 'departments' ? 'servicios' : activeTab === 'hotels' ? 'hoteles' : activeTab === 'restaurants' ? 'restaurantes' : 'cargos'}...`}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             className="w-full bg-background/50 border border-border rounded-2xl py-3 pl-11 pr-4 text-xs font-bold outline-none focus:border-accent/40 transition-all placeholder:text-muted/50"
@@ -254,6 +276,7 @@ export default function CatalogsPage() {
                         <div className="flex items-center gap-2">
                           {activeTab === 'hospitals' && <Globe className="text-accent" size={14} />}
                           {activeTab === 'hotels' && <Building2 className="text-accent" size={14} />}
+                          {activeTab === 'restaurants' && <Utensils className="text-accent" size={14} />}
                           {activeTab === 'companies' && <Briefcase className="text-accent" size={14} />}
                           {activeTab === 'departments' && <Stethoscope className="text-accent" size={14} />}
                           {activeTab === 'roles' && <UserIcon className="text-accent" size={14} />}
@@ -263,7 +286,7 @@ export default function CatalogsPage() {
                           </h3>
                         </div>
                         
-                        {(activeTab === 'hospitals' || activeTab === 'companies' || activeTab === 'hotels') && (
+                        {(activeTab === 'hospitals' || activeTab === 'companies' || activeTab === 'hotels' || activeTab === 'restaurants') && (
                           <div className="flex flex-wrap gap-2 pt-1">
                             {(item.code || item.tax_id) && (
                               <span className="px-2 py-0.5 rounded bg-accent/10 border border-accent/20 text-accent text-[8px] font-black uppercase tracking-widest">
@@ -273,6 +296,16 @@ export default function CatalogsPage() {
                             {item.city && (
                               <span className="px-2 py-0.5 rounded bg-white/5 border border-white/10 text-muted text-[8px] font-bold uppercase tracking-widest">
                                 {item.city}
+                              </span>
+                            )}
+                            {activeTab === 'restaurants' && item.cuisine_type && (
+                              <span className="px-2 py-0.5 rounded bg-purple-500/10 border border-purple-500/20 text-purple-400 text-[8px] font-black uppercase tracking-widest">
+                                {item.cuisine_type}
+                              </span>
+                            )}
+                            {activeTab === 'restaurants' && item.price_level && (
+                              <span className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[8px] font-black uppercase tracking-widest">
+                                {'€'.repeat(item.price_level)}
                               </span>
                             )}
                             {activeTab === 'hotels' && item.stars && (
@@ -344,8 +377,8 @@ export default function CatalogsPage() {
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               className={cn(
-                "relative w-full bg-surface border border-border rounded-[2.5rem] p-8 shadow-2xl overflow-hidden",
-                activeTab === 'hotels' ? "max-w-2xl" : "max-w-md"
+                "relative w-full bg-surface border border-border rounded-[2.5rem] p-8 shadow-2xl",
+                (activeTab === 'hotels' || activeTab === 'restaurants') ? "max-w-2xl" : "max-w-md"
               )}
             >
               <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-accent to-transparent" />
@@ -353,7 +386,7 @@ export default function CatalogsPage() {
               <div className="flex justify-between items-center mb-8">
                 <div className="space-y-1">
                   <h3 className="text-xl font-black font-heading text-white">
-                    {editingItem ? 'Editar' : 'Nuevo'} {activeTab === 'hospitals' ? 'Hospital' : activeTab === 'companies' ? 'Empresa' : activeTab === 'departments' ? 'Servicio' : activeTab === 'hotels' ? 'Hotel' : 'Cargo'}
+                    {editingItem ? 'Editar' : 'Nuevo'} {activeTab === 'hospitals' ? 'Hospital' : activeTab === 'companies' ? 'Empresa' : activeTab === 'departments' ? 'Servicio' : activeTab === 'hotels' ? 'Hotel' : activeTab === 'restaurants' ? 'Restaurante' : 'Cargo'}
                   </h3>
                   <p className="text-[10px] font-bold text-muted uppercase tracking-widest">Introduce los datos del registro</p>
                 </div>
@@ -367,6 +400,127 @@ export default function CatalogsPage() {
 
               <form onSubmit={handleSave} className="space-y-6">
                 <div className="space-y-4">
+                  {(activeTab === 'hotels' || activeTab === 'restaurants') && !editingItem && (
+                    <div className="p-5 bg-accent/5 rounded-3xl border border-accent/10 space-y-3 relative">
+                      <label className="text-[10px] font-black uppercase text-accent tracking-widest px-1 flex items-center gap-2">
+                        <Search size={12} /> Importar datos desde Google
+                      </label>
+                      <div className="flex gap-2">
+                        <div className="relative flex-1">
+                          <input 
+                            type="text"
+                            placeholder={activeTab === 'hotels' ? "Buscar hotel en Google..." : "Buscar restaurante en Google..."}
+                            value={importSearch}
+                            onChange={(e) => setImportSearch(e.target.value)}
+                            onKeyDown={async (e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault();
+                                setIsSearchingGoogle(true);
+                                const res = await searchPlacesAction(importSearch);
+                                if (res.success) {
+                                  setImportResults(res.results || []);
+                                  setShowImportList(true);
+                                }
+                                setIsSearchingGoogle(false);
+                              }
+                            }}
+                            onFocus={() => importResults.length > 0 && setShowImportList(true)}
+                            className="w-full bg-background border border-border rounded-xl py-3 pl-10 pr-4 text-xs font-bold outline-none focus:border-accent transition-all"
+                          />
+                          <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted">
+                            {isSearchingGoogle ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                          </div>
+                        </div>
+                        <Button 
+                          type="button"
+                          variant="outline"
+                          className="rounded-xl px-6 border-accent/20 text-accent hover:bg-accent/10"
+                          onClick={async () => {
+                            setIsSearchingGoogle(true);
+                            const res = await searchPlacesAction(importSearch);
+                            if (res.success) {
+                              setImportResults(res.results || []);
+                              setShowImportList(true);
+                              if (res.results?.length === 0) {
+                                await alert({ title: 'Sin resultados', message: 'No se encontraron lugares con ese nombre.', type: 'warning' });
+                              }
+                            }
+                            setIsSearchingGoogle(false);
+                          }}
+                        >
+                          Buscar
+                        </Button>
+                      </div>
+
+                      <AnimatePresence>
+                        {showImportList && importResults.length > 0 && (
+                          <motion.div 
+                            initial={{ opacity: 0, y: 5 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="absolute left-0 right-0 top-full mt-2 bg-surface border border-border rounded-2xl shadow-2xl z-[150] max-h-60 overflow-y-auto"
+                          >
+                            {importResults.map(result => (
+                              <button
+                                key={result.place_id}
+                                type="button"
+                                className="w-full text-left p-4 hover:bg-accent/10 border-b border-border/50 last:border-0 flex justify-between items-center group"
+                                onMouseDown={async (e) => {
+                                  e.preventDefault();
+                                  setIsSelectingPlace(true);
+                                  try {
+                                    const details = await getPlaceDetailsAction(result.place_id);
+                                    if (details.success && details.place) {
+                                      const p = details.place;
+                                      const city = p.address_components?.find((c: any) => c.types.includes('locality'))?.long_name || 
+                                                 p.address_components?.find((c: any) => c.types.includes('administrative_area_level_2'))?.long_name || '';
+                                      
+                                      const newFormData = {
+                                        ...formData,
+                                        name: p.name,
+                                        address: p.formatted_address,
+                                        city: city,
+                                        phone: p.international_phone_number || p.formatted_phone_number,
+                                        website: p.website,
+                                        google_place_id: p.place_id,
+                                        latitude: p.geometry?.location?.lat,
+                                        longitude: p.geometry?.location?.lng,
+                                        rating: p.rating
+                                      };
+
+                                      if (activeTab === 'restaurants') {
+                                        (newFormData as any).price_level = p.price_level;
+                                      }
+
+                                      setFormData(newFormData);
+                                      setImportSearch('');
+                                      setShowImportList(false);
+                                    } else {
+                                      await alert({ 
+                                        title: 'Error de Google', 
+                                        message: details.error || 'No se pudieron obtener los detalles del lugar.', 
+                                        type: 'danger' 
+                                      });
+                                    }
+                                  } catch (err: any) {
+                                    await alert({ title: 'Error', message: 'Ocurrió un error inesperado al importar.', type: 'danger' });
+                                  } finally {
+                                    setIsSelectingPlace(false);
+                                  }
+                                }}
+                              >
+                                <div>
+                                  <p className="text-xs font-black text-foreground group-hover:text-accent transition-colors">{result.name}</p>
+                                  <p className="text-[10px] text-muted">{result.formatted_address}</p>
+                                </div>
+                                {isSelectingPlace ? <Loader2 size={16} className="animate-spin text-accent" /> : <Plus size={16} className="text-accent opacity-0 group-hover:opacity-100 transition-all" />}
+                              </button>
+                            ))}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  )}
+
                   {activeTab === 'hotels' ? (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-2 col-span-2">
@@ -408,6 +562,14 @@ export default function CatalogsPage() {
                         <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">Google Place ID</label>
                         <input type="text" value={formData.google_place_id || ''} onChange={(e) => setFormData({...formData, google_place_id: e.target.value})} className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all" placeholder="ChI..." />
                       </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">Latitud</label>
+                        <input type="number" step="any" value={formData.latitude || ''} onChange={(e) => setFormData({...formData, latitude: parseFloat(e.target.value)})} className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all" placeholder="0.000000" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">Longitud</label>
+                        <input type="number" step="any" value={formData.longitude || ''} onChange={(e) => setFormData({...formData, longitude: parseFloat(e.target.value)})} className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all" placeholder="0.000000" />
+                      </div>
                       <div className="flex items-center gap-2 pt-2">
                         <input 
                           type="checkbox" 
@@ -416,6 +578,56 @@ export default function CatalogsPage() {
                           onChange={e => setFormData({...formData, preferred: e.target.checked})}
                         />
                         <label htmlFor="preferred_hotel" className="text-[10px] font-black uppercase text-muted tracking-widest">Hotel Preferente</label>
+                      </div>
+                    </div>
+                  ) : activeTab === 'restaurants' ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-2 col-span-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">Nombre del Restaurante</label>
+                        <input required type="text" value={formData.name || ''} onChange={(e) => setFormData({...formData, name: e.target.value})} className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all" placeholder="Ej: Restaurante KONG" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">Ciudad</label>
+                        <input required type="text" value={formData.city || ''} onChange={(e) => setFormData({...formData, city: e.target.value})} className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all" placeholder="Ciudad" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">Tipo de Cocina</label>
+                        <input type="text" value={formData.cuisine_type || ''} onChange={(e) => setFormData({...formData, cuisine_type: e.target.value})} className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all" placeholder="Ej: Fusión Japonesa" />
+                      </div>
+                      <div className="space-y-2 col-span-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">Dirección</label>
+                        <input type="text" value={formData.address || ''} onChange={(e) => setFormData({...formData, address: e.target.value})} className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all" placeholder="Dirección completa" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">Teléfono</label>
+                        <input type="text" value={formData.phone || ''} onChange={(e) => setFormData({...formData, phone: e.target.value})} className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all" placeholder="+34..." />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">Rating (0-5)</label>
+                        <input type="number" step="0.1" min="0" max="5" value={formData.rating || ''} onChange={(e) => setFormData({...formData, rating: parseFloat(e.target.value)})} className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all" placeholder="Ej: 4.8" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">Precio (1-4)</label>
+                        <select value={formData.price_level || ''} onChange={(e) => setFormData({...formData, price_level: e.target.value ? parseInt(e.target.value) : undefined})} className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all">
+                          <option value="">Seleccionar...</option>
+                          <option value="1">€ (Económico)</option>
+                          <option value="2">€€ (Medio)</option>
+                          <option value="3">€€€ (Caro)</option>
+                          <option value="4">€€€€ (Lujo)</option>
+                        </select>
+                      </div>
+                      <div className="space-y-2 col-span-2">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-muted ml-1">Sitio Web</label>
+                        <input type="url" value={formData.website || ''} onChange={(e) => setFormData({...formData, website: e.target.value})} className="w-full bg-background border border-border rounded-xl py-3 px-4 text-sm font-bold outline-none focus:border-accent transition-all" placeholder="https://..." />
+                      </div>
+                      <div className="flex items-center gap-2 pt-2 col-span-2">
+                        <input 
+                          type="checkbox" 
+                          id="preferred_restaurant"
+                          checked={formData.preferred || false}
+                          onChange={e => setFormData({...formData, preferred: e.target.checked})}
+                        />
+                        <label htmlFor="preferred_restaurant" className="text-[10px] font-black uppercase text-muted tracking-widest">Restaurante Preferente</label>
                       </div>
                     </div>
                   ) : (

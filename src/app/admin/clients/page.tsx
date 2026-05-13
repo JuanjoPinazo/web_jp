@@ -182,8 +182,21 @@ export default function AdminClientsPage() {
                 <p className="text-[10px] font-black text-muted uppercase tracking-widest">Usuarios vinculados</p>
                 <div className="flex -space-x-2">
                   {users.filter(u => u.client_id === client.id).map((u, i) => (
-                    <div key={u.id} className="w-8 h-8 rounded-full bg-background border border-border flex items-center justify-center text-[10px] font-black text-accent overflow-hidden ring-2 ring-surface" title={u.email}>
-                      {(u.name && u.name[0]) || '?'}
+                    <div 
+                      key={u.id} 
+                      className="w-8 h-8 rounded-full bg-background border border-border flex items-center justify-center text-[10px] font-black text-accent overflow-hidden ring-2 ring-surface relative group/avatar" 
+                      title={`${u.name} ${u.surname}`}
+                    >
+                      {u.avatar_url ? (
+                        <img src={u.avatar_url} alt={u.name} className="w-full h-full object-cover" />
+                      ) : (
+                        <span>{(u.name && u.name[0]) || '?'}</span>
+                      )}
+                      
+                      {/* Optional tooltip on hover */}
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-primary text-white text-[9px] rounded opacity-0 group-hover/avatar:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-20">
+                        {u.name} {u.surname}
+                      </div>
                     </div>
                   ))}
                   {users.filter(u => u.client_id === client.id).length === 0 && (

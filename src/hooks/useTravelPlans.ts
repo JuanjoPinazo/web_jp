@@ -122,6 +122,9 @@ export interface HotelStay {
   breakfast_included?: boolean;
   cancellation_policy?: string;
   notes?: string;
+  master_hotel_id?: string;
+  latitude?: number;
+  longitude?: number;
   document_id?: string;
   status: string;
   source: string;
@@ -246,6 +249,7 @@ export interface HospitalityEvent {
   status: 'planned' | 'confirmed' | 'cancelled';
   attendees?: HospitalityAttendee[];
   image_url?: string;
+  website_url?: string;
   created_at: string;
   deleted_at?: string | null;
 }

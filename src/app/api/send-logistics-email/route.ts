@@ -284,12 +284,14 @@ function buildHtml(data: {
     <tr>
       <td style="padding: 0 0 24px 0;">
         <table cellpadding="0" cellspacing="0" width="100%" style="background: ${surface}; border: 1px solid ${border}; border-radius: 24px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
-          ${ev.image_url ? `
           <tr>
             <td style="padding: 0; background: #000000; border-radius: 24px 24px 0 0; overflow: hidden;">
-              <img src="${ev.image_url}" width="600" style="width: 100%; display: block;" />
+              <img src="${ev.image_url || (ev.title?.toLowerCase().includes('kong') 
+                ? 'https://images.unsplash.com/photo-1550966842-2862ba996d44?q=80&w=1200&auto=format&fit=crop' 
+                : 'https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?q=80&w=1200&auto=format&fit=crop')}" 
+                width="600" alt="${ev.title}" style="width: 100%; display: block;" />
             </td>
-          </tr>` : ''}
+          </tr>
           <tr>
             <td style="padding: 32px; border-bottom: 1px solid ${border}; background: #ffffff;">
               <p style="margin: 0 0 10px 0; font-size: 10px; color: ${accent}; font-weight: 900; text-transform: uppercase; letter-spacing: 3px;">${eventTypeLabel(ev.type)} VIP</p>
@@ -304,9 +306,13 @@ function buildHtml(data: {
                 ${ev.venue_name ? infoRow('Lugar', ev.venue_name) : ''}
                 ${ev.venue_address ? infoRow('Dirección', ev.venue_address) : ''}
                 ${ev.dress_code ? infoRow('Dress code', ev.dress_code) : ''}
-                ${ev.reservation_code ? infoRow('Código', ev.reservation_code) : ''}
+                ${ev.reservation_name ? infoRow('Reserva a nombre de', ev.reservation_name) : ''}
+                ${ev.reservation_code ? infoRow('Código / Ref.', ev.reservation_code) : ''}
                 ${ev.contact_name ? infoRow('Contacto', `${ev.contact_name}${ev.contact_phone ? ` · ${ev.contact_phone}` : ''}`) : ''}
-                ${ev.description ? `<tr><td colspan="2" style="padding-top: 16px; font-size: 14px; color: ${muted}; line-height: 1.6;">${ev.description}</td></tr>` : ''}
+                ${ev.menu_type ? infoRow('Menú', ev.menu_type) : ''}
+                ${ev.private_room ? infoRow('Sala Privada', 'Sí ✓') : ''}
+                ${ev.website_url ? infoRow('Sitio Web', `<a href="${ev.website_url}" style="color: ${accent}; text-decoration: none; font-weight: 800; border-bottom: 2px solid ${accent};">Visitar Web →</a>`) : ''}
+                ${ev.description ? `<tr><td colspan="2" style="padding-top: 20px; font-size: 14px; color: ${muted}; line-height: 1.6; font-style: italic; border-top: 1px solid ${border}; margin-top: 10px;">${ev.description}</td></tr>` : ''}
               </table>
             </td>
           </tr>

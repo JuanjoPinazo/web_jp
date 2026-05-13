@@ -58,7 +58,7 @@ interface AttendeeWithProfile {
   transport_required: boolean;
   notes?: string;
   deleted_at?: string | null;
-  profiles?: { nombre?: string; apellidos?: string; email?: string };
+  profiles?: { nombre?: string; apellidos?: string; email?: string; avatar_url?: string };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -177,7 +177,7 @@ export default function HospitalityAdminPage() {
             *,
             attendees:hospitality_event_attendees(
               *,
-              profiles:profile_id(nombre, apellidos, email)
+              profiles:profile_id(nombre, apellidos, email, avatar_url)
             ),
             plan:contact_travel_plans(
               id, user_id,
@@ -583,7 +583,11 @@ export default function HospitalityAdminPage() {
                           key={a.id}
                           className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-background border border-border text-[10px] group"
                         >
-                          <span className={`w-1.5 h-1.5 rounded-full ${a.attendance_status === 'confirmed' ? 'bg-emerald-400' : a.attendance_status === 'declined' ? 'bg-red-400' : 'bg-amber-400'}`} />
+                          {a.profiles?.avatar_url ? (
+                            <img src={a.profiles.avatar_url} alt={getDisplayName(a)} className="w-4 h-4 rounded-full object-cover mr-1" />
+                          ) : (
+                            <span className={`w-1.5 h-1.5 rounded-full ${a.attendance_status === 'confirmed' ? 'bg-emerald-400' : a.attendance_status === 'declined' ? 'bg-red-400' : 'bg-amber-400'}`} />
+                          )}
                           <span className="font-bold text-foreground">{getDisplayName(a)}</span>
                           {a.dietary_restrictions && (
                             <span className="text-muted">{a.dietary_restrictions}</span>

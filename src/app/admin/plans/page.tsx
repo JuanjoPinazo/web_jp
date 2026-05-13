@@ -44,13 +44,20 @@ import {
   RefreshCw,
   Check,
   Mail,
+  Zap,
+  Navigation,
+  Star,
 } from 'lucide-react';
+import { searchPlacesAction, getPlaceDetailsAction } from '@/actions/google-places-actions';
 import { Button } from '@/components/Button';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDialog } from '@/context/DialogContext';
 import { useHotelsCatalog, MasterHotel } from '@/hooks/useHotelsCatalog';
+import { useRestaurantsCatalog, MasterRestaurant } from '@/hooks/useRestaurantsCatalog';
 import { HotelImportModal } from '@/components/HotelImportModal';
 import { QRCodeSVG } from 'qrcode.react';
+import { calculateRouteAction, getPlanRoutesAction } from '@/actions/travel-routes-actions';
+import { TravelMode } from '@/core/types/geo';
 
 export default function AdminPlansPage() {
   const { isAdmin, getUsers, getContexts } = useAdmin();
@@ -93,8 +100,12 @@ export default function AdminPlansPage() {
   const [isCreating, setIsCreating] = useState(false);
   
   // Hotel Catalog Integration
-  const { fetchHotels: fetchCatalogHotels } = useHotelsCatalog();
+  const { fetchHotels: fetchCatalogHotels, saveHotel: saveToCatalog } = useHotelsCatalog();
+  const { fetchRestaurants: fetchCatalogRestaurants, saveRestaurant: saveRestaurantToCatalog } = useRestaurantsCatalog();
   const [catalogHotels, setCatalogHotels] = useState<MasterHotel[]>([]);
+  const [catalogRestaurants, setCatalogRestaurants] = useState<MasterRestaurant[]>([]);
+  const [restaurantSearch, setRestaurantSearch] = useState('');
+  const [showRestaurantCatalogList, setShowRestaurantCatalogList] = useState(false);
   const [hotelSearch, setHotelSearch] = useState('');
   const [showCatalogList, setShowCatalogList] = useState(false);
   const [editingPlan, setEditingPlan] = useState<any>(null);
@@ -106,6 +117,8 @@ export default function AdminPlansPage() {
   const [selectedContext, setSelectedContext] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingHospitality, setEditingHospitality] = useState<any>(null);
+  const [planRoutes, setPlanRoutes] = useState<any[]>([]);
+  const [isCalculatingRoute, setIsCalculatingRoute] = useState(false);
   const [editingTransfer, setEditingTransfer] = useState<any>(null);
   const [supportInfo, setSupportInfo] = useState({ phone: '+34 600 000 000' });
   const [showQuickUser, setShowQuickUser] = useState(false);
@@ -118,6 +131,10 @@ export default function AdminPlansPage() {
   const [contextEvents, setContextEvents] = useState<any[]>([]);
   const [showEventSelector, setShowEventSelector] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [hospPlaceSearch, setHospPlaceSearch] = useState('');
+  const [hospPlaceResults, setHospPlaceResults] = useState<any[]>([]);
+  const [isSearchingHosp, setIsSearchingHosp] = useState(false);
+  const [showHospPlaceList, setShowHospPlaceList] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -255,6 +272,7 @@ export default function AdminPlansPage() {
         loadContextProfiles(fullPlan.context_id);
         const events = await getContextEvents(fullPlan.context_id);
         setContextEvents(events);
+        loadPlanRoutes(fullPlan.id);
       }
       setView('detail');
     } catch (err) {
@@ -275,6 +293,9 @@ export default function AdminPlansPage() {
         check_out: '', 
         hotel_name: '', 
         booking_reference: '',
+        master_hotel_id: null,
+        latitude: null,
+        longitude: null,
         visible_to_client: true,
         guest_name: `${selectedPlan.profiles?.nombre || ''} ${selectedPlan.profiles?.apellidos || ''}`.trim(),
         source: 'manual'
@@ -292,6 +313,22 @@ export default function AdminPlansPage() {
     const query = searchQuery.toLowerCase();
     return userName.includes(query) || contextName.includes(query);
   });
+
+  const loadPlanRoutes = async (planId: string) => {
+    try {
+      const res = await getPlanRoutesAction(planId);
+      if (res.success) {
+        setPlanRoutes(res.routes || []);
+      }
+    } catch (err) {
+      console.error('Error loading plan routes:', err);
+    }
+  };
+
+  const handleCalculateRoute = async () => {
+    if (!selectedPlan) return;
+    await loadPlanRoutes(selectedPlan.id);
+  };
 
   const handleImportPdf = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -607,6 +644,14 @@ export default function AdminPlansPage() {
           </div>
         </div>
 
+        {/* --- SMART DISTANCES SECTION --- */}
+        <SmartDistances 
+          plan={selectedPlan} 
+          routes={planRoutes} 
+          onCalculate={handleCalculateRoute} 
+          isCalculating={isCalculatingRoute} 
+        />
+
         <CoordinatorSelector 
           planId={selectedPlan.id} 
           currentContactId={selectedPlan.logistic_contact_id}
@@ -839,9 +884,21 @@ export default function AdminPlansPage() {
                     </div>
                     <div className="p-5 space-y-3">
                       {hotel.address && (
-                        <div className="flex items-start gap-3">
-                          <MapPin size={12} className="text-muted mt-0.5 shrink-0" />
-                          <p className="text-[10px] font-medium text-muted">{hotel.address}</p>
+                        <div className="flex flex-col gap-2">
+                          <div className="flex items-start gap-3">
+                            <MapPin size={12} className="text-muted mt-0.5 shrink-0" />
+                            <p className="text-[10px] font-medium text-muted">{hotel.address}</p>
+                          </div>
+                          {(hotel.latitude && hotel.longitude) && (
+                            <a 
+                              href={`https://www.google.com/maps/dir/?api=1&destination=${hotel.latitude},${hotel.longitude}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 text-[9px] font-black text-accent uppercase tracking-widest hover:underline ml-7"
+                            >
+                              <ExternalLink size={10} /> Cómo llegar
+                            </a>
+                          )}
                         </div>
                       )}
                       <div className="grid grid-cols-2 gap-3">
@@ -1961,6 +2018,11 @@ export default function AdminPlansPage() {
                   };
 
                   if (editingHotel.id) hotelPayload.id = editingHotel.id;
+                  
+                  // New master hotel fields
+                  hotelPayload.master_hotel_id = editingHotel.master_hotel_id;
+                  hotelPayload.latitude = editingHotel.latitude;
+                  hotelPayload.longitude = editingHotel.longitude;
 
                   await saveItem('hotel_stays', hotelPayload);
                   setEditingHotel(null);
@@ -1977,67 +2039,98 @@ export default function AdminPlansPage() {
                     <label className="text-[10px] font-black uppercase text-accent tracking-widest px-1 flex items-center gap-2">
                       <Search size={12} /> Buscar en Catálogo Maestro
                     </label>
-                    <div className="relative">
-                      <input 
-                        type="text"
-                        className="w-full bg-background border border-accent/20 rounded-xl p-3 text-xs outline-none focus:border-accent"
-                        placeholder="Escribir nombre o ciudad del hotel..."
-                        value={hotelSearch}
-                        onChange={(e) => {
-                          setHotelSearch(e.target.value);
-                          setShowCatalogList(true);
-                        }}
-                        onFocus={() => setShowCatalogList(true)}
-                      />
-                      
-                      <AnimatePresence>
-                        {showCatalogList && hotelSearch.length >= 2 && (
-                          <motion.div 
-                            initial={{ opacity: 0, y: 5 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: 5 }}
-                            className="absolute left-0 right-0 top-full mt-2 bg-surface border border-border rounded-2xl shadow-2xl z-[80] max-h-60 overflow-y-auto"
-                          >
-                            {catalogHotels
-                              .filter(h => 
-                                h.name.toLowerCase().includes(hotelSearch.toLowerCase()) || 
-                                h.city.toLowerCase().includes(hotelSearch.toLowerCase())
-                              )
-                              .map(hotel => (
-                                <button
-                                  key={hotel.id}
-                                  type="button"
-                                  className="w-full text-left p-4 hover:bg-accent/10 border-b border-border/50 last:border-0 flex justify-between items-center group"
-                                  onClick={() => {
-                                    setEditingHotel({
-                                      ...editingHotel,
-                                      hotel_name: hotel.name,
-                                      address: hotel.address || '',
-                                      phone: hotel.phone || '',
-                                      stars: hotel.stars,
-                                      rating: hotel.rating,
-                                      city: hotel.city
-                                    });
-                                    setHotelSearch(hotel.name);
-                                    setShowCatalogList(false);
-                                  }}
-                                >
-                                  <div>
-                                    <p className="text-xs font-bold text-foreground group-hover:text-accent transition-colors">{hotel.name}</p>
-                                    <p className="text-[10px] text-muted">{hotel.city} · {hotel.stars ? `${hotel.stars}★` : 'Sin estrellas'}</p>
-                                  </div>
-                                  <ChevronRight size={14} className="text-muted" />
-                                </button>
-                              ))
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <input 
+                          type="text" 
+                          className="w-full bg-background border border-border rounded-xl p-3 pl-10 text-xs outline-none focus:border-accent"
+                          placeholder="Nombre del hotel, ciudad..."
+                          value={hotelSearch}
+                          onChange={e => setHotelSearch(e.target.value)}
+                          onFocus={async () => {
+                            if (catalogHotels.length === 0) {
+                              const hotels = await fetchCatalogHotels();
+                              setCatalogHotels(hotels || []);
                             }
-                            {catalogHotels.filter(h => h.name.toLowerCase().includes(hotelSearch.toLowerCase())).length === 0 && (
-                              <div className="p-4 text-center">
-                                <p className="text-[10px] font-bold text-muted uppercase">No se encontraron hoteles</p>
-                              </div>
-                            )}
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
+                            if (hotelSearch.length > 0) setShowCatalogList(true);
+                          }}
+                        />
+                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted">
+                          <Search size={14} />
+                        </div>
+                        
+                        <AnimatePresence>
+                          {showCatalogList && hotelSearch.length >= 2 && (
+                            <motion.div 
+                              initial={{ opacity: 0, y: 5 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: 5 }}
+                              className="absolute left-0 right-0 top-full mt-2 bg-surface border border-border rounded-2xl shadow-2xl z-[80] max-h-60 overflow-y-auto"
+                            >
+                              {catalogHotels
+                                .filter(h => {
+                                  const normalize = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+                                  const search = normalize(hotelSearch);
+                                  return normalize(h.name).includes(search) || 
+                                         normalize(h.city).includes(search) ||
+                                         (h.address && normalize(h.address).includes(search));
+                                })
+                                .map(hotel => (
+                                  <button
+                                    key={hotel.id}
+                                    type="button"
+                                    className="w-full text-left p-4 hover:bg-accent/10 border-b border-border/50 last:border-0 flex justify-between items-center group"
+                                    onClick={() => {
+                                      setEditingHotel({
+                                        ...editingHotel,
+                                        hotel_name: hotel.name,
+                                        address: hotel.address || '',
+                                        phone: hotel.phone || '',
+                                        stars: hotel.stars,
+                                        rating: hotel.rating,
+                                        city: hotel.city,
+                                        master_hotel_id: hotel.id,
+                                        latitude: hotel.latitude,
+                                        longitude: hotel.longitude
+                                      });
+                                      setHotelSearch('');
+                                      setShowCatalogList(false);
+                                    }}
+                                  >
+                                    <div>
+                                      <p className="text-xs font-black text-foreground group-hover:text-accent transition-colors">{hotel.name}</p>
+                                      <p className="text-[10px] text-muted">{hotel.city}{hotel.address ? ` · ${hotel.address}` : ''}</p>
+                                    </div>
+                                    <div className="text-accent opacity-0 group-hover:opacity-100 transition-opacity">
+                                      <Plus size={16} />
+                                    </div>
+                                  </button>
+                                ))
+                              }
+                              {catalogHotels.filter(h => 
+                                h.name.toLowerCase().includes(hotelSearch.toLowerCase()) || 
+                                h.city.toLowerCase().includes(hotelSearch.toLowerCase()) ||
+                                (h.address && h.address.toLowerCase().includes(hotelSearch.toLowerCase()))
+                              ).length === 0 && (
+                                <div className="p-4 text-center">
+                                  <p className="text-[10px] font-bold text-muted uppercase">No hay coincidencias en catálogo</p>
+                                </div>
+                              )}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                      <Button 
+                        type="button" 
+                        variant="outline"
+                        className="rounded-xl h-10 px-3 flex items-center gap-2 border-accent/20 text-accent text-[10px] font-black uppercase tracking-widest hover:bg-accent/10"
+                        onClick={() => {
+                          // Open Google Places Search (We can reuse the test logic or just a simple alert for now)
+                          window.open('/admin/google-test', '_blank');
+                        }}
+                      >
+                        <Plane size={14} /> Google Places
+                      </Button>
                     </div>
                   </div>
 
@@ -2080,7 +2173,10 @@ export default function AdminPlansPage() {
                   <FieldReview label="Localizador / Ref" value={editingHotel.booking_reference} onChange={(v:any) => setEditingHotel({...editingHotel, booking_reference: v})} />
 
                   <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Categoría (Estrellas)</label>
+                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1 flex justify-between">
+                      Categoría (Estrellas)
+                      <span className="text-muted font-bold">Opcional</span>
+                    </label>
                     <select 
                       className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent"
                       value={editingHotel.stars || ''}
@@ -2090,12 +2186,13 @@ export default function AdminPlansPage() {
                       {[1,2,3,4,5].map(n => <option key={n} value={n}>{n} Estrellas</option>)}
                     </select>
                   </div>
-                  <FieldReview label="Valoración (Rating)" type="number" value={editingHotel.rating} onChange={(v:any) => setEditingHotel({...editingHotel, rating: parseFloat(v)})} placeholder="Ej: 8.5" />
+                  <FieldReview label="Valoración (Rating)" type="number" optional={true} value={editingHotel.rating} onChange={(v:any) => setEditingHotel({...editingHotel, rating: parseFloat(v)})} placeholder="Ej: 8.5" />
 
                   <div className="col-span-2 space-y-2">
                     <FieldReview 
                       label="Grupo de Habitación" 
                       value={editingHotel.room_group_id} 
+                      optional={true}
                       onChange={(v:any) => setEditingHotel({...editingHotel, room_group_id: v})} 
                       placeholder="Ej: GRUPO_A o DOBLE_JUAN_PEDRO"
                     />
@@ -2124,7 +2221,41 @@ export default function AdminPlansPage() {
                     </div>
                   </div>
 
-                  <FieldReview label="Teléfono Hotel" value={editingHotel.phone} onChange={(v:any) => setEditingHotel({...editingHotel, phone: v})} />
+                  <FieldReview label="Teléfono Hotel" optional={true} value={editingHotel.phone} onChange={(v:any) => setEditingHotel({...editingHotel, phone: v})} />
+                  
+                  {(!editingHotel.master_hotel_id && editingHotel.hotel_name) && (
+                    <div className="col-span-2 pt-2">
+                      <Button 
+                        type="button" 
+                        variant="outline" 
+                        className="w-full rounded-xl border-accent/20 text-accent text-[10px] font-black uppercase tracking-widest hover:bg-accent/10 py-3"
+                        onClick={async () => {
+                          try {
+                            const newHotel = await saveToCatalog({
+                              name: editingHotel.hotel_name,
+                              address: editingHotel.address,
+                              phone: editingHotel.phone,
+                              city: editingHotel.city || '',
+                              stars: editingHotel.stars,
+                              rating: editingHotel.rating,
+                              latitude: editingHotel.latitude,
+                              longitude: editingHotel.longitude
+                            });
+                            if (newHotel) {
+                              setEditingHotel({ ...editingHotel, master_hotel_id: newHotel.id });
+                              await alert({ title: 'Éxito', message: 'Hotel guardado en el catálogo maestro.', type: 'success' });
+                              const hotels = await fetchCatalogHotels();
+                              setCatalogHotels(hotels || []);
+                            }
+                          } catch (e: any) {
+                            alert({ title: 'Error', message: 'No se pudo guardar en el catálogo: ' + e.message, type: 'danger' });
+                          }
+                        }}
+                      >
+                        <Star size={12} className="mr-2" /> Guardar en Catálogo Maestro
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="pt-6 border-t border-border flex gap-4">
@@ -2325,6 +2456,10 @@ export default function AdminPlansPage() {
                     contexts: _ctx,
                     ...hospitalityPayload
                   } = editingHospitality as any;
+                  
+                  // Clean master fields
+                  hospitalityPayload.master_restaurant_id = editingHospitality.master_restaurant_id;
+                  
                   await saveItem('hospitality_events', hospitalityPayload);
                   await alert({ title: 'Éxito', message: 'Evento guardado correctamente.', type: 'success' });
                   setEditingHospitality(null);
@@ -2364,6 +2499,207 @@ export default function AdminPlansPage() {
                   </div>
                   
                   <FieldReview label="Título del Evento" value={editingHospitality.title} onChange={(v:any) => setEditingHospitality({...editingHospitality, title: v})} />
+
+                  <div className="col-span-2 space-y-3 p-5 bg-purple-500/5 rounded-3xl border border-purple-500/10 relative">
+                    <label className="text-[10px] font-black uppercase text-purple-400 tracking-widest px-1 flex items-center gap-2">
+                      <Star size={12} /> Buscar en Catálogo Maestro
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <input 
+                          type="text" 
+                          className="w-full bg-background border border-border rounded-xl p-3 pl-10 text-xs outline-none focus:border-purple-500/50"
+                          placeholder="Buscar restaurante guardado..."
+                          value={restaurantSearch}
+                          onChange={e => setRestaurantSearch(e.target.value)}
+                          onFocus={async () => {
+                            if (catalogRestaurants.length === 0) {
+                              const res = await fetchCatalogRestaurants();
+                              setCatalogRestaurants(res || []);
+                            }
+                            if (restaurantSearch.length > 0) setShowRestaurantCatalogList(true);
+                          }}
+                        />
+                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted">
+                          <Search size={14} />
+                        </div>
+                        
+                        <AnimatePresence>
+                          {showRestaurantCatalogList && restaurantSearch.length >= 2 && (
+                            <motion.div 
+                              initial={{ opacity: 0, y: 5 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              exit={{ opacity: 0, y: 5 }}
+                              className="absolute left-0 right-0 top-full mt-2 bg-surface border border-border rounded-2xl shadow-2xl z-[130] max-h-60 overflow-y-auto"
+                            >
+                              {catalogRestaurants
+                                .filter(r => {
+                                  const normalize = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+                                  const search = normalize(restaurantSearch);
+                                  return normalize(r.name).includes(search) || 
+                                         (r.city && normalize(r.city).includes(search)) ||
+                                         (r.address && normalize(r.address).includes(search));
+                                })
+                                .map(res => (
+                                  <button
+                                    key={res.id}
+                                    type="button"
+                                    className="w-full text-left p-4 hover:bg-purple-500/10 border-b border-border/50 last:border-0 flex justify-between items-center group"
+                                    onClick={() => {
+                                      setEditingHospitality({
+                                        ...editingHospitality,
+                                        title: editingHospitality.title || res.name,
+                                        venue_name: res.name,
+                                        venue_address: res.address || '',
+                                        location: res.address || '',
+                                        latitude: res.latitude,
+                                        longitude: res.longitude,
+                                        master_restaurant_id: res.id,
+                                        website_url: res.website || editingHospitality.website_url
+                                      });
+                                      setRestaurantSearch('');
+                                      setShowRestaurantCatalogList(false);
+                                    }}
+                                  >
+                                    <div>
+                                      <p className="text-xs font-black text-foreground group-hover:text-purple-400 transition-colors">{res.name}</p>
+                                      <p className="text-[10px] text-muted">{res.city}{res.address ? ` · ${res.address}` : ''}</p>
+                                    </div>
+                                    <Plus size={16} className="text-purple-400 opacity-0 group-hover:opacity-100 transition-all" />
+                                  </button>
+                                ))}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="col-span-2 space-y-3 p-5 bg-accent/5 rounded-3xl border border-accent/10 relative">
+                    <label className="text-[10px] font-black uppercase text-accent tracking-widest px-1 flex items-center gap-2">
+                      <Search size={12} /> Buscar Restaurante / Ubicación
+                    </label>
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <input 
+                          type="text" 
+                          className="w-full bg-background border border-border rounded-xl p-3 pl-10 text-xs outline-none focus:border-accent"
+                          placeholder="Nombre del restaurante, club..."
+                          value={hospPlaceSearch}
+                          onChange={e => setHospPlaceSearch(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              const search = async () => {
+                                setIsSearchingHosp(true);
+                                const res = await searchPlacesAction(hospPlaceSearch);
+                                if (res.success) {
+                                  setHospPlaceResults(res.results || []);
+                                  setShowHospPlaceList(true);
+                                }
+                                setIsSearchingHosp(false);
+                              };
+                              search();
+                            }
+                          }}
+                          onFocus={() => hospPlaceResults.length > 0 && setShowHospPlaceList(true)}
+                        />
+                        <div className="absolute left-3 top-1/2 -translate-y-1/2 text-muted">
+                          {isSearchingHosp ? <Loader2 size={14} className="animate-spin" /> : <Search size={14} />}
+                        </div>
+                      </div>
+                      <Button 
+                        type="button"
+                        variant="outline" 
+                        className="rounded-xl px-4 border-accent/20 text-accent hover:bg-accent/10 whitespace-nowrap"
+                        onClick={async () => {
+                          setIsSearchingHosp(true);
+                          const res = await searchPlacesAction(hospPlaceSearch);
+                          if (res.success) {
+                            setHospPlaceResults(res.results || []);
+                            setShowHospPlaceList(true);
+                          }
+                          setIsSearchingHosp(false);
+                        }}
+                        disabled={isSearchingHosp}
+                      >
+                        Buscar
+                      </Button>
+                    </div>
+
+                    <AnimatePresence>
+                      {showHospPlaceList && hospPlaceResults.length > 0 && (
+                        <motion.div 
+                          initial={{ opacity: 0, y: 10 }} 
+                          animate={{ opacity: 1, y: 0 }} 
+                          className="absolute left-0 right-0 top-full mt-2 bg-surface border border-border rounded-2xl shadow-2xl z-[120] max-h-60 overflow-y-auto"
+                        >
+                               {hospPlaceResults.map(place => (
+                                <button
+                                  key={place.place_id}
+                                  type="button"
+                                  className="w-full text-left p-4 hover:bg-accent/10 border-b border-border/50 last:border-0 flex justify-between items-center group"
+                                  onClick={async () => {
+                                    const res = await getPlaceDetailsAction(place.place_id);
+                                    if (res.success && res.place) {
+                                      setEditingHospitality({
+                                        ...editingHospitality,
+                                        title: editingHospitality.title || res.place.name,
+                                        venue_name: res.place.name,
+                                        venue_address: res.place.formatted_address,
+                                        location: res.place.formatted_address,
+                                        latitude: res.place.geometry?.location?.lat,
+                                        longitude: res.place.geometry?.location?.lng,
+                                        google_place_id: res.place.place_id,
+                                        website_url: res.place.website || editingHospitality.website_url
+                                      });
+                                      setHospPlaceSearch('');
+                                      setShowHospPlaceList(false);
+                                    }
+                                  }}
+                                >
+                                  <div>
+                                    <p className="text-xs font-black text-foreground group-hover:text-accent transition-colors">{place.name}</p>
+                                    <p className="text-[10px] text-muted">{place.formatted_address}</p>
+                                  </div>
+                                  <Plus size={16} className="text-accent opacity-0 group-hover:opacity-100 transition-all" />
+                                </button>
+                              ))}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                      
+                      {editingHospitality.venue_name && !editingHospitality.master_restaurant_id && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          className="w-full mt-2 border border-dashed border-purple-500/30 text-purple-400 text-[10px] font-black uppercase tracking-widest py-3 rounded-2xl hover:bg-purple-500/5"
+                          onClick={async () => {
+                            try {
+                              const saved = await saveRestaurantToCatalog({
+                                name: editingHospitality.venue_name,
+                                address: editingHospitality.venue_address || editingHospitality.location,
+                                google_place_id: editingHospitality.google_place_id,
+                                latitude: editingHospitality.latitude,
+                                longitude: editingHospitality.longitude,
+                                website: editingHospitality.website_url
+                              });
+                              if (saved) {
+                                setEditingHospitality({ ...editingHospitality, master_restaurant_id: saved.id });
+                                await fetchCatalogRestaurants(); // Refresh list
+                                await alert({ title: 'Éxito', message: 'Restaurante guardado en el catálogo maestro.', type: 'success' });
+                              }
+                            } catch (err: any) {
+                              await alert({ title: 'Error', message: 'No se pudo guardar en el catálogo.', type: 'danger' });
+                            }
+                          }}
+                        >
+                          <Star size={12} className="mr-2" /> Guardar en Catálogo Maestro
+                        </Button>
+                      )}
+
+                   <FieldReview label="Ubicación Detallada" value={editingHospitality.location} onChange={(v:any) => setEditingHospitality({...editingHospitality, location: v})} />
                   
                   <div className="col-span-2">
                     <FieldReview label="Descripción / Menú" value={editingHospitality.description} onChange={(v:any) => setEditingHospitality({...editingHospitality, description: v})} />
@@ -3053,3 +3389,171 @@ const FieldReview = ({ label, value, onChange, type = "text", optional = false }
     </div>
   );
 };
+
+function SmartDistances({ plan, routes, onCalculate, isCalculating }: { plan: any, routes: any[], onCalculate: () => void, isCalculating: boolean }) {
+  const hotel = plan.hotel_stays?.[0];
+  const context = plan.contexts;
+  const hospitality = plan.hospitality_events?.[0]; 
+  const flight = plan.flights?.find((f: any) => f.type === 'outbound');
+
+  const AIRPORT_COORDS: Record<string, { lat: number, lng: number }> = {
+    'VLC': { lat: 39.4893, lng: -0.4816 },
+    'ORY': { lat: 48.7262, lng: 2.3652 },
+    'MAD': { lat: 40.4983, lng: -3.5676 },
+    'BCN': { lat: 41.2974, lng: 2.0833 },
+    'CDG': { lat: 49.0097, lng: 2.5479 },
+    'FRA': { lat: 50.0379, lng: 8.5622 },
+    'MUC': { lat: 48.3537, lng: 11.7750 },
+    'AMS': { lat: 52.3105, lng: 4.7683 },
+    'LHR': { lat: 51.4700, lng: -0.4543 },
+    'LGW': { lat: 51.1537, lng: -0.1821 }
+  };
+
+  const airport = flight?.arrival_location ? AIRPORT_COORDS[flight.arrival_location.toUpperCase()] : null;
+
+  const calculateRoute = (origin: any, destination: any, title: string) => {
+    if (!origin.lat || !origin.lng || !destination.lat || !destination.lng) return;
+
+    // Use the multi-mode action to get all data at once
+    import('@/actions/travel-routes-actions').then(m => {
+      m.calculateMultiModeRouteAction({
+        planId: plan.id,
+        originLabel: origin.label,
+        originLat: origin.lat,
+        originLng: origin.lng,
+        destinationLabel: destination.label,
+        destinationLat: destination.lat,
+        destinationLng: destination.lng
+      }).then(res => {
+        if (res.success) {
+          onCalculate(); // Re-fetch from parent
+        } else {
+          window.alert('Error al calcular: ' + (res.error || 'Error desconocido'));
+        }
+      }).catch(err => {
+        console.error('Calculation error:', err);
+      });
+    });
+  };
+
+  const getRoutes = (originLabel: string, destLabel: string) => {
+    return routes.filter(r => {
+      const matchesOrigin = r.origin_label?.toLowerCase().includes(originLabel.toLowerCase()) || originLabel.toLowerCase().includes(r.origin_label?.toLowerCase() || '');
+      const matchesDest = r.destination_label?.toLowerCase().includes(destLabel.toLowerCase()) || destLabel.toLowerCase().includes(r.destination_label?.toLowerCase() || '');
+      return matchesOrigin && matchesDest;
+    });
+  };
+
+  const RouteItem = ({ title, origin, destination, icon: Icon }: any) => {
+    const rts = getRoutes(origin.label, destination.label);
+    const hasCoords = origin.lat && origin.lng && destination.lat && destination.lng;
+
+    const walking = rts.find(r => r.travel_mode === 'WALKING');
+    const driving = rts.find(r => r.travel_mode === 'DRIVING');
+    const transit = rts.find(r => r.travel_mode === 'TRANSIT');
+
+    return (
+      <div className="bg-background border border-border rounded-3xl p-5 hover:border-accent/30 transition-all group">
+        <div className="flex justify-between items-start mb-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-accent/5 text-accent border border-accent/10">
+              <Icon size={18} />
+            </div>
+            <div>
+              <h4 className="text-[10px] font-black uppercase text-muted tracking-widest">{title}</h4>
+              <p className="text-xs font-bold text-foreground truncate max-w-[150px]">{origin.label} → {destination.label}</p>
+            </div>
+          </div>
+          {hasCoords && (rts.length === 0 || rts.length < 3) && (
+            <Button 
+              size="sm" 
+              variant="outline" 
+              className="rounded-xl h-8 text-[9px] font-black uppercase tracking-widest border-accent/20 text-accent"
+              onClick={() => calculateRoute(origin, destination, title)}
+              disabled={isCalculating}
+            >
+              {isCalculating ? <Loader2 size={12} className="animate-spin" /> : <Zap size={12} className="mr-1" />}
+              {rts.length > 0 ? 'Recalcular' : 'Calcular'}
+            </Button>
+          )}
+        </div>
+
+        {rts.length > 0 ? (
+          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-border/50">
+            <div className="space-y-0.5">
+              <p className="text-[8px] font-black text-muted uppercase">Andando</p>
+              <p className="text-[10px] font-black text-foreground">{walking?.duration_text || '—'}</p>
+            </div>
+            <div className="space-y-0.5">
+              <p className="text-[8px] font-black text-muted uppercase">Taxi/Coche</p>
+              <p className="text-[10px] font-black text-accent">{driving?.duration_text || '—'}</p>
+            </div>
+            <div className="space-y-0.5">
+              <p className="text-[8px] font-black text-muted uppercase">Transporte</p>
+              <p className="text-[10px] font-black text-blue-500">{transit?.duration_text || '—'}</p>
+            </div>
+          </div>
+        ) : !hasCoords ? (
+          <div className="flex items-center gap-2 text-orange-500 bg-orange-500/5 p-3 rounded-2xl border border-orange-500/10">
+            <AlertCircle size={14} />
+            <p className="text-[10px] font-bold uppercase tracking-tight">Faltan coordenadas</p>
+          </div>
+        ) : (
+          <p className="text-[10px] text-muted font-medium italic">Pendiente de cálculo</p>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="bg-surface border border-border rounded-[2.5rem] p-8 shadow-sm">
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h3 className="text-xl font-black font-heading tracking-tight flex items-center gap-3">
+            <Navigation className="text-accent" /> Distancias Inteligentes
+          </h3>
+          <p className="text-[10px] text-muted font-black uppercase tracking-widest mt-1">Sincronización con Google Distance Matrix</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {hotel && context && (
+          <RouteItem 
+            title="Hotel → Sede"
+            origin={{ label: 'Hotel', lat: hotel.latitude, lng: hotel.longitude }}
+            destination={{ label: 'Sede Evento', lat: context.latitude, lng: context.longitude }}
+            icon={MapPin}
+          />
+        )}
+        
+        {airport && hotel && (
+          <RouteItem 
+            title="Aeropuerto → Hotel"
+            origin={{ label: flight.arrival_location, lat: airport.lat, lng: airport.lng }}
+            destination={{ label: 'Hotel', lat: hotel.latitude, lng: hotel.longitude }}
+            icon={Plane}
+          />
+        )}
+
+        {hotel && hospitality && (
+          <RouteItem 
+            title="Hotel → Cena"
+            origin={{ label: 'Hotel', lat: hotel.latitude, lng: hotel.longitude }}
+            destination={{ label: hospitality.title, lat: hospitality.latitude, lng: hospitality.longitude }}
+            icon={Utensils}
+          />
+        )}
+
+        {airport && hotel && (
+          <RouteItem 
+            title="Hotel → Aeropuerto"
+            origin={{ label: 'Hotel', lat: hotel.latitude, lng: hotel.longitude }}
+            destination={{ label: flight.arrival_location, lat: airport.lat, lng: airport.lng }}
+            icon={Plane}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
