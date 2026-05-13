@@ -136,13 +136,19 @@ export default function AdminUsersPage() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || 'Error en la operación');
 
+      let successMessage = editingUser 
+        ? 'Usuario actualizado correctamente.' 
+        : formData.sendInvite 
+          ? 'Usuario invitado correctamente.' 
+          : 'Usuario creado en borrador (sin invitación).';
+
+      if (result.emailChanged && result.tempPassword) {
+        successMessage = `Email cambiado con éxito.\nSe ha reseteado la contraseña.\nLa nueva contraseña temporal del usuario es: ${result.tempPassword}\n\nDeberá usarla para volver a acceder.`;
+      }
+
       await alert({ 
         title: 'Éxito', 
-        message: editingUser 
-          ? 'Usuario actualizado correctamente.' 
-          : formData.sendInvite 
-            ? 'Usuario invitado correctamente.' 
-            : 'Usuario creado en borrador (sin invitación).', 
+        message: successMessage, 
         type: 'success' 
       });
       
@@ -436,9 +442,7 @@ export default function AdminUsersPage() {
                      )}
                    </div>
                     <div className="flex gap-2">
-                      {user.onboarding_status !== 'active' && (
-                        <button onClick={() => openActivateModal(user)} title="Activar con Contraseña Temporal" className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all"><Key size={16} /></button>
-                      )}
+                      <button onClick={() => openActivateModal(user)} title="Resetear / Activar con Contraseña Temporal" className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all"><Key size={16} /></button>
                       <button onClick={() => handleResendInvite(user)} title="Reenviar Invitación" className="p-2.5 rounded-xl bg-accent/10 border border-accent/20 text-accent hover:bg-accent hover:text-white transition-all"><Send size={16} /></button>
                       <button onClick={() => setEditingUser(user)} className="p-2.5 rounded-xl bg-background border border-border text-muted hover:text-accent transition-all"><Edit2 size={16} /></button>
                       <button onClick={() => handleDeleteUser(user.id)} className="p-2.5 rounded-xl bg-background border border-border text-muted hover:text-red-500 transition-all"><Trash2 size={16} /></button>
@@ -567,9 +571,7 @@ export default function AdminUsersPage() {
 
                 {/* Actions */}
                 <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-                  {user.onboarding_status !== 'active' && (
-                    <button onClick={() => openActivateModal(user)} title="Activar con Contraseña Temporal" className="p-2 rounded-lg bg-background border border-border text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all"><Key size={14} /></button>
-                  )}
+                  <button onClick={() => openActivateModal(user)} title="Resetear / Activar con Contraseña Temporal" className="p-2 rounded-lg bg-background border border-border text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all"><Key size={14} /></button>
                   <button onClick={() => handleResendInvite(user)} title="Reenviar Invitación" className="p-2 rounded-lg bg-background border border-border text-muted hover:text-accent transition-all"><Send size={14} /></button>
                   <button onClick={() => setEditingUser(user)} className="p-2 rounded-lg bg-background border border-border text-muted hover:text-accent transition-all"><Edit2 size={14} /></button>
                   <button onClick={() => handleDeleteUser(user.id)} className="p-2 rounded-lg bg-background border border-border text-muted hover:text-red-500 transition-all"><Trash2 size={14} /></button>
@@ -589,9 +591,14 @@ export default function AdminUsersPage() {
                {/* Modal Content */}
                 <div className="flex justify-between items-center mb-10">
                    <h3 className="text-3xl font-black font-heading tracking-tighter uppercase">{editingUser ? 'Actualizar' : 'Invitar'}</h3>
-                   <button onClick={() => { setIsModalOpen(false); setEditingUser(null); setFormData({ email: '', name: '', surname: '', role: 'client', client_id: '', company_id: '', user_type: 'hospital', phone: '', avatar_url: '', sendInvite: true }); }} className="p-3 rounded-full bg-background border border-border text-muted hover:text-accent"><X size={24} /></button>
+                   <div className="flex items-center gap-3">
+                     <Button type="submit" form="user-form" className="py-3 px-6 rounded-2xl shadow-xl shadow-accent/20 text-xs" disabled={isSubmitting}>
+                        {isSubmitting ? <Loader2 className="animate-spin" size={16} /> : (editingUser ? 'Guardar' : formData.sendInvite ? 'Invitar' : 'Borrador')}
+                     </Button>
+                     <button type="button" onClick={() => { setIsModalOpen(false); setEditingUser(null); setFormData({ email: '', name: '', surname: '', role: 'client', client_id: '', company_id: '', user_type: 'hospital', phone: '', avatar_url: '', sendInvite: true }); }} className="p-3 rounded-full bg-background border border-border text-muted hover:text-accent"><X size={20} /></button>
+                   </div>
                 </div>
-               <form onSubmit={handleCreateUser} className="space-y-6">
+               <form id="user-form" onSubmit={handleCreateUser} className="space-y-6">
                   {editingUser && (
                     <div className="flex items-center gap-5 pb-6 border-b border-border">
                       <div className="relative">
@@ -692,9 +699,7 @@ export default function AdminUsersPage() {
                       </div>
                    )}
 
-                   <Button type="submit" className="w-full py-6 rounded-2xl shadow-xl shadow-accent/20" disabled={isSubmitting}>
-                      {isSubmitting ? <Loader2 className="animate-spin" size={20} /> : (editingUser ? 'Guardar Cambios' : formData.sendInvite ? 'Enviar Invitación' : 'Crear en Borrador')}
-                   </Button>
+                   {/* Submit button moved to top */}
                </form>
             </motion.div>
           </div>
@@ -732,7 +737,7 @@ export default function AdminUsersPage() {
                     <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500 mb-4">
                       <Key size={22} />
                     </div>
-                    <h3 className="text-2xl font-black tracking-tighter">Activar Cuenta</h3>
+                    <h3 className="text-2xl font-black tracking-tighter">Activar / Resetear</h3>
                     <p className="text-xs text-muted font-medium">
                       Establece una contraseña temporal para{' '}
                       <span className="font-bold text-foreground">{activatingUser.name} {activatingUser.surname}</span>.
@@ -781,8 +786,8 @@ export default function AdminUsersPage() {
                     <ul className="text-[10px] text-muted space-y-1 font-medium">
                       <li>· El email del usuario se confirmará automáticamente</li>
                       <li>· La cuenta pasará a estado <span className="text-emerald-500 font-bold">Activo</span></li>
-                      <li>· Al entrar, verá la misma vista que el cliente final</li>
-                      <li>· Puede cambiar la contraseña desde su perfil</li>
+                      <li>· Si el usuario ya estaba activo, se reseteará su contraseña</li>
+                      <li>· Al entrar, se le pedirá cambiarla obligatoriamente</li>
                     </ul>
                   </div>
 
@@ -794,7 +799,7 @@ export default function AdminUsersPage() {
                     {isActivating ? (
                       <Loader2 className="animate-spin" size={20} />
                     ) : (
-                      <><Key size={16} /> Activar y Establecer Contraseña</>
+                      <><Key size={16} /> Aplicar Contraseña Temporal</>
                     )}
                   </Button>
                 </div>

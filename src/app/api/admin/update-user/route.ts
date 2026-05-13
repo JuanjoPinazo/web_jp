@@ -42,32 +42,65 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Permisos insuficientes' }, { status: 403 });
     }
 
-    // 2. Update Auth User if email changed
+    // 2. Check if email changed to reset password
+    const { data: oldProfile } = await getSupabaseAdmin()
+      .from('profiles')
+      .select('email')
+      .eq('id', userId)
+      .single();
+
+    const emailChanged = oldProfile && oldProfile.email !== email;
+    let newTempPassword = null;
+    let onboardingStatusToSet = undefined;
+
+    if (emailChanged) {
+      const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#';
+      newTempPassword = '';
+      for (let i = 0; i < 12; i++) {
+        newTempPassword += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      onboardingStatusToSet = 'invited';
+    }
+
+    // 3. Update Auth User if email changed or password reset needed
     if (email) {
-      const { error: authUpdateError } = await getSupabaseAdmin().auth.admin.updateUserById(userId, {
+      const updateData: any = {
         email: email,
         email_confirm: true,
         user_metadata: { name, surname, role }
-      });
+      };
+      
+      if (emailChanged && newTempPassword) {
+        updateData.password = newTempPassword;
+      }
+
+      const { error: authUpdateError } = await getSupabaseAdmin().auth.admin.updateUserById(userId, updateData);
       if (authUpdateError) {
         return NextResponse.json({ error: 'Error al actualizar Auth: ' + authUpdateError.message }, { status: 400 });
       }
     }
 
-    // 3. Update profile in the database
+    // 4. Update profile in the database
+    const profileUpdateData: any = {
+      nombre: name,
+      apellidos: surname,
+      email: email,
+      role: role,
+      client_id: client_id || null,
+      company_id: company_id || null,
+      user_type: user_type || 'hospital',
+      telefono: phone,
+      avatar_url: avatar_url
+    };
+
+    if (emailChanged && newTempPassword) {
+      profileUpdateData.temp_password = newTempPassword;
+      profileUpdateData.onboarding_status = onboardingStatusToSet;
+    }
+
     const { error: profileError } = await getSupabaseAdmin()
       .from('profiles')
-      .update({
-        nombre: name,
-        apellidos: surname,
-        email: email,
-        role: role,
-        client_id: client_id || null,
-        company_id: company_id || null,
-        user_type: user_type || 'hospital',
-        telefono: phone,
-        avatar_url: avatar_url
-      })
+      .update(profileUpdateData)
       .eq('id', userId);
 
     if (profileError) {
@@ -75,7 +108,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Error al actualizar perfil: ' + profileError.message }, { status: 500 });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ 
+      success: true, 
+      emailChanged, 
+      tempPassword: newTempPassword 
+    });
   } catch (error: any) {
     console.error('API Error:', error);
     return NextResponse.json({ error: error.message || 'Error interno' }, { status: 500 });

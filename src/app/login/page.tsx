@@ -17,13 +17,39 @@ export default function LoginPage() {
   const { login } = useAuth();
   const router = useRouter();
 
+  const hasAttemptedAutoLogin = React.useRef(false);
+
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const emailParam = params.get('email');
     const passParam = params.get('pass');
     if (emailParam) setEmail(emailParam);
     if (passParam) setPassword(passParam);
-  }, []);
+
+    if (emailParam && passParam && !hasAttemptedAutoLogin.current) {
+      hasAttemptedAutoLogin.current = true;
+      const doAutoLogin = async () => {
+        setLoading(true);
+        setError('');
+        try {
+          const success = await login(emailParam, passParam);
+          if (success) {
+            setShowSuccess(true);
+            setTimeout(() => {
+              router.push('/dashboard');
+            }, 1000);
+          } else {
+            setError('El enlace de acceso temporal es inválido o ha caducado.');
+          }
+        } catch (err) {
+          setError('Ocurrió un error al iniciar sesión automáticamente.');
+        } finally {
+          setLoading(false);
+        }
+      };
+      doAutoLogin();
+    }
+  }, [login, router]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -76,7 +102,7 @@ export default function LoginPage() {
             </div>
             
             <div className="text-center mb-10">
-              <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-accent text-background font-black text-3xl mb-6 shadow-2xl shadow-accent/20">
+              <div style={{ width: '64px', height: '64px', flexShrink: 0 }} className="inline-flex items-center justify-center rounded-2xl bg-accent text-background font-black text-3xl mb-6 shadow-2xl shadow-accent/20">
                 JP
               </div>
               <h1 className="text-3xl font-bold font-heading mb-3 tracking-tighter">Acceso Privado</h1>

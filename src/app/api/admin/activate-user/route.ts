@@ -63,6 +63,7 @@ export async function POST(request: Request) {
       .from('profiles')
       .update({
         onboarding_status: 'active',
+        temp_password: temporaryPassword
       })
       .eq('id', userId);
 

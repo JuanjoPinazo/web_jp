@@ -75,7 +75,9 @@ export default function SetPasswordPage() {
 
       <div className="w-full max-w-md relative z-10 space-y-8">
         <div className="flex flex-col items-center text-center gap-4">
-          <Logo className="w-20 h-20 shadow-2xl shadow-accent/20" />
+          <div style={{ width: '80px', height: '80px', flexShrink: 0 }}>
+            <Logo className="w-full h-full shadow-2xl shadow-accent/20" />
+          </div>
           <div className="space-y-1">
             <h1 className="text-2xl font-black font-heading tracking-tight text-white uppercase italic">Configura tu Acceso</h1>
             <p className="text-muted text-xs font-bold tracking-widest uppercase opacity-60">JP Intelligence Platform</p>
