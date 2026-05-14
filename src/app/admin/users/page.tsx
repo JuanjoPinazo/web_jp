@@ -442,6 +442,7 @@ export default function AdminUsersPage() {
                      )}
                    </div>
                     <div className="flex gap-2">
+                      <button onClick={() => window.open(`/dashboard?preview_user_id=${user.id}`, '_blank')} title="Previsualizar Dashboard (Vista de Usuario)" className="p-2.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-500 hover:bg-blue-500 hover:text-white transition-all"><Eye size={16} /></button>
                       <button onClick={() => openActivateModal(user)} title="Resetear / Activar con Contraseña Temporal" className="p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all"><Key size={16} /></button>
                       <button onClick={() => handleResendInvite(user)} title="Reenviar Invitación" className="p-2.5 rounded-xl bg-accent/10 border border-accent/20 text-accent hover:bg-accent hover:text-white transition-all"><Send size={16} /></button>
                       <button onClick={() => setEditingUser(user)} className="p-2.5 rounded-xl bg-background border border-border text-muted hover:text-accent transition-all"><Edit2 size={16} /></button>
@@ -571,6 +572,7 @@ export default function AdminUsersPage() {
 
                 {/* Actions */}
                 <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                  <button onClick={() => window.open(`/dashboard?preview_user_id=${user.id}`, '_blank')} title="Previsualizar Dashboard" className="p-2 rounded-lg bg-background border border-border text-blue-500 hover:bg-blue-500 hover:text-white transition-all"><Eye size={14} /></button>
                   <button onClick={() => openActivateModal(user)} title="Resetear / Activar con Contraseña Temporal" className="p-2 rounded-lg bg-background border border-border text-emerald-500 hover:bg-emerald-500 hover:text-white transition-all"><Key size={14} /></button>
                   <button onClick={() => handleResendInvite(user)} title="Reenviar Invitación" className="p-2 rounded-lg bg-background border border-border text-muted hover:text-accent transition-all"><Send size={14} /></button>
                   <button onClick={() => setEditingUser(user)} className="p-2 rounded-lg bg-background border border-border text-muted hover:text-accent transition-all"><Edit2 size={14} /></button>

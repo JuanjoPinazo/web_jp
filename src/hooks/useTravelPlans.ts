@@ -325,16 +325,17 @@ export const useTravelPlans = () => {
 
   // --- CLIENT ACTIONS ---
   
-  // Fetches the full plan for the logged-in user and a specific context
-  const getMyActivePlan = useCallback(async (contextId: string): Promise<FullTravelPlan | null> => {
-    if (!session?.user?.id || !contextId) return null;
+  // Fetches the full plan for a user (defaults to logged-in) and a specific context
+  const getMyActivePlan = useCallback(async (contextId: string, overrideUserId?: string): Promise<FullTravelPlan | null> => {
+    const targetUserId = overrideUserId || session?.user?.id;
+    if (!targetUserId || !contextId) return null;
     
     try {
       setLoading(true);
       const { data: plan, error: planError } = await supabase
         .from('contact_travel_plans')
         .select('*')
-        .eq('user_id', session.user.id)
+        .eq('user_id', targetUserId)
         .eq('context_id', contextId)
         .is('deleted_at', null)
         .single();
@@ -352,7 +353,7 @@ export const useTravelPlans = () => {
         supabase.from('travel_transfers').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('pickup_time'),
         supabase.from('travel_restaurants').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('reservation_time'),
         supabase.from('hospitality_events').select('*, hospitality_event_attendees(*)').eq('plan_id', plan.id).is('deleted_at', null).order('start_datetime'),
-        supabase.from('hospitality_event_attendees').select('event_id, hospitality_events(*, hospitality_event_attendees(*))').eq('profile_id', session.user.id).is('deleted_at', null),
+        supabase.from('hospitality_event_attendees').select('event_id, hospitality_events(*, hospitality_event_attendees(*))').eq('profile_id', targetUserId).is('deleted_at', null),
         supabase.from('travel_documents').select('*').eq('plan_id', plan.id).is('deleted_at', null),
         supabase.from('travel_registrations').select('*').eq('plan_id', plan.id).is('deleted_at', null)
       ]);

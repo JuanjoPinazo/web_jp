@@ -2,8 +2,9 @@
 
 import React, { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { useRouter } from 'next/navigation';
-import { useTravelPlans, FullTravelPlan } from '@/hooks/useTravelPlans';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { FullTravelPlan, useTravelPlans } from '@/hooks/useTravelPlans';
+import { AddPassButton } from '@/components/wallet/AddPassButton';
 import { usePlanModules } from '@/hooks/usePlanModules';
 import { useTheme } from '@/context/ThemeContext';
 import { cn } from '@/lib/utils';
@@ -62,7 +63,15 @@ const WakeLockHandler = () => {
 
 export default function DashboardPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { session } = useAuth();
+
+  // Impersonation / Preview Logic
+  const previewUserId = searchParams.get('preview_user_id');
+  const isAdmin = session.user?.role === 'admin';
+  const effectiveUserId = (isAdmin && previewUserId) ? previewUserId : session.user?.id;
+  const isPreviewMode = !!(isAdmin && previewUserId);
+
   const { theme, toggleTheme } = useTheme();
   const { getMyActivePlan, loading: planLoading } = useTravelPlans();
   const { getEnabledModules } = usePlanModules();
@@ -73,7 +82,30 @@ export default function DashboardPage() {
     }
   }, [session.status, router]);
 
-  const userName = session.user?.name || 'Usuario';
+  const [previewUser, setPreviewUser] = useState<any>(null);
+
+  useEffect(() => {
+    if (isPreviewMode && previewUserId) {
+      const fetchPreviewUser = async () => {
+        const { data } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', previewUserId)
+          .single();
+        if (data) {
+          setPreviewUser({
+            id: data.id,
+            name: data.nombre,
+            surname: data.apellidos,
+            email: data.email
+          });
+        }
+      };
+      fetchPreviewUser();
+    }
+  }, [isPreviewMode, previewUserId]);
+
+  const userName = isPreviewMode ? (previewUser?.name || 'Usuario') : (session.user?.name || 'Usuario');
   
   const [availableContexts, setAvailableContexts] = useState<any[]>([]);
   const [selectedContextId, setSelectedContextId] = useState<string | null>(null);
@@ -204,12 +236,12 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const fetchUserLocations = async () => {
-      if (!session.user?.id) return;
-      const res = await getUserLocationsAction(session.user.id);
+      if (!effectiveUserId) return;
+      const res = await getUserLocationsAction(effectiveUserId);
       if (res.success) setUserLocations(res.data || []);
     };
     fetchUserLocations();
-  }, [session.user?.id]);
+  }, [effectiveUserId]);
 
   useEffect(() => {
     const fetchSavedPlaces = async () => {
@@ -225,15 +257,15 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const handleAlerts = async () => {
-      if (!activePlan || !session.user?.id) return;
-      await processPlanAlertsAction(activePlan, session.user.id);
-      const data = await fetchAlertsAction(activePlan.id, session.user.id);
+      if (!activePlan || !effectiveUserId) return;
+      await processPlanAlertsAction(activePlan, effectiveUserId);
+      const data = await fetchAlertsAction(activePlan.id, effectiveUserId);
       setAlerts(data);
     };
     handleAlerts();
     const interval = setInterval(handleAlerts, 5 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [activePlan?.id, session.user?.id]);
+  }, [activePlan?.id, effectiveUserId]);
 
   const handleExplore = async () => {
     let location = null;
@@ -276,7 +308,7 @@ export default function DashboardPage() {
 
   const handleAssistantMessage = async (msg?: string) => {
     const text = msg || currentMessage;
-    if (!text.trim() || !activePlan?.id || !session?.user?.id) return;
+    if (!text.trim() || !activePlan?.id || !effectiveUserId) return;
 
     const userMsg = { role: 'user' as const, content: text };
     setChatHistory(prev => [...prev, userMsg]);
@@ -286,7 +318,7 @@ export default function DashboardPage() {
     try {
       const res = await askContextualAssistantAction({
         planId: activePlan.id,
-        profileId: session.user.id,
+        profileId: effectiveUserId,
         userName: userName,
         message: text,
         history: chatHistory.map(h => ({ role: h.role, content: h.content }))
@@ -312,13 +344,13 @@ export default function DashboardPage() {
   };
 
   const handleSavePlace = async (place: any) => {
-    if (!activePlan?.id || !session?.user?.id) return;
+    if (!activePlan?.id || !effectiveUserId) return;
     
     setIsSavingPlaceId(place.place_id);
     try {
       const res = await saveSavedPlaceAction({
         plan_id: activePlan.id,
-        profile_id: session.user.id,
+        profile_id: effectiveUserId,
         place,
         category: searchCategory
       });
@@ -341,7 +373,7 @@ export default function DashboardPage() {
         const { data: contexts, error } = await supabase
           .from('context_users')
           .select('context_id, contexts(*)')
-          .eq('user_id', session.user.id);
+          .eq('user_id', effectiveUserId);
 
         if (error) throw error;
 
@@ -364,7 +396,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const loadPlan = async () => {
       if (!selectedContextId) return;
-      const plan = await getMyActivePlan(selectedContextId);
+      const plan = await getMyActivePlan(selectedContextId, effectiveUserId);
       setActivePlan(plan);
       
       if (plan) {
@@ -697,6 +729,23 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
       
+      {isPreviewMode && (
+        <div className="bg-accent/10 border-b border-accent/20 px-6 py-2 flex items-center justify-between sticky top-0 z-50 backdrop-blur-md">
+          <div className="flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />
+            <span className="text-[10px] font-black uppercase tracking-widest text-accent">
+              Modo Supervisión: {previewUser?.name} {previewUser?.surname}
+            </span>
+          </div>
+          <button 
+            onClick={() => router.push('/admin/users')}
+            className="text-[9px] font-black uppercase tracking-widest bg-accent text-white px-3 py-1 rounded-full hover:scale-105 transition-transform"
+          >
+            Volver a Admin
+          </button>
+        </div>
+      )}
+
       <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
         <motion.div 
           key={activeTab}
@@ -1090,6 +1139,14 @@ export default function DashboardPage() {
                 Tarjeta de Embarque
               </button>
             )}
+
+            {selectedEvent && (
+              <AddPassButton 
+                type={selectedEvent.type === 'flight' ? 'flight' : (selectedEvent.type === 'hospitality' ? 'hospitality' : 'transfer')}
+                id={selectedEvent.payload.id}
+                className="w-full py-5"
+              />
+            )}
           </div>
         </div>
       </BottomActionSheet>
@@ -1104,6 +1161,11 @@ export default function DashboardPage() {
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Asiento</p>
                 <p className="text-3xl font-black text-slate-900">{selectedQR.seat_assignment || '—'}</p>
               </div>
+              <AddPassButton 
+                type="flight" 
+                id={selectedQR.flight.id} 
+                className="w-full py-4 bg-slate-900 text-white border-none" 
+              />
             </div>
           </motion.div>
         )}

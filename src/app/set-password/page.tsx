@@ -54,6 +54,22 @@ export default function SetPasswordPage() {
       if (error) throw error;
 
       setSuccess(true);
+
+      // Notify Admin
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          await fetch('/api/auth/notify-password-change', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${session.access_token}`
+            }
+          });
+        }
+      } catch (notifyErr) {
+        console.error('Failed to notify admin about password change:', notifyErr);
+      }
+
       // Wait a bit and redirect to dashboard
       setTimeout(() => {
         router.push('/dashboard');
