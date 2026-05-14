@@ -10,9 +10,14 @@ import {
   buildRecommendationUserPrompt 
 } from './prompts';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+function getOpenAIClient() {
+  if (!process.env.OPENAI_API_KEY) {
+    return null;
+  }
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+}
 
 /**
  * Ranks places based on travel context and user intent using AI
@@ -23,8 +28,9 @@ export async function rankPlacesWithContext(params: {
   intent: RecommendationIntent;
 }): Promise<AIRecommendation[]> {
   const { context, places, intent } = params;
+  const openai = getOpenAIClient();
 
-  if (!process.env.OPENAI_API_KEY) {
+  if (!openai) {
     console.warn('[AI] OPENAI_API_KEY missing, using fallback ranking.');
     return fallbackRanking(places);
   }

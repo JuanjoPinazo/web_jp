@@ -4,9 +4,14 @@ import OpenAI from 'openai';
 import { buildUserTravelContext } from '@/ai/contextual-recommendations/context-builder';
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+function getOpenAIClient() {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OPENAI_API_KEY no está configurada en las variables de entorno.');
+  }
+  return new OpenAI({
+    apiKey: process.env.OPENAI_API_KEY,
+  });
+}
 
 const ASSISTANT_SYSTEM_PROMPT = `
 Eres el Asistente Premium de JP Intelligence, un concierge digital para viajeros corporativos y VIPs de la industria médica.
@@ -59,11 +64,8 @@ export async function askContextualAssistantAction(params: {
 }) {
   const { planId, profileId, userName, message, history } = params;
 
-  if (!process.env.OPENAI_API_KEY) {
-    return { success: false, error: 'Asistente no configurado.' };
-  }
-
   try {
+    const openai = getOpenAIClient();
     const supabaseAdmin = getSupabaseAdmin();
     // 1. Build Context
     const context = await buildUserTravelContext(planId, profileId, supabaseAdmin);
