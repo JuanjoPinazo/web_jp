@@ -199,6 +199,12 @@ export default function AdminPlansPage() {
           hospitality:hospitality_events(count),
           documents:travel_documents(count)
         `)
+        .is('travel_flights.deleted_at', null)
+        .is('travel_hotels.deleted_at', null)
+        .is('hotel_stays.deleted_at', null)
+        .is('travel_transfers.deleted_at', null)
+        .is('hospitality_events.deleted_at', null)
+        .is('travel_documents.deleted_at', null)
         .order('created_at', { ascending: false });
 
       if (pError) throw pError;
@@ -487,6 +493,26 @@ export default function AdminPlansPage() {
     try {
       setIsSubmitting(true);
       const data = { ...editingTransfer };
+
+      // Validaciones E2E obligatorias
+      if (!data.plan_id) {
+        throw new Error('El viaje (Plan ID) es obligatorio.');
+      }
+      if (!data.booking_reference || !data.booking_reference.trim()) {
+        throw new Error('La referencia o localizador es obligatoria.');
+      }
+      const pickup = data.pickup_location || data.pickup_address;
+      if (!pickup || !pickup.trim()) {
+        throw new Error('El origen o lugar de recogida es obligatorio.');
+      }
+      const dropoff = data.dropoff_location || data.destination_address;
+      if (!dropoff || !dropoff.trim()) {
+        throw new Error('El destino o lugar de entrega es obligatorio.');
+      }
+      if (!data.pickup_datetime || !data.pickup_datetime.trim()) {
+        throw new Error('La fecha y hora de recogida es obligatoria.');
+      }
+
       delete data.created_at;
       delete data.updated_at;
       
@@ -1167,7 +1193,13 @@ export default function AdminPlansPage() {
                     <div>
                       <div className="flex items-center gap-2">
                         <span className="text-xs font-bold text-foreground">
-                          {transfer.type?.replace(/_/g, ' ').toUpperCase() || 'TRASLADO'}
+                          {['airport_to_hotel', 'airport_to_venue'].includes(transfer.type) ? '🚗 RECOGIDA DE IDA' :
+                           ['hotel_to_airport', 'venue_to_airport'].includes(transfer.type) ? '🚗 RECOGIDA DE VUELTA' :
+                           transfer.type === 'hotel_to_restaurant' ? '🍽️ TRASLADO A RESTAURANTE' :
+                           transfer.type === 'restaurant_to_hotel' ? '🏨 RETORNO A HOTEL' :
+                           transfer.type === 'hotel_to_venue' ? '🩺 TRASLADO A SEDE' :
+                           transfer.type === 'venue_to_hotel' ? '🏨 RETORNO DESDE SEDE' :
+                           (transfer.type?.replace(/_/g, ' ').toUpperCase() || 'TRASLADO')}
                         </span>
                         <span className={`px-1.5 py-0.5 rounded-md text-[8px] font-black uppercase ${
                           transfer.status === 'confirmed' ? 'bg-emerald-500/10 text-emerald-500' :
@@ -1186,7 +1218,21 @@ export default function AdminPlansPage() {
                       </p>
                     </div>
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 items-center">
+                    {(() => {
+                      const doc = selectedPlan.documents?.find((d: any) => 
+                        d.related_transfer_id === transfer.id || 
+                        (transfer.booking_reference && d.booking_reference === transfer.booking_reference && d.document_type === 'transfer_voucher')
+                      );
+                      if (!doc?.file_url) return null;
+                      return (
+                        <a href={doc.file_url} target="_blank" rel="noopener noreferrer" title="Ver voucher oficial PDF">
+                          <Button variant="ghost" size="sm" className="h-7 w-7 p-0">
+                            <FileText size={12} className="text-amber-500 hover:text-amber-600" />
+                          </Button>
+                        </a>
+                      );
+                    })()}
                     <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => setEditingTransfer(transfer)}>
                       <Edit2 size={12} className="text-muted hover:text-accent" />
                     </Button>
@@ -1205,28 +1251,69 @@ export default function AdminPlansPage() {
                     <div className="flex-1 space-y-4">
                       <div>
                         <p className="text-[8px] font-black text-muted uppercase tracking-widest">Recogida (Origen)</p>
-                        <p className="text-xs font-bold">{transfer.pickup_location || 'No especificado'}</p>
+                        <p className="text-xs font-bold">{transfer.pickup_location || transfer.pickup_address || 'No especificado'}</p>
                       </div>
                       <div>
                         <p className="text-[8px] font-black text-muted uppercase tracking-widest">Destino</p>
-                        <p className="text-xs font-bold">{transfer.dropoff_location || 'No especificado'}</p>
+                        <p className="text-xs font-bold">{transfer.dropoff_location || transfer.destination_address || 'No especificado'}</p>
                       </div>
                     </div>
                   </div>
                   
-                  {(transfer.driver_name || transfer.vehicle_type) && (
-                    <div className="pt-3 border-t border-border/50 grid grid-cols-2 gap-3">
-                      {transfer.driver_name && (
-                        <div>
-                          <p className="text-[8px] font-black text-muted uppercase tracking-widest">Chófer</p>
-                          <p className="text-xs font-bold">{transfer.driver_name}</p>
-                          {transfer.driver_phone && <p className="text-[10px] text-accent font-medium">{transfer.driver_phone}</p>}
-                        </div>
-                      )}
-                      {transfer.vehicle_type && (
-                        <div>
-                          <p className="text-[8px] font-black text-muted uppercase tracking-widest">Vehículo</p>
-                          <p className="text-xs font-bold">{transfer.vehicle_type}</p>
+                  {(transfer.driver_name || transfer.vehicle_type || transfer.passengers || transfer.luggage || transfer.booking_reference || transfer.support_phone || transfer.meeting_point) && (
+                    <div className="pt-3 border-t border-border/50 space-y-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        {(transfer.provider || transfer.company_name) && (
+                          <div>
+                            <p className="text-[8px] font-black text-muted uppercase tracking-widest">Proveedor</p>
+                            <p className="text-xs font-bold">{transfer.provider || transfer.company_name}</p>
+                          </div>
+                        )}
+                        {transfer.driver_name && (
+                          <div>
+                            <p className="text-[8px] font-black text-muted uppercase tracking-widest">Chófer</p>
+                            <p className="text-xs font-bold">{transfer.driver_name}</p>
+                            {transfer.driver_phone && <p className="text-[10px] text-accent font-medium">{transfer.driver_phone}</p>}
+                          </div>
+                        )}
+                        {transfer.vehicle_type && (
+                          <div>
+                            <p className="text-[8px] font-black text-muted uppercase tracking-widest">Vehículo</p>
+                            <p className="text-xs font-bold">{transfer.vehicle_type}</p>
+                          </div>
+                        )}
+                        {transfer.passengers && (
+                          <div>
+                            <p className="text-[8px] font-black text-muted uppercase tracking-widest">Pasajeros</p>
+                            <p className="text-xs font-bold">{transfer.passengers} Pax</p>
+                          </div>
+                        )}
+                        {transfer.luggage && (
+                          <div>
+                            <p className="text-[8px] font-black text-muted uppercase tracking-widest">Equipaje</p>
+                            <p className="text-xs font-bold">{transfer.luggage}</p>
+                          </div>
+                        )}
+                        {transfer.booking_reference && (
+                          <div>
+                            <p className="text-[8px] font-black text-muted uppercase tracking-widest">Referencia</p>
+                            <p className="text-xs font-bold">{transfer.booking_reference}</p>
+                          </div>
+                        )}
+                        {transfer.support_phone && (
+                          <div>
+                            <p className="text-[8px] font-black text-muted uppercase tracking-widest">Soporte</p>
+                            <p className="text-xs font-bold flex items-center gap-1">
+                              {transfer.support_phone}
+                              {transfer.whatsapp_available && <span className="text-[8px] bg-green-500/10 text-green-500 px-1 py-0.5 rounded font-black">WA</span>}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                      {transfer.meeting_point && (
+                        <div className="bg-blue-500/5 p-2.5 rounded-xl border border-blue-500/10">
+                          <p className="text-[8px] font-black text-blue-400 uppercase tracking-widest mb-0.5">📍 Punto de Encuentro</p>
+                          <p className="text-[10px] font-medium text-foreground leading-relaxed">{transfer.meeting_point}</p>
                         </div>
                       )}
                     </div>
@@ -1262,6 +1349,7 @@ export default function AdminPlansPage() {
                        {doc.document_type === 'boarding_pass' ? 'Tarjeta de Embarque' : 
                         doc.document_type === 'flight_confirmation' ? 'Reserva de Vuelo' : 
                         doc.document_type === 'hotel' ? 'Reserva de Hotel' : 
+                        doc.document_type === 'transfer_voucher' ? 'Voucher de Traslado' :
                         (doc.document_type || 'Documento')} {doc.description ? `· ${doc.description}` : ''}
                      </p>
                      {doc.document_type === 'boarding_pass' && doc.qr_raw_payload && (
@@ -1544,9 +1632,11 @@ export default function AdminPlansPage() {
                           <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Tipo de Documento</label>
                           <div className="grid grid-cols-3 gap-2">
                             {[
+                              { id: 'auto', label: 'Automático (Inteligente)', icon: FileText },
                               { id: 'flight_confirmation', label: 'Reserva Vuelo', icon: Plane },
                               { id: 'boarding_pass', label: 'Tarjeta Embarque', icon: QrCode },
                               { id: 'hotel_booking', label: 'Reserva Hotel', icon: Hotel },
+                              { id: 'transfer_voucher', label: 'Traslado', icon: Car },
                             ].map((item) => (
                               <button 
                                 key={item.id}
@@ -1588,8 +1678,8 @@ export default function AdminPlansPage() {
                            <div className="w-16 h-16 rounded-full bg-accent/10 flex items-center justify-center text-accent group-hover:scale-110 transition-all">
                              <Plus size={32} />
                            </div>
-                           <p className="text-xs font-bold text-muted uppercase tracking-widest">Seleccionar Archivo PDF</p>
-                           <input type="file" accept=".pdf" className="hidden" onChange={handleImportPdf} />
+                           <p className="text-xs font-bold text-muted uppercase tracking-widest text-center">Seleccionar Archivo<br/><span className="text-[9px]">PDF o Imagen (JPG/PNG)</span></p>
+                           <input type="file" accept=".pdf,image/jpeg,image/png,image/webp" className="hidden" onChange={handleImportPdf} />
                          </div>
                        </label>
                     </div>
@@ -1650,7 +1740,7 @@ export default function AdminPlansPage() {
                                }
                              }}
                            >
-                             <Eye size={10} className="mr-1" /> Ver PDF Original
+                             <Eye size={10} className="mr-1" /> Ver Archivo Original
                            </Button>
                            
                            {extractionResult.qr_decoded && (
@@ -1717,6 +1807,53 @@ export default function AdminPlansPage() {
                             </div>
                           </>
                         )}
+                        {/* CASO 4: TRASLADO */}
+                        {extractionResult.type === 'transfer' && (
+                          <>
+                            <div className="col-span-2 bg-yellow-500/5 p-4 rounded-xl border border-yellow-500/20 mb-2">
+                              <p className="text-[10px] font-black text-yellow-500 uppercase tracking-widest mb-1">🚐 Traslado Detectado: {extractionResult.data.company_name || extractionResult.data.provider || 'Servicio de Traslado'}</p>
+                              <p className="text-xs font-bold text-foreground">Datos operativos para {extractionResult.data.passenger_name || 'Pasajero'}</p>
+                            </div>
+                            {/* Ruta */}
+                            <FieldReview label="Origen / Recogida" value={extractionResult.data.pickup_location || extractionResult.data.pickup_address} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, pickup_location: v, pickup_address: v}})} />
+                            <FieldReview label="Destino / Entrega" value={extractionResult.data.dropoff_location || extractionResult.data.destination_address} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, dropoff_location: v, destination_address: v}})} />
+                            <FieldReview label="Tipo Recogida" value={extractionResult.data.pickup_type} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, pickup_type: v}})} />
+                            <FieldReview label="Tipo Destino" value={extractionResult.data.destination_type} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, destination_type: v}})} />
+                            {/* Fecha */}
+                            <FieldReview label="Fecha y Hora Recogida" type="datetime-local" value={extractionResult.data.pickup_datetime} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, pickup_datetime: v}})} />
+                            <FieldReview label="Localizador / Ref." value={extractionResult.data.booking_reference} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, booking_reference: v}})} />
+                            {/* Pasajeros y vehículo */}
+                            <FieldReview label="Pasajero Principal" value={extractionResult.data.passenger_name} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, passenger_name: v}})} />
+                            <FieldReview label="Tipo de Vehículo" value={extractionResult.data.vehicle_type} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, vehicle_type: v}})} />
+                            <FieldReview label="Nº Pasajeros" value={extractionResult.data.passengers?.toString()} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, passengers: parseInt(v) || null}})} />
+                            <FieldReview label="Nº Maletas / Equipaje" value={extractionResult.data.luggage?.toString()} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, luggage: parseInt(v) || null}})} />
+                            {/* Meeting point y soporte */}
+                            <div className="col-span-2">
+                              <FieldReview label="📍 Punto de Encuentro (Meeting Point)" value={extractionResult.data.meeting_point} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, meeting_point: v}})} />
+                            </div>
+                            <FieldReview label="Teléfono Soporte" value={extractionResult.data.support_phone} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, support_phone: v}})} />
+                            <FieldReview label="WhatsApp Soporte" value={extractionResult.data.support_whatsapp} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, support_whatsapp: v}})} />
+                            {/* Chófer */}
+                            <FieldReview label="Nombre Chófer" value={extractionResult.data.driver_name} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, driver_name: v}})} />
+                            <FieldReview label="Teléfono Chófer" value={extractionResult.data.driver_phone} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, driver_phone: v}})} />
+                            {/* Flight linkage */}
+                            {extractionResult.data.flight_linkage && (
+                              <>
+                                <div className="col-span-2 mt-2 bg-blue-500/5 p-3 rounded-lg border border-blue-500/20">
+                                  <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-1">✈ Vuelo Vinculado</p>
+                                </div>
+                                <FieldReview label="Aerolínea" value={extractionResult.data.flight_linkage?.airline} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, flight_linkage: {...(extractionResult.data.flight_linkage || {}), airline: v}}})} />
+                                <FieldReview label="Nº Vuelo" value={extractionResult.data.flight_linkage?.flight_number} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, flight_linkage: {...(extractionResult.data.flight_linkage || {}), flight_number: v}}})} />
+                                <FieldReview label="Hora Llegada Vuelo" value={extractionResult.data.flight_linkage?.arrival_time} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, flight_linkage: {...(extractionResult.data.flight_linkage || {}), arrival_time: v}}})} />
+                                <FieldReview label="Aeropuerto Origen" value={extractionResult.data.flight_linkage?.origin_airport} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, flight_linkage: {...(extractionResult.data.flight_linkage || {}), origin_airport: v}}})} />
+                              </>
+                            )}
+                            {/* Proveedor */}
+                            <div className="col-span-2">
+                              <FieldReview label="Empresa de Transporte" value={extractionResult.data.company_name || extractionResult.data.provider} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, company_name: v, provider: v}})} />
+                            </div>
+                          </>
+                        )}
                       </div>
 
                       <div className="pt-8 border-t border-border flex gap-4">
@@ -1727,25 +1864,8 @@ export default function AdminPlansPage() {
                             setIsSubmitting(true);
                             
                             const editData = extractionResult.data;
-                            
-                            // 1. MAPPING ROBUSTO (Punto 1 de la solicitud)
-                            const depLoc = (
-                              editData.departure_location || 
-                              editData.origin || 
-                              editData.departure_airport || 
-                              editData.from || 
-                              ''
-                            ).trim();
+                            const extType = extractionResult.type;
 
-                            const arrLoc = (
-                              editData.arrival_location || 
-                              editData.destination || 
-                              editData.arrival_airport || 
-                              editData.to || 
-                              ''
-                            ).trim();
-
-                            // Normalización de fechas
                             const toISO = (dateStr: string) => {
                                if (!dateStr) return null;
                                if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(dateStr)) return dateStr.length === 16 ? `${dateStr}:00` : dateStr;
@@ -1759,16 +1879,6 @@ export default function AdminPlansPage() {
                                }
                                return dateStr;
                             };
-
-                            const depTime = toISO(editData.departure_time);
-                            const arrTime = toISO(editData.arrival_time);
-
-                            // 2. VALIDACIÓN DE CAMPOS OBLIGATORIOS (Punto 2 y 7)
-                            // El plan_id se resolverá a continuación
-                            if (!editData.airline || !editData.flight_number || !depLoc || !arrLoc || !depTime) {
-                              console.error('VALIDATION FAILED', { airline: editData.airline, flight_number: editData.flight_number, depLoc, arrLoc, depTime });
-                              throw new Error('Falta origen/destino, aerolínea o número del vuelo. Revisa la extracción antes de guardar.');
-                            }
 
                             // SMART MATCH LOGIC: Find target plan by passenger name
                             let targetPlanId = selectedPlan.id;
@@ -1784,76 +1894,241 @@ export default function AdminPlansPage() {
                               }
                             }
 
-                            // 3 & 4. LÓGICA DE VINCULACIÓN (Punto 3 y 4)
-                            let relatedFlightId = editData.related_flight_id;
-                            
-                            if (!relatedFlightId) {
-                               // Buscar vuelo existente
-                               const { data: planFlights } = await supabase.from('travel_flights').select('*').eq('plan_id', targetPlanId).is('deleted_at', null);
-                               const existingFlight = planFlights?.find((f: any) => 
-                                 f.flight_number === editData.flight_number && 
-                                 (f.departure_location === depLoc || f.origin === depLoc) &&
-                                 (f.arrival_location === arrLoc || f.destination === arrLoc)
-                               );
-                               if (existingFlight) relatedFlightId = existingFlight.id;
+                            let savedItemId: string | undefined = undefined;
+
+                            if (extType === 'flight' || extType === 'boarding_pass') {
+                              const depLoc = (editData.departure_location || editData.origin || editData.departure_airport || editData.from || '').trim();
+                              const arrLoc = (editData.arrival_location || editData.destination || editData.arrival_airport || editData.to || '').trim();
+                              const depTime = toISO(editData.departure_time);
+                              const arrTime = toISO(editData.arrival_time);
+
+                              if (!editData.airline || !editData.flight_number || !depLoc || !arrLoc || !depTime) {
+                                throw new Error('Falta origen/destino, aerolínea o número del vuelo. Revisa la extracción antes de guardar.');
+                              }
+
+                              let relatedFlightId = editData.related_flight_id;
+                              if (!relatedFlightId) {
+                                const { data: planFlights } = await supabase.from('travel_flights').select('*').eq('plan_id', targetPlanId).is('deleted_at', null);
+                                const existingFlight = planFlights?.find((f: any) => 
+                                  f.flight_number === editData.flight_number && 
+                                  (f.departure_location === depLoc || f.origin === depLoc) &&
+                                  (f.arrival_location === arrLoc || f.destination === arrLoc)
+                                );
+                                if (existingFlight) relatedFlightId = existingFlight.id;
+                              }
+
+                              const flightPayload: any = {
+                                plan_id: targetPlanId,
+                                airline: editData.airline || 'Vueling',
+                                flight_number: editData.flight_number,
+                                departure_location: depLoc,
+                                arrival_location: arrLoc,
+                                origin: depLoc,
+                                destination: arrLoc,
+                                departure_time: depTime,
+                                arrival_time: arrTime,
+                                reservation_code: editData.booking_reference,
+                                seat: editData.seat,
+                                gate: editData.gate,
+                                boarding_group: editData.boarding_group,
+                                baggage_info: editData.baggage_info,
+                                is_verified: true,
+                                source: extType === 'boarding_pass' ? 'boarding_pass_import' : 'flight_confirmation_import',
+                                type: editData.type || 'outbound'
+                              };
+
+                              console.log('SAVING FLIGHT PAYLOAD', flightPayload);
+                              const savedFlight = await saveItem('travel_flights', relatedFlightId ? { ...flightPayload, id: relatedFlightId } : flightPayload);
+                              if (savedFlight) savedItemId = savedFlight.id;
+
+                            } else if (extType === 'hotel') {
+                              if (!editData.hotel_name || !editData.check_in) {
+                                throw new Error('Falta el nombre del hotel o la fecha de entrada. Revisa la extracción antes de guardar.');
+                              }
+
+                              const checkIn = toISO(editData.check_in);
+                              const checkOut = toISO(editData.check_out);
+
+                              const hotelPayload = {
+                                plan_id: targetPlanId,
+                                hotel_name: editData.hotel_name,
+                                booking_reference: editData.booking_reference || editData.confirmation_number,
+                                check_in: checkIn,
+                                check_out: checkOut,
+                                address: editData.address,
+                                room_type: editData.room_type,
+                                status: 'Confirmed',
+                                visible_to_client: true,
+                                source: 'hotel_confirmation_import'
+                              };
+
+                              console.log('SAVING HOTEL PAYLOAD', hotelPayload);
+                              const savedHotel = await saveItem('hotel_stays', hotelPayload);
+                              if (savedHotel) savedItemId = savedHotel.id;
+
+                            } else if (extType === 'transfer') {
+                              if (!(editData.pickup_location || editData.pickup_address) || !(editData.dropoff_location || editData.destination_address) || !editData.pickup_datetime) {
+                                throw new Error('Falta origen/recogida, destino o la fecha del traslado. Revisa la extracción antes de guardar.');
+                              }
+
+                              const pickupTime = toISO(editData.pickup_datetime);
+                              const pickupAddr = editData.pickup_location || editData.pickup_address || '';
+                              const dropoffAddr = editData.dropoff_location || editData.destination_address || '';
+
+                              // Build structured notes with all extended data
+                              const extendedNotes: string[] = [];
+                              if (editData.meeting_point) extendedNotes.push(`📍 Meeting Point: ${editData.meeting_point}`);
+                              if (editData.passengers) extendedNotes.push(`👥 Pasajeros: ${editData.passengers}`);
+                              if (editData.luggage) extendedNotes.push(`🧳 Equipaje: ${editData.luggage} maletas`);
+                              if (editData.support_phone) extendedNotes.push(`📞 Soporte: ${editData.support_phone}`);
+                              if (editData.support_whatsapp) extendedNotes.push(`💬 WhatsApp: ${editData.support_whatsapp}`);
+                              if (editData.pickup_type) extendedNotes.push(`Tipo recogida: ${editData.pickup_type}`);
+                              if (editData.destination_type) extendedNotes.push(`Tipo destino: ${editData.destination_type}`);
+                              if (editData.flight_linkage) {
+                                const fl = editData.flight_linkage;
+                                if (fl.flight_number) extendedNotes.push(`✈ Vuelo vinculado: ${fl.airline || ''} ${fl.flight_number}`);
+                                if (fl.arrival_time) extendedNotes.push(`Llegada vuelo: ${fl.arrival_time}`);
+                              }
+                              if (editData.notes) extendedNotes.push(editData.notes);
+
+                              // Intelligent type inference from pickup/destination types and descriptions
+                              let inferredType = editData.transfer_type || editData.type;
+                              if (!inferredType || inferredType === 'airport_to_hotel') {
+                                const pType = (editData.pickup_type || '').toLowerCase();
+                                const dType = (editData.destination_type || '').toLowerCase();
+                                
+                                if (pType === 'airport' && dType === 'hotel') {
+                                  inferredType = 'airport_to_hotel';
+                                } else if (pType === 'hotel' && dType === 'airport') {
+                                  inferredType = 'hotel_to_airport';
+                                } else if (pType === 'hotel' && dType === 'restaurant') {
+                                  inferredType = 'hotel_to_restaurant';
+                                } else if (pType === 'restaurant' && dType === 'hotel') {
+                                  inferredType = 'restaurant_to_hotel';
+                                } else if (pType === 'hotel' && dType === 'venue') {
+                                  inferredType = 'hotel_to_venue';
+                                } else if (pType === 'venue' && dType === 'hotel') {
+                                  inferredType = 'venue_to_hotel';
+                                } else if (pType === 'airport' && dType === 'venue') {
+                                  inferredType = 'airport_to_venue';
+                                } else if (pType === 'venue' && dType === 'airport') {
+                                  inferredType = 'venue_to_airport';
+                                } else {
+                                  // Fallback to text matching
+                                  const pickText = (editData.pickup_location || editData.pickup_address || '').toLowerCase();
+                                  const destText = (editData.dropoff_location || editData.destination_address || '').toLowerCase();
+                                  
+                                  const isPickAirport = pickText.includes('airport') || pickText.includes('aeropuerto') || pickText.includes('cdg') || pickText.includes('ory') || pickText.includes('lhr');
+                                  const isDestAirport = destText.includes('airport') || destText.includes('aeropuerto') || destText.includes('cdg') || destText.includes('ory') || destText.includes('lhr');
+                                  const isPickHotel = pickText.includes('hotel') || pickText.includes('hôt') || pickText.includes('resort');
+                                  const isDestHotel = destText.includes('hotel') || destText.includes('hôt') || destText.includes('resort');
+                                  const isPickVenue = pickText.includes('congress') || pickText.includes('palais') || pickText.includes('sede') || pickText.includes('venue') || pickText.includes('congrès');
+                                  const isDestVenue = destText.includes('congress') || destText.includes('palais') || destText.includes('sede') || destText.includes('venue') || destText.includes('congrès');
+                                  
+                                  if (isPickAirport && isDestHotel) inferredType = 'airport_to_hotel';
+                                  else if (isPickHotel && isDestAirport) inferredType = 'hotel_to_airport';
+                                  else if (isPickAirport && isDestVenue) inferredType = 'airport_to_venue';
+                                  else if (isPickVenue && isDestAirport) inferredType = 'venue_to_airport';
+                                  else if (isPickHotel && isDestVenue) inferredType = 'hotel_to_venue';
+                                  else if (isPickVenue && isDestHotel) inferredType = 'venue_to_hotel';
+                                  else if (isDestAirport) inferredType = 'hotel_to_airport';
+                                  else inferredType = 'airport_to_hotel';
+                                }
+                              }
+
+                               const transferPayload = {
+                                 plan_id: targetPlanId,
+                                 provider: editData.provider || editData.company_name,
+                                 company_name: editData.company_name || editData.provider,
+                                 transfer_type: inferredType,
+                                 type: inferredType,
+                                 pickup_datetime: pickupTime,
+                                 pickup_airport_code: editData.pickup_airport_code,
+                                 pickup_location: pickupAddr,
+                                 pickup_address: pickupAddr,
+                                 destination_type: editData.destination_type,
+                                 destination_address: dropoffAddr,
+                                 dropoff_location: dropoffAddr,
+                                 destination_name: editData.destination_name || editData.dropoff_location,
+                                 airline: editData.airline || (editData.flight_linkage && editData.flight_linkage.airline),
+                                 flight_number: editData.flight_number || (editData.flight_linkage && editData.flight_linkage.flight_number),
+                                  flight_arrival_time: (() => { const fa = editData.flight_arrival_time || (editData.flight_linkage && editData.flight_linkage.arrival_time); if (!fa) return null; if (/^\d{2}:\d{2}/.test(fa) && pickupTime) { return pickupTime.split('T')[0] + 'T' + (fa.length === 5 ? fa + ':00' : fa); } return toISO(fa); })(),
+                                 vehicle_type: editData.vehicle_type,
+                                 passengers: editData.passengers ? parseInt(String(editData.passengers)) : null,
+                                 luggage: editData.luggage ? String(editData.luggage) : null,
+                                 booking_reference: editData.booking_reference,
+                                 passenger_name: editData.passenger_name || guestName,
+                                 passenger_phone: editData.passenger_phone,
+                                 meeting_point: editData.meeting_point,
+                                 support_phone: editData.support_phone,
+                                 whatsapp_available: editData.whatsapp_available || false,
+                                 driver_name: editData.driver_name,
+                                 driver_phone: editData.driver_phone,
+                                 notes: extendedNotes.join('\n'),
+                                 raw_payload: editData.raw_payload || {},
+                                 parsed_confidence: editData.parsed_confidence || 95,
+                                 status: 'confirmed',
+                                 visible_to_client: true,
+                                 source: 'transfer_confirmation_import'
+                               };
+
+                              console.log('SAVING TRANSFER PAYLOAD', transferPayload);
+                              const savedTransfer = await saveItem('travel_transfers', transferPayload);
+                              if (savedTransfer) savedItemId = savedTransfer.id;
                             }
 
-                            const flightPayload: any = {
-                               plan_id: targetPlanId,
-                               airline: editData.airline || 'Vueling',
-                               flight_number: editData.flight_number,
-                               departure_location: depLoc,
-                               arrival_location: arrLoc,
-                               origin: depLoc,
-                               destination: arrLoc,
-                               departure_time: depTime,
-                               arrival_time: arrTime,
-                               reservation_code: editData.booking_reference,
-                               seat: editData.seat,
-                               gate: editData.gate,
-                               boarding_group: editData.boarding_group,
-                               baggage_info: editData.baggage_info,
-                               is_verified: true,
-                               source: extractionResult.type === 'boarding_pass' ? 'boarding_pass_import' : 'flight_confirmation_import',
-                               type: editData.type || 'outbound'
-                            };
-
-                            // 6. DEBUG ANTES DEL INSERT (Punto 6)
-                            console.log('FLIGHT PAYLOAD BEFORE SAVE', flightPayload);
-
-                            const savedFlight = await saveItem('travel_flights', relatedFlightId ? { ...flightPayload, id: relatedFlightId } : flightPayload);
-                            if (savedFlight) relatedFlightId = savedFlight.id;
-
-                            // 5. GUARDAR EN TRAVEL_DOCUMENTS (Punto 5)
+                            // 5. GUARDAR EN TRAVEL_DOCUMENTS
                             if (extractionResult.file) {
-                              const fileName = `${extractionResult.type}_${Date.now()}.pdf`;
+                              const extension = extractionResult.file.name.split('.').pop() || 'pdf';
+                              const fileName = `${extType}_${Date.now()}.${extension}`;
                               const { data: uploadData } = await supabase.storage
                                 .from('travel-documents').upload(`${targetPlanId}/${fileName}`, extractionResult.file);
                               
                               if (uploadData) {
                                 const { data: { publicUrl } } = supabase.storage.from('travel-documents').getPublicUrl(uploadData.path);
                                 
-                                const docTitle = extractionResult.type === 'boarding_pass' 
-                                  ? `Tarjeta de Embarque · ${editData.airline} ${editData.flight_number}`
-                                  : `Reserva · ${editData.airline} ${editData.flight_number}`;
+                                let docTitle = `Reserva · ${editData.airline || editData.hotel_name || editData.company_name || 'Servicio'} ${editData.flight_number || editData.booking_reference || ''}`;
+                                let docType = 'flight_confirmation';
+                                
+                                if (extType === 'boarding_pass') {
+                                  docTitle = `Tarjeta de Embarque · ${editData.airline} ${editData.flight_number}`;
+                                  docType = 'boarding_pass';
+                                } else if (extType === 'hotel') {
+                                  docTitle = `Estancia · ${editData.hotel_name}`;
+                                  docType = 'hotel_booking';
+                                } else if (extType === 'transfer') {
+                                  docTitle = 'Voucher oficial traslado';
+                                  docType = 'transfer_voucher';
+                                }
 
-                                await saveTravelDocument({
+                                const docPayload: any = {
                                   plan_id: targetPlanId,
                                   title: docTitle,
                                   display_title: docTitle,
-                                  document_type: extractionResult.type === 'boarding_pass' ? 'boarding_pass' : 'flight_confirmation',
-                                  description: `${depLoc} → ${arrLoc} · Asiento ${editData.seat || 'S/A'}`,
+                                  document_type: docType,
+                                  description: extType === 'transfer' 
+                                    ? `${editData.pickup_location} → ${editData.dropoff_location}`
+                                    : (extType === 'hotel' ? editData.address : `${editData.departure_location || ''} → ${editData.arrival_location || ''}`),
                                   file_url: publicUrl,
-                                  related_flight_id: relatedFlightId,
-                                  passenger_name: editData.passenger_name,
-                                  seat_assignment: editData.seat,
-                                  boarding_group: editData.boarding_group,
-                                  booking_reference: editData.booking_reference,
+                                  passenger_name: editData.passenger_name || guestName,
+                                  booking_reference: editData.booking_reference || editData.confirmation_number,
+                                  visible_to_client: true,
                                   qr_code: extractionResult.qr_raw_payload || editData.qr_code,
                                   qr_decoded: extractionResult.qr_decoded || false,
-                                  qr_raw_payload: extractionResult.qr_raw_payload || null,
-                                  visible_to_client: true
-                                });
+                                  qr_raw_payload: extractionResult.qr_raw_payload || null
+                                };
+
+                                if (extType === 'flight' || extType === 'boarding_pass') {
+                                  docPayload.related_flight_id = savedItemId;
+                                  docPayload.seat_assignment = editData.seat;
+                                  docPayload.boarding_group = editData.boarding_group;
+                                } else if (extType === 'hotel') {
+                                  docPayload.related_hotel_stay_id = savedItemId;
+                                } else if (extType === 'transfer') {
+                                  docPayload.related_transfer_id = savedItemId;
+                                }
+
+                                await saveTravelDocument(docPayload);
                               }
                             }
 
@@ -3316,6 +3591,8 @@ export default function AdminPlansPage() {
                       <option value="restaurant_to_hotel">Restaurante → Hotel</option>
                       <option value="hotel_to_venue">Hotel → Venue / Sede</option>
                       <option value="venue_to_hotel">Venue / Sede → Hotel</option>
+                      <option value="airport_to_venue">Aeropuerto → Sede</option>
+                      <option value="venue_to_airport">Sede → Aeropuerto</option>
                       <option value="custom">Otro / Personalizado</option>
                     </select>
                   </div>
@@ -3332,6 +3609,22 @@ export default function AdminPlansPage() {
                       <FieldReview label="Teléfono Chófer" value={editingTransfer.driver_phone} optional={true} onChange={(v:any) => setEditingTransfer({...editingTransfer, driver_phone: v})} />
                       <FieldReview label="Tipo de Vehículo" value={editingTransfer.vehicle_type} optional={true} onChange={(v:any) => setEditingTransfer({...editingTransfer, vehicle_type: v})} />
                       <FieldReview label="Empresa de Transporte" value={editingTransfer.company_name} optional={true} onChange={(v:any) => setEditingTransfer({...editingTransfer, company_name: v})} />
+                      <FieldReview label="Nº Pasajeros" value={editingTransfer.passengers?.toString() || ''} optional={true} onChange={(v:any) => setEditingTransfer({...editingTransfer, passengers: parseInt(v) || null})} />
+                      <FieldReview label="Nº Maletas / Equipaje" value={editingTransfer.luggage?.toString() || ''} optional={true} onChange={(v:any) => setEditingTransfer({...editingTransfer, luggage: v || null})} />
+                      <div className="col-span-2">
+                        <FieldReview label="📍 Punto de Encuentro (Meeting Point)" value={editingTransfer.meeting_point || ''} optional={true} onChange={(v:any) => setEditingTransfer({...editingTransfer, meeting_point: v})} />
+                      </div>
+                      <FieldReview label="Teléfono Soporte" value={editingTransfer.support_phone || ''} optional={true} onChange={(v:any) => setEditingTransfer({...editingTransfer, support_phone: v})} />
+                      <div className="flex items-center gap-2 pt-6">
+                        <input 
+                          type="checkbox" 
+                          id="edit_whatsapp_available"
+                          checked={editingTransfer.whatsapp_available || false}
+                          onChange={e => setEditingTransfer({...editingTransfer, whatsapp_available: e.target.checked})}
+                          className="w-4 h-4 rounded border-border text-accent focus:ring-accent accent-accent"
+                        />
+                        <label htmlFor="edit_whatsapp_available" className="text-[10px] font-black uppercase text-muted tracking-widest cursor-pointer select-none">WhatsApp Disponible</label>
+                      </div>
                     </div>
                   </div>
 

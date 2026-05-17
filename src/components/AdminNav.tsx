@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { 
@@ -14,10 +14,12 @@ import {
   Clock,
   MapPin,
   Database,
-  Utensils
+  Utensils,
+  X
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Logo } from './Logo';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const adminLinks = [
   { href: '/admin', label: 'Inicio', icon: LayoutDashboard },
@@ -31,6 +33,18 @@ const adminLinks = [
 
 export function AdminNav() {
   const pathname = usePathname();
+  const [showSettings, setShowSettings] = useState(false);
+  const [hideOnDesktop, setHideOnDesktop] = useState(false);
+
+  useEffect(() => {
+    setHideOnDesktop(localStorage.getItem('hide_pwa_install_on_desktop') === 'true');
+  }, []);
+
+  const handleToggle = (checked: boolean) => {
+    setHideOnDesktop(checked);
+    localStorage.setItem('hide_pwa_install_on_desktop', checked ? 'true' : 'false');
+    window.dispatchEvent(new Event('pwa-settings-changed'));
+  };
 
   return (
     <>
@@ -102,11 +116,65 @@ export function AdminNav() {
             <ArrowLeft size={18} className="group-hover:-translate-x-1 transition-transform" />
             Volver a la App
           </Link>
-          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold text-muted hover:bg-red-500/5 hover:text-red-500 transition-all opacity-60">
+          <button 
+            onClick={() => setShowSettings(true)}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-sm font-bold text-muted hover:bg-accent/5 hover:text-foreground transition-all opacity-60"
+          >
             <Settings size={18} />
             Configuración
           </button>
         </div>
+
+        <AnimatePresence>
+          {showSettings && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+              <motion.div 
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                className="bg-surface border border-border/80 rounded-[2.5rem] w-full max-w-md p-8 shadow-2xl relative space-y-6 text-foreground"
+              >
+                <div className="flex justify-between items-start">
+                  <div className="space-y-1">
+                    <h3 className="text-xl font-black tracking-tighter leading-none text-foreground">CONFIGURACIÓN</h3>
+                    <p className="text-[10px] font-bold text-accent uppercase tracking-widest">Preferencia de Dispositivo</p>
+                  </div>
+                  <button 
+                    onClick={() => setShowSettings(false)}
+                    className="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-muted hover:text-foreground transition-colors"
+                  >
+                    <X size={16} />
+                  </button>
+                </div>
+
+                <div className="space-y-4 text-left">
+                  <div className="flex items-center justify-between p-4 bg-white/5 border border-white/5 rounded-2xl">
+                    <div className="space-y-0.5 text-left">
+                      <p className="text-xs font-bold text-foreground">Ocultar "Instalar" en ordenador</p>
+                      <p className="text-[9px] text-muted leading-tight">No mostrar aviso de PWA en navegadores de escritorio.</p>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input 
+                        type="checkbox" 
+                        checked={hideOnDesktop} 
+                        onChange={(e) => handleToggle(e.target.checked)}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-white/10 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-muted after:border-white/10 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-accent peer-checked:after:bg-background"></div>
+                    </label>
+                  </div>
+                </div>
+
+                <button 
+                  onClick={() => setShowSettings(false)}
+                  className="w-full py-3 rounded-2xl bg-accent text-background text-xs font-black uppercase tracking-widest shadow-lg shadow-accent/25 active:scale-95 transition-all font-bold"
+                >
+                  Guardar Configuración
+                </button>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
       </aside>
 
       {/* MOBILE BOTTOM NAV */}

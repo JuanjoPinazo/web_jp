@@ -27,7 +27,7 @@ import {
   Send, History, Shield, Bell, Navigation, Smartphone, Ticket, QrCode, 
   Calendar, MapPin, Building2, User, Car, Utensils, Plane, Loader2, 
   FileText, Clock, ArrowRight, Download, MessageSquare, AlertCircle, 
-  CalendarRange, ChevronDown, Check, XCircle, Sun, Moon, ExternalLink, X, CheckCircle2, Phone
+  CalendarRange, ChevronDown, Check, XCircle, Sun, Moon, ExternalLink, X, CheckCircle2, Phone, Activity
 } from 'lucide-react';
 
 // Premium UI Components
@@ -38,6 +38,7 @@ import { BottomActionSheet } from '@/components/premium/BottomActionSheet';
 import { TimelineEvent } from '@/components/premium/TimelineEvent';
 
 import { AirportModeView } from '@/components/premium/AirportModeView';
+import { processTimelineEvents } from '@/core/services/travel-timeline.service';
 
 const WakeLockHandler = () => {
   useEffect(() => {
@@ -424,162 +425,87 @@ export default function DashboardPage() {
   // --- UNIFIED TIMELINE LOGIC ---
   const timelineEvents = useMemo(() => {
     if (!activePlan) return [];
-    const events: any[] = [];
-
-    activePlan.flights.filter(f => f.is_verified).forEach(f => {
-      events.push({
-        id: `flight-${f.id}`,
-        type: 'flight',
-        datetime: new Date(f.departure_time),
-        title: `Vuelo ${f.flight_number}`,
-        location: f.departure_location || 'Aeropuerto',
-        description: `Trayecto hacia ${f.arrival_location}. Puerta por confirmar.`,
-        icon: Plane,
-        color: 'text-accent',
-        payload: f,
-        lat: f.departure_lat,
-        lng: f.departure_lng
-      });
-
-      if (f.arrival_time) {
-        events.push({
-          id: `flight-arr-${f.id}`,
-          type: 'flight_arrival',
-          datetime: new Date(f.arrival_time),
-          title: `Llegada a ${f.arrival_location}`,
-          location: f.arrival_location || 'Aeropuerto',
-          description: 'Aterrizaje y recogida de equipaje.',
-          icon: MapPin,
-          color: 'text-blue-500',
-          payload: f,
-          lat: f.arrival_lat,
-          lng: f.arrival_lng
-        });
-      }
-    });
-
-    activePlan.hotel_stays?.forEach(h => {
-      const checkInDate = new Date(h.check_in);
-      checkInDate.setUTCHours(15, 0, 0);
-
-      // Si hay un vuelo el mismo día del check-in, retrasamos la hora prevista en la agenda
-      // para que aparezca lógicamente después de la llegada del vuelo (ej: hora de aterrizaje + 1 hora).
-      const sameDayFlights = activePlan.flights.filter(f => {
-        if (!f.is_verified || !f.arrival_time) return false;
-        const flightDate = new Date(f.arrival_time).toISOString().split('T')[0];
-        const hotelDate = new Date(h.check_in).toISOString().split('T')[0];
-        return flightDate === hotelDate;
-      });
-
-      let descriptionSuffix = '';
-      if (sameDayFlights.length > 0) {
-        const latestFlight = [...sameDayFlights].sort(
-          (a, b) => new Date(b.arrival_time).getTime() - new Date(a.arrival_time).getTime()
-        )[0];
-        const arrivalTime = new Date(latestFlight.arrival_time);
-        
-        // 1 hora de margen después de aterrizar (maletas + tránsito)
-        const expectedCheckIn = new Date(arrivalTime.getTime() + 60 * 60 * 1000);
-        
-        if (expectedCheckIn > checkInDate) {
-          checkInDate.setTime(expectedCheckIn.getTime());
-          const timeStr = arrivalTime.toLocaleTimeString('es-ES', { 
-            hour: '2-digit', 
-            minute: '2-digit',
-            timeZone: 'UTC' 
-          });
-          descriptionSuffix = ` (Previsto tras aterrizar a las ${timeStr})`;
-        }
+    
+    // Process all events through our new Travel Timeline Engine!
+    const normalized = processTimelineEvents(activePlan, activePlan.documents || []);
+    
+    // Map icons and styles for client rendering
+    return normalized.map(e => {
+      // Map icons
+      let IconComponent = Sparkles;
+      let colorClass = 'text-accent';
+      
+      switch (e.event_type) {
+        case 'flight':
+          IconComponent = e.id.includes('arr') ? MapPin : Plane;
+          colorClass = e.id.includes('arr') ? 'text-blue-500' : 'text-accent';
+          break;
+        case 'transfer':
+          IconComponent = Car;
+          colorClass = 'text-amber-500';
+          break;
+        case 'hotel':
+          IconComponent = Building2;
+          colorClass = e.id.includes('in') ? 'text-emerald-500' : 'text-slate-500';
+          break;
+        case 'restaurant':
+          IconComponent = Utensils;
+          colorClass = 'text-orange-500';
+          break;
+        case 'hospitality':
+          IconComponent = Utensils;
+          colorClass = 'text-accent';
+          break;
+        case 'agenda':
+          IconComponent = Activity;
+          colorClass = 'text-emerald-400';
+          break;
       }
 
-      events.push({
-        id: `hotel-in-${h.id}`,
-        type: 'hotel_checkin',
-        datetime: checkInDate,
-        title: `Check-in ${h.hotel_name}`,
-        location: h.address || h.hotel_name,
-        description: `Habitación: ${h.room_type || 'Estándar'}. Ref: ${h.booking_reference}${descriptionSuffix}`,
-        icon: Building2,
-        color: 'text-emerald-500',
-        cta: { label: 'Ver Reserva', type: 'document' },
-        payload: h,
-        lat: h.latitude,
-        lng: h.longitude
-      });
+      // Map latitude & longitude for Map Modal
+      let lat = undefined;
+      let lng = undefined;
+      if (e.event_type === 'flight') {
+        lat = e.id.includes('arr') ? e.metadata?.arrival_lat : e.metadata?.departure_lat;
+        lng = e.id.includes('arr') ? e.metadata?.arrival_lng : e.metadata?.departure_lng;
+      } else if (e.event_type === 'transfer') {
+        lat = e.metadata?.pickup_lat;
+        lng = e.metadata?.pickup_lng;
+      } else if (e.event_type === 'hotel') {
+        lat = e.metadata?.latitude;
+        lng = e.metadata?.longitude;
+      } else if (e.event_type === 'hospitality' || e.event_type === 'agenda') {
+        lat = e.metadata?.venue_lat;
+        lng = e.metadata?.venue_lng;
+      } else if (e.event_type === 'restaurant') {
+        lat = e.metadata?.latitude;
+        lng = e.metadata?.longitude;
+      }
 
-      const checkOutDate = new Date(h.check_out);
-      checkOutDate.setUTCHours(12, 0, 0);
-      events.push({
-        id: `hotel-out-${h.id}`,
-        type: 'hotel_checkout',
-        datetime: checkOutDate,
-        title: `Check-out ${h.hotel_name}`,
-        location: h.hotel_name,
-        description: 'Recuerda entregar las llaves en recepción.',
-        icon: Building2,
-        color: 'text-slate-500',
-        payload: h,
-        lat: h.latitude,
-        lng: h.longitude
-      });
-    });
-
-    activePlan.transfers.filter(t => t.visible_to_client).forEach(t => {
-      events.push({
-        id: `transfer-${t.id}`,
-        type: 'transfer',
-        datetime: new Date(t.pickup_datetime),
-        title: t.type?.replace(/_/g, ' ').toUpperCase().replace('AIRPORT', 'AERO') || 'Traslado Privado',
-        location: t.pickup_location,
-        description: `Hacia: ${t.dropoff_location}. ${t.driver_name ? `Chófer: ${t.driver_name}` : 'Transporte Confirmado'}`,
-        icon: Car,
-        color: 'text-amber-500',
-        payload: t,
-        lat: t.pickup_lat,
-        lng: t.pickup_lng
-      });
-    });
-
-    activePlan.restaurants.filter(r => r.type === 'reserved' || !r.type).forEach(r => {
-      events.push({
-        id: `dinner-${r.id}`,
-        type: 'dinner',
-        datetime: new Date(r.reservation_time),
-        title: `Cena en ${r.restaurant_name}`,
-        location: r.restaurant_name,
-        description: `Reserva para ${r.reservation_name || userName}. Mesa confirmada.`,
-        icon: Utensils,
-        color: 'text-orange-500',
-        payload: r,
-        lat: r.latitude,
-        lng: r.longitude
-      });
-    });
-
-    activePlan.hospitality_events?.filter(e => e.visible_to_client).forEach(e => {
-      events.push({
-        id: `hospitality-${e.id}`,
-        type: 'hospitality',
+      return {
+        id: e.id,
+        type: e.event_type === 'hotel' 
+          ? (e.id.includes('in') ? 'hotel_checkin' : 'hotel_checkout')
+          : e.event_type === 'flight'
+            ? (e.id.includes('arr') ? 'flight_arrival' : 'flight')
+            : e.event_type === 'restaurant'
+              ? 'dinner'
+              : e.event_type,
         datetime: new Date(e.start_datetime),
         title: e.title,
-        location: e.venue_name || 'Lugar por confirmar',
-        description: `${e.description || ''}${e.dress_code ? ` · Dress Code: ${e.dress_code}` : ''}`,
-        icon: Utensils,
-        color: 'text-accent',
-        payload: e,
-        timeString: new Date(e.start_datetime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }),
-        lat: e.venue_lat,
-        lng: e.venue_lng
-      });
+        location: e.location || 'Ubicación por confirmar',
+        description: e.subtitle || '',
+        icon: IconComponent,
+        color: colorClass,
+        payload: e.metadata,
+        lat,
+        lng,
+        actions: e.actions || [],
+        documents: e.documents || [],
+        time: new Date(e.start_datetime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
+      };
     });
-
-    return events
-      .sort((a, b) => a.datetime.getTime() - b.datetime.getTime())
-      .map(e => ({
-        ...e,
-        time: e.timeString || e.datetime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
-      }));
-  }, [activePlan, userName]);
+  }, [activePlan]);
 
   const nextAction = useMemo(() => {
     const now = new Date();
@@ -689,35 +615,86 @@ export default function DashboardPage() {
   const airportMode = useMemo(() => {
     if (!activePlan) return null;
     const now = new Date();
+    
+    // Find upcoming flight or recently departed flight
     const nextFlight = activePlan.flights
-      .filter(f => f.is_verified)
+      .filter(f => f.is_verified && !f.deleted_at)
       .find(f => {
         const depTime = new Date(f.departure_time);
-        return depTime > now && (depTime.getTime() - now.getTime()) < 24 * 60 * 60 * 1000;
+        const arrTime = f.arrival_time ? new Date(f.arrival_time) : new Date(depTime.getTime() + 2 * 60 * 60 * 1000);
+        
+        const diffMs = depTime.getTime() - now.getTime();
+        const diffHours = diffMs / (3600 * 1000);
+        
+        // Active if departing within 24h OR departed/arrived in the last 12 hours
+        return (diffHours > -12 && diffHours < 24);
       });
 
     if (!nextFlight) return null;
 
     const depTime = new Date(nextFlight.departure_time);
+    const arrTime = nextFlight.arrival_time ? new Date(nextFlight.arrival_time) : new Date(depTime.getTime() + 2 * 60 * 60 * 1000);
     const diffMs = depTime.getTime() - now.getTime();
     const diffMin = Math.floor(diffMs / 60000);
 
-    let state: 'preparation' | 'go_to_airport' | 'boarding_soon' | 'final_call' = 'preparation';
+    // Determine Landed vs Pre-flight phase
+    const isLanded = now.getTime() > (depTime.getTime() + 45 * 60 * 1000);
+
+    // Find associated transfer
+    const associatedTransfer = activePlan.transfers?.find(t => {
+      if (t.deleted_at) return false;
+      const tPickupTime = t.pickup_datetime ? new Date(t.pickup_datetime) : null;
+      if (!tPickupTime) return false;
+      
+      const timeDiffHours = (tPickupTime.getTime() - arrTime.getTime()) / (3600 * 1000);
+      const isTimeClose = timeDiffHours >= -2 && timeDiffHours <= 8; // pickup within 8 hours of arrival
+      
+      const arrLoc = (nextFlight.arrival_location || '').toLowerCase();
+      const pickLoc = (t.pickup_location || (t as any).pickup_address || '').toLowerCase();
+      
+      const isLocMatch = pickLoc.includes(arrLoc) || 
+                         arrLoc.includes(pickLoc) ||
+                         (tPickupTime.toDateString() === arrTime.toDateString());
+      
+      return isTimeClose && isLocMatch;
+    });
+
+    // Find associated hotel
+    const associatedHotel = activePlan.hotel_stays?.find(h => {
+      if (h.deleted_at) return false;
+      const checkinDate = new Date(h.check_in);
+      return checkinDate.toDateString() === arrTime.toDateString() ||
+             Math.abs(checkinDate.getTime() - arrTime.getTime()) < 36 * 60 * 60 * 1000;
+    });
+
+    // Find transfer voucher document
+    const transferVoucher = associatedTransfer ? activePlan.documents.find(d => 
+      !d.deleted_at && (d.related_transfer_id === associatedTransfer.id || 
+      (associatedTransfer.booking_reference && d.booking_reference === associatedTransfer.booking_reference && d.document_type === 'transfer_voucher'))
+    ) : null;
+
+    let state: 'preparation' | 'go_to_airport' | 'boarding_soon' | 'final_call' | 'landed' = 'preparation';
     let statusText = 'Preparación de viaje';
     let statusColor = 'bg-accent/10 text-accent border-accent/20';
 
-    if (diffMin < 20) {
-      state = 'final_call';
-      statusText = 'Última llamada';
-      statusColor = 'bg-red-500/10 text-red-500 border-red-500/20';
-    } else if (diffMin < 45) {
-      state = 'boarding_soon';
-      statusText = 'Embarque próximo';
-      statusColor = 'bg-orange-500/10 text-orange-500 border-orange-500/20';
-    } else if (diffMin < 120) {
-      state = 'go_to_airport';
-      statusText = 'Ir al aeropuerto';
-      statusColor = 'bg-blue-500/10 text-blue-500 border-blue-500/20';
+    if (isLanded) {
+      state = 'landed';
+      statusText = associatedTransfer ? 'Traslado preparado' : 'Llegada a destino';
+      statusColor = 'bg-green-500/10 text-green-500 border-green-500/20';
+    } else {
+      if (diffMin < 20) {
+        state = 'final_call';
+        statusText = 'Última llamada';
+        statusColor = 'bg-red-500/10 text-red-500 border-red-500/20';
+      } else if (diffMin < 45) {
+        state = 'boarding_soon';
+        statusText = 'Embarque próximo';
+        statusColor = 'bg-orange-500/10 text-orange-500 border-orange-500/20';
+      } else if (diffMin < 120) {
+        state = 'go_to_airport';
+        statusText = 'Ir al aeropuerto';
+        statusColor = 'bg-blue-500/10 text-blue-500 border-blue-500/20';
+      }
     }
 
     const boardingPass = activePlan.documents.find(d => 
@@ -731,12 +708,16 @@ export default function DashboardPage() {
       statusText,
       statusColor,
       diffMin,
-      boardingPass
+      boardingPass,
+      associatedTransfer,
+      associatedHotel,
+      transferVoucher,
+      isLanded
     };
   }, [activePlan]);
 
   useEffect(() => {
-    if (airportMode && airportMode.diffMin < 360 && !showAirportFullView) {
+    if (airportMode && (airportMode.diffMin < 360 || airportMode.isLanded) && !showAirportFullView) {
       setShowAirportFullView(true);
     }
   }, [airportMode]);
@@ -812,11 +793,22 @@ export default function DashboardPage() {
           <AirportModeView 
             data={airportMode} 
             smartDeparture={smartDeparture}
+            isAdmin={isAdmin}
             onClose={() => setShowAirportFullView(false)}
-            onAction={(action) => {
-              if (action === 'maps') window.open(`https://www.google.com/maps/dir/?api=1&destination=${airportMode.flight.departure_location}`);
+            onAction={(action, payload) => {
+              if (action === 'maps') {
+                const dest = payload?.destination || airportMode.flight.departure_location;
+                const origin = payload?.origin ? `&origin=${encodeURIComponent(payload.origin)}` : '';
+                window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}${origin}`);
+              }
               if (action === 'contact') handleAssistantMessage('Necesito contactar con mi coordinador de viaje');
-              if (action === 'docs') setSelectedPDF(airportMode.boardingPass || activePlan?.documents[0]);
+              if (action === 'docs') {
+                const docUrl = payload?.file_url || airportMode.boardingPass?.file_url || activePlan?.documents[0]?.file_url;
+                if (docUrl) window.open(docUrl, '_blank');
+              }
+              if (action === 'associate') {
+                router.push(`/admin/plans?plan_id=${activePlan?.id}`);
+              }
             }}
           />
         )}
@@ -1249,6 +1241,164 @@ export default function DashboardPage() {
                       Ver PDF Original
                     </a>
                   )}
+                </div>
+              );
+            })()}
+
+            {/* TRANSFER PREMIUM CARD */}
+            {selectedEvent?.type === 'transfer' && (() => {
+              const t = selectedEvent.payload;
+              const transferDoc = activePlan?.documents.find(d => 
+                d.related_transfer_id === t.id
+              );
+              // Parse meeting point from notes if not a direct field
+              const meetingPoint = t.meeting_point || (() => {
+                if (!t.notes) return null;
+                const m = t.notes.match(/📍 Meeting Point:\s*(.+)/);
+                return m ? m[1] : null;
+              })();
+              const supportPhone = t.support_phone || (() => {
+                if (!t.notes) return null;
+                const m = t.notes.match(/📞 Soporte:\s*(.+)/);
+                return m ? m[1] : null;
+              })();
+              
+              return (
+                <div className="space-y-4 w-full">
+                  {/* Route card */}
+                  <div className="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/20">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-2 h-2 rounded-full bg-green-500" />
+                      <div className="flex-1">
+                        <p className="text-[9px] font-black text-muted uppercase tracking-widest">Recogida</p>
+                        <p className="text-sm font-bold text-foreground">{t.pickup_location}</p>
+                      </div>
+                    </div>
+                    <div className="ml-1 border-l-2 border-dashed border-amber-500/30 h-4" />
+                    <div className="flex items-center gap-3 mt-1">
+                      <div className="w-2 h-2 rounded-full bg-red-500" />
+                      <div className="flex-1">
+                        <p className="text-[9px] font-black text-muted uppercase tracking-widest">Destino</p>
+                        <p className="text-sm font-bold text-foreground">{t.dropoff_location}</p>
+                      </div>
+                    </div>
+                  </div>
+
+                   {/* Vehicle, Passengers & Operational Details */}
+                   <div className="grid grid-cols-2 gap-3">
+                     {t.vehicle_type && (
+                       <div className="p-3 rounded-2xl bg-surface-subtle border border-border">
+                         <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1">Vehículo</p>
+                         <p className="text-sm font-bold text-foreground">🚗 {t.vehicle_type}</p>
+                       </div>
+                     )}
+                     {t.booking_reference && (
+                       <div className="p-3 rounded-2xl bg-surface-subtle border border-border">
+                         <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1">Referencia</p>
+                         <p className="text-sm font-bold text-foreground">{t.booking_reference}</p>
+                       </div>
+                     )}
+                     {t.passengers && (
+                       <div className="p-3 rounded-2xl bg-surface-subtle border border-border">
+                         <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1">Pasajeros</p>
+                         <p className="text-sm font-bold text-foreground">👥 {t.passengers} Pax</p>
+                       </div>
+                     )}
+                     {t.luggage && (
+                       <div className="p-3 rounded-2xl bg-surface-subtle border border-border">
+                         <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1">Equipaje</p>
+                         <p className="text-sm font-bold text-foreground">🧳 {t.luggage}</p>
+                       </div>
+                     )}
+                     {t.passenger_name && (
+                       <div className="p-3 rounded-2xl bg-surface-subtle border border-border col-span-2">
+                         <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1">Pasajero Principal</p>
+                         <p className="text-xs font-bold text-foreground">{t.passenger_name} {t.passenger_phone ? `(${t.passenger_phone})` : ''}</p>
+                       </div>
+                     )}
+                     {(t.airline || t.flight_number) && (
+                       <div className="p-3 rounded-2xl bg-surface-subtle border border-border col-span-2">
+                         <p className="text-[9px] font-black text-muted uppercase tracking-widest mb-1">Vuelo Asociado</p>
+                         <p className="text-xs font-bold text-foreground">✈ {t.airline || ''} {t.flight_number || ''}</p>
+                       </div>
+                     )}
+                   </div>
+
+                  {/* Meeting Point */}
+                  {meetingPoint && (
+                    <div className="p-4 rounded-2xl bg-blue-500/5 border border-blue-500/20">
+                      <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-1">📍 Punto de Encuentro</p>
+                      <p className="text-sm font-bold text-foreground">{meetingPoint}</p>
+                    </div>
+                  )}
+
+                  {/* Driver info */}
+                  {t.driver_name && (
+                    <div className="p-4 rounded-2xl bg-surface-subtle border border-border flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-500 font-black text-sm">
+                        {t.driver_name.charAt(0)}
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-[9px] font-black text-muted uppercase tracking-widest">Tu Chófer</p>
+                        <p className="text-sm font-bold text-foreground">{t.driver_name}</p>
+                      </div>
+                      {t.driver_phone && (
+                        <a href={`tel:${t.driver_phone}`} className="w-10 h-10 rounded-full bg-green-500/10 flex items-center justify-center text-green-500">
+                          <Phone size={16} />
+                        </a>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Actions */}
+                  <div className="space-y-2.5 pt-2">
+                    {transferDoc?.file_url && (
+                      <a
+                        href={transferDoc.file_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full py-4 rounded-2xl bg-background border border-border text-foreground hover:bg-muted font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-3 transition-all shadow-sm"
+                      >
+                        <FileText size={16} className="text-amber-500" />
+                        Ver voucher oficial
+                      </a>
+                    )}
+
+                    {meetingPoint && (
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(meetingPoint);
+                          alert(`📍 Punto de encuentro copiado:\n"${meetingPoint}"`);
+                        }}
+                        className="w-full py-4 rounded-2xl bg-blue-500/5 border border-blue-500/15 text-blue-400 hover:bg-blue-500/10 font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-3 transition-all"
+                      >
+                        <MapPin size={16} />
+                        Punto de encuentro
+                      </button>
+                    )}
+
+                    {supportPhone && (
+                      <a
+                        href={`tel:${supportPhone}`}
+                        className="w-full py-4 rounded-2xl bg-foreground text-background hover:opacity-90 font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-3 transition-all"
+                      >
+                        <Phone size={16} />
+                        Llamar asistencia
+                      </a>
+                    )}
+
+                    {(t.dropoff_location || t.destination_address) && (
+                      <a
+                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(t.dropoff_location || t.destination_address || '')}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full py-4 rounded-2xl bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-3 transition-all"
+                      >
+                        <MapPin size={16} />
+                        Cómo llegar
+                      </a>
+                    )}
+                  </div>
                 </div>
               );
             })()}

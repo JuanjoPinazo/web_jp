@@ -9,6 +9,8 @@ import {
   parseHotelBooking,
   parseIataBCBP 
 } from '@/lib/parsers';
+import { DocumentClassifierService } from '@/modules/document-intelligence/DocumentClassifierService';
+import { TransferParserService } from '@/modules/document-intelligence/TransferParserService';
 
 export interface ExtractedData {
   type: 'hotel' | 'flight' | 'transfer' | 'document' | 'boarding_pass';
@@ -71,7 +73,7 @@ function cleanLogisticsNoise(text: string): string {
 
 function normalizeDates(data: any) {
   if (!data) return data;
-  const dateFields = ['departure_time', 'arrival_time', 'check_in', 'check_out'];
+  const dateFields = ['departure_time', 'arrival_time', 'check_in', 'check_out', 'pickup_datetime'];
   dateFields.forEach(field => {
     if (data[field] && typeof data[field] === 'string') {
        // 1. Ya es ISO o ISO parcial (YYYY-MM-DDTHH:mm...)
@@ -88,6 +90,157 @@ function normalizeDates(data: any) {
     }
   });
   return data;
+}
+
+function detectTypeFromText(text: string): 'flight' | 'hotel' | 'transfer' | 'boarding_pass' | 'document' {
+  const t = text.toUpperCase();
+  if (t.includes('BOARDING PASS') || t.includes('TARJETA DE EMBARQUE') || t.includes('ACCÈS À BORD')) return 'boarding_pass';
+  if (t.includes('TRASLADO') || t.includes('TRANSFER') || t.includes('SHUTTLE') || t.includes('VOUCHER DE RESERVA') || t.includes('SUNTRANSFERS') || t.includes('PICKUP') || t.includes('CHÓFER') || t.includes('VEHÍCULO')) return 'transfer';
+  if (t.includes('HOTEL') || t.includes('ALOJAMIENTO') || t.includes('BOOKING.COM') || t.includes('ESTANCIA') || t.includes('CHECK-IN')) return 'hotel';
+  return 'document';
+}
+
+async function parseTransferWithAI(rawText: string) {
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      console.warn('[AI Fallback] No OpenAI API Key found for transfer.');
+      return null;
+    }
+    const { default: OpenAI } = await import('openai');
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    console.log('[AI Fallback] Invoking OpenAI to extract transfer details...');
+    const prompt = `
+Eres un extractor de datos de traslado/transfer experto de la plataforma JP Intelligence. 
+Tu tarea es extraer los datos clave del siguiente texto extraído de un PDF de confirmación de traslado o voucher de transporte.
+
+Analiza el texto y responde ÚNICAMENTE con un objeto JSON (sin markdown, sin bloques de código) con la siguiente estructura. Si un campo no está presente o no puedes extraerlo, pon null:
+
+{
+  "type": "tipo de traslado: airport_pickup, airport_dropoff, hotel_transfer, o event_transfer",
+  "pickup_location": "Lugar de recogida/origen exacto (e.g. Paris Charles de Gaulle airport)",
+  "dropoff_location": "Lugar de destino/entrega exacto (e.g. Hôtel Napoléon Paris)",
+  "pickup_datetime": "Fecha y hora de recogida en formato ISO YYYY-MM-DDTHH:mm:00 (si no hay año, asume 2026)",
+  "passenger_name": "Nombre completo del pasajero principal",
+  "booking_reference": "Referencia de la reserva o localizador (e.g. SUNTR_WC1710)",
+  "vehicle_type": "Tipo de vehículo o info del coche (e.g. Traslado privado - 4 maletas)",
+  "driver_name": "Nombre del chófer si aparece",
+  "driver_phone": "Teléfono del chófer si aparece",
+  "company_name": "Empresa de transporte (e.g. Suntransfers)",
+  "notes": "Notas adicionales o detalles de pasajeros y equipaje"
+}
+
+Texto a analizar:
+---
+${rawText}
+---
+`;
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.1,
+      response_format: { type: 'json_object' }
+    });
+    const resultText = response.choices[0]?.message?.content;
+    if (resultText) {
+      console.log('[AI Fallback] OpenAI Transfer Response:', resultText);
+      return JSON.parse(resultText);
+    }
+  } catch (e: any) {
+    console.error('[AI Fallback] Failed to parse transfer with AI:', e);
+  }
+  return null;
+}
+
+async function parseTransferWithVision(pdfBuffer: Buffer) {
+  try {
+    if (!process.env.OPENAI_API_KEY) return null;
+    const { renderPdfToImage } = await import('@/lib/server/pdf/renderPdfToImage');
+    console.log('[Vision Fallback] Rendering Transfer PDF first page...');
+    const imageBuffer = await renderPdfToImage(pdfBuffer, 1);
+    const base64Image = imageBuffer.toString('base64');
+    const { default: OpenAI } = await import('openai');
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    console.log('[Vision Fallback] Invoking OpenAI Vision for transfer...');
+    const prompt = `
+Eres un extractor de datos de traslado/transfer experto de la plataforma JP Intelligence. 
+Analiza la imagen de la confirmación de traslado o voucher y responde ÚNICAMENTE con un objeto JSON (sin markdown, sin bloques de código) con esta estructura:
+
+{
+  "type": "tipo de traslado: airport_pickup, airport_dropoff, hotel_transfer, o event_transfer",
+  "pickup_location": "Lugar de recogida/origen exacto (e.g. Paris Charles de Gaulle airport)",
+  "dropoff_location": "Lugar de destino/entrega exacto (e.g. Hôtel Napoléon Paris)",
+  "pickup_datetime": "Fecha y hora de recogida en formato ISO YYYY-MM-DDTHH:mm:00 (si no hay año, asume 2026)",
+  "passenger_name": "Nombre completo del pasajero principal",
+  "booking_reference": "Referencia de la reserva o localizador (e.g. SUNTR_WC1710)",
+  "vehicle_type": "Tipo de vehículo o info del coche (e.g. Traslado privado - 4 maletas)",
+  "driver_name": "Nombre del chófer si aparece",
+  "driver_phone": "Teléfono del chófer si aparece",
+  "company_name": "Empresa de transporte (e.g. Suntransfers)",
+  "notes": "Notas adicionales o detalles de pasajeros y equipaje"
+}
+`;
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: `data:image/png;base64,${base64Image}` } }
+          ]
+        }
+      ],
+      temperature: 0.1,
+      response_format: { type: 'json_object' }
+    });
+    const resultText = response.choices[0]?.message?.content;
+    if (resultText) {
+      console.log('[Vision Fallback] OpenAI Vision Transfer Response:', resultText);
+      return JSON.parse(resultText);
+    }
+  } catch (e) {
+    console.error('[Vision Fallback] Failed to parse transfer with Vision:', e);
+  }
+  return null;
+}
+
+async function parseHotelWithAI(rawText: string) {
+  try {
+    if (!process.env.OPENAI_API_KEY) return null;
+    const { default: OpenAI } = await import('openai');
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    console.log('[AI Fallback] Invoking OpenAI to extract hotel details...');
+    const prompt = `
+Eres un extractor de datos de hotel experto de la plataforma JP Intelligence. 
+Extrae los datos clave del siguiente texto de confirmación de hotel. Responderás ÚNICAMENTE con un JSON con esta estructura:
+
+{
+  "hotel_name": "Nombre del hotel",
+  "confirmation_number": "Número de confirmación/reserva",
+  "check_in": "Fecha de check-in en formato ISO YYYY-MM-DDTHH:mm:00 (si no hay año, asume 2026)",
+  "check_out": "Fecha de check-out en formato ISO YYYY-MM-DDTHH:mm:00 (si no hay año, asume 2026)",
+  "address": "Dirección completa del hotel",
+  "room_type": "Tipo de habitación (e.g. Doble Estándar)"
+}
+
+Texto:
+${rawText}
+`;
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.1,
+      response_format: { type: 'json_object' }
+    });
+    const resultText = response.choices[0]?.message?.content;
+    if (resultText) {
+      console.log('[AI Fallback] OpenAI Hotel Response:', resultText);
+      return JSON.parse(resultText);
+    }
+  } catch (e) {
+    console.error('Failed to parse hotel with AI:', e);
+  }
+  return null;
 }
 
 async function parseFlightWithAI(rawText: string, provider: string) {
@@ -232,15 +385,36 @@ export async function extractTravelInfo(formData: FormData): Promise<ExtractedDa
   console.log(`FILE: ${file.name}, TYPE: ${forcedType}, PROVIDER: ${forcedProvider}`);
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  const rawText = await extractTextWithPdftotext(buffer);
+  const isImage = file.type.startsWith('image/') || file.name.match(/\.(jpg|jpeg|png|webp)$/i);
   
-  if (rawText.startsWith('__ERROR__')) {
-    const errorMsg = rawText.replace('__ERROR__: ', '');
-    return { type: 'document', data: {}, confidence: 0, rawText: '', error: errorMsg } as any;
+  let rawText = '';
+  
+  if (!isImage) {
+    rawText = await extractTextWithPdftotext(buffer);
+    if (rawText.startsWith('__ERROR__')) {
+      const errorMsg = rawText.replace('__ERROR__: ', '');
+      return { type: 'document', data: {}, confidence: 0, rawText: '', error: errorMsg } as any;
+    }
   }
+  
+  if (isImage || !rawText || rawText.trim().length < 10) {
+    console.log('[DEBUG] PDF/Imagen no contiene texto digital. Activando motor de Visión por IA...');
+    
+    // 1. Try Transfer Vision first if filename or forcedType matches
+    if (forcedType === 'transfer' || forcedType === 'transfer_voucher' || file.name.toLowerCase().includes('transfer') || file.name.toLowerCase().includes('traslado')) {
+      const visionTransferData = await TransferParserService.parseTransfer('', buffer, file.type);
+      if (visionTransferData && visionTransferData.pickup_address) {
+        return {
+          type: 'transfer',
+          data: normalizeDates(visionTransferData),
+          confidence: visionTransferData.parsed_confidence || 95,
+          rawText: `[Extracción por Visión Artificial (OCR)] - Traslado: ${visionTransferData.booking_reference}`,
+          file
+        };
+      }
+    }
 
-  if (!rawText || rawText.trim().length < 10) {
-    console.log('[DEBUG] PDF no contiene texto digital (imagen/escaneado). Activando motor de Visión por IA...');
+    // 2. Try flight vision next
     const visionData = await parseFlightWithVision(buffer, forcedProvider);
     if (visionData && visionData.flight_number) {
       const isBoardingPass = !!visionData.seat || forcedType === 'boarding_pass';
@@ -255,6 +429,10 @@ export async function extractTravelInfo(formData: FormData): Promise<ExtractedDa
     
     return { type: 'document', data: {}, confidence: 0, rawText: '', error: 'No se pudo extraer texto del PDF.' } as any;
   }
+
+  // 1. Classify document using our modular DocumentClassifierService
+  const classification = DocumentClassifierService.classifyText(rawText);
+  console.log(`[Document Classifier] Classified as: ${classification.type} (Provider: ${classification.provider}, Confidence: ${classification.confidence})`);
 
   let providerKey = forcedProvider;
   if (providerKey === 'auto') {
@@ -390,14 +568,64 @@ export async function extractTravelInfo(formData: FormData): Promise<ExtractedDa
   }
 
   // 3. HOTEL (Booking / Hoteles.com / Generic)
-  if (providerKey === 'booking' || providerKey === 'hoteles_com' || providerKey === 'auto' || forcedType === 'hotel_booking') {
+  if (providerKey === 'booking' || providerKey === 'hoteles_com' || providerKey === 'auto' || forcedType === 'hotel_booking' || forcedType === 'hotel') {
     const hotelData = parseHotelBooking(rawText);
+    
+    // Trigger AI fallback for hotel if deterministic extraction is incomplete
+    const isMissingHotelInfo = !hotelData || !hotelData.hotel_name || !hotelData.check_in;
+    if (isMissingHotelInfo) {
+      console.log('[DEBUG] Deterministic Hotel parser incomplete. Triggering AI Fallback...');
+      const aiHotelData = await parseHotelWithAI(rawText);
+      if (aiHotelData) {
+        return {
+          type: 'hotel',
+          data: normalizeDates(aiHotelData),
+          confidence: 95,
+          rawText,
+          file
+        };
+      }
+    }
+    
     if (hotelData) {
       return { type: 'hotel', data: normalizeDates(hotelData), confidence: hotelData.confidence, rawText, file };
     }
   }
 
-  // 4. FALLBACK GENERAL (si todo lo anterior falló o es auto)
+  // 4. TRANSFER / TRASLADO (Suntransfers / Generic) — Modular TransferParserService
+  const isTransfer = forcedType === 'transfer' || forcedType === 'transfer_voucher' || 
+                     classification.type === 'transfer_voucher' || detectTypeFromText(rawText) === 'transfer';
+  if (isTransfer) {
+    console.log(`[DEBUG] Transfer type detected (classification: ${classification.type}, provider: ${classification.provider}). Triggering TransferParserService...`);
+    const transferData = await TransferParserService.parseTransfer(rawText, buffer);
+    if (transferData) {
+      // Map TransferParserService NormalizedTransfer → ExtractedData.data shape
+      return {
+        type: 'transfer' as const,
+        data: normalizeDates({
+          ...transferData,
+          // Map normalized fields to the shape the admin UI expects
+          pickup_location: transferData.pickup_address,
+          dropoff_location: transferData.destination_address,
+          company_name: transferData.provider,
+          // Keep all extended fields
+          pickup_type: transferData.pickup_type,
+          destination_type: transferData.destination_type,
+          meeting_point: transferData.meeting_point,
+          support_phone: transferData.support_phone,
+          support_whatsapp: transferData.support_whatsapp,
+          passengers: transferData.passengers,
+          luggage: transferData.luggage,
+          flight_linkage: transferData.flight_linkage,
+        }),
+        confidence: transferData.parsed_confidence || 95,
+        rawText,
+        file
+      };
+    }
+  }
+
+  // 5. FALLBACK GENERAL (si todo lo anterior falló o es auto)
   if (providerKey === 'auto') {
     // Re-intentar Air France por si acaso
     const afData = parseAirFrance(rawText);

@@ -7,13 +7,39 @@ import { motion, AnimatePresence } from 'framer-motion';
 export const InstallAppPrompt = () => {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [showPrompt, setShowPrompt] = useState(false);
+  const [isDesktopDevice, setIsDesktopDevice] = useState(false);
 
   useEffect(() => {
+    const checkSettingsAndShow = () => {
+      const isDesktopHidden = localStorage.getItem('hide_pwa_install_on_desktop') === 'true';
+      const isDesktop = !/Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+      setIsDesktopDevice(isDesktop);
+      
+      if (isDesktop && isDesktopHidden) {
+        setShowPrompt(false);
+        return false;
+      }
+      return true;
+    };
+
     const handleBeforeInstallPrompt = (e: any) => {
       e.preventDefault();
       setDeferredPrompt(e);
+      
+      if (!checkSettingsAndShow()) return;
+
       // Solo mostrar si no estamos ya en standalone
       if (!window.matchMedia('(display-mode: standalone)').matches) {
+        const isDismissed = localStorage.getItem('pwa_prompt_dismissed');
+        if (isDismissed) {
+          const dismissDate = new Date(isDismissed);
+          const now = new Date();
+          const diffDays = (now.getTime() - dismissDate.getTime()) / (1000 * 60 * 60 * 24);
+          if (diffDays < 7) { // No mostrar de nuevo por 7 días
+            setShowPrompt(false);
+            return;
+          }
+        }
         setShowPrompt(true);
       }
     };
@@ -29,21 +55,16 @@ export const InstallAppPrompt = () => {
     };
     window.addEventListener('trigger-pwa-install', handleTrigger);
 
-    // Si el usuario ya instaló la app recientemente, no mostrar
-    const isDismissed = localStorage.getItem('pwa_prompt_dismissed');
-    if (isDismissed) {
-      const dismissDate = new Date(isDismissed);
-      const now = new Date();
-      const diffDays = (now.getTime() - dismissDate.getTime()) / (1000 * 60 * 60 * 24);
-      if (diffDays < 7) { // No mostrar de nuevo por 7 días
-        setShowPrompt(false);
-      }
-    }
+    window.addEventListener('pwa-settings-changed', checkSettingsAndShow);
+
+    // Initial check
+    checkSettingsAndShow();
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('pwa-settings-changed', checkSettingsAndShow);
     };
-  }, []);
+  }, [deferredPrompt]);
 
   const handleInstallClick = async () => {
     if (!deferredPrompt) return;
@@ -79,6 +100,18 @@ export const InstallAppPrompt = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {isDesktopDevice && (
+              <button 
+                onClick={() => {
+                  localStorage.setItem('hide_pwa_install_on_desktop', 'true');
+                  setShowPrompt(false);
+                  window.dispatchEvent(new Event('pwa-settings-changed'));
+                }}
+                className="text-[9px] font-bold text-muted/60 hover:text-accent uppercase tracking-widest px-3 active:scale-95 transition-all"
+              >
+                No mostrar aquí
+              </button>
+            )}
             <button 
               onClick={handleInstallClick}
               className="px-5 py-2.5 rounded-xl bg-accent text-white text-[10px] font-black uppercase tracking-widest shadow-lg shadow-accent/20 active:scale-95 transition-all"

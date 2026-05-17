@@ -142,17 +142,30 @@ export interface HotelStay {
 export interface Transfer {
   id: string;
   plan_id: string;
-  type: string; // airport_to_hotel, hotel_to_airport, etc.
+  type: string; // airport_pickup, airport_dropoff, hotel_transfer, event_transfer
   pickup_datetime: string;
   pickup_location: string;
   dropoff_location: string;
   passenger_name?: string;
+  passenger_phone?: string;
   driver_name?: string;
   driver_phone?: string;
   vehicle_type?: string;
   company_name?: string;
   booking_reference?: string;
   notes?: string;
+  // Extended normalized fields
+  provider?: string;
+  pickup_type?: 'airport' | 'hotel' | 'station' | 'address' | 'other';
+  destination_type?: 'airport' | 'hotel' | 'station' | 'address' | 'venue' | 'other';
+  passengers?: number;
+  luggage?: number;
+  meeting_point?: string;
+  support_phone?: string;
+  support_whatsapp?: string;
+  raw_payload?: any;
+  parsed_confidence?: number;
+  // Relations and status
   status: 'planned' | 'confirmed' | 'cancelled';
   visible_to_client: boolean;
   related_flight_id?: string;
@@ -291,6 +304,56 @@ export interface FullTravelPlan extends TravelPlan {
   logistic_contact?: LogisticContact;
 }
 
+const parseRichTransfer = (t: any) => {
+  // If notes starts with { (old serialization), parse it for fallback
+  let rich: any = {};
+  try {
+    if (t.notes && (t.notes.startsWith('{') || t.notes.startsWith('['))) {
+      rich = JSON.parse(t.notes);
+    }
+  } catch (e) {
+    console.error('Error parsing rich transfer notes:', e);
+  }
+  
+  const sanitizeStr = (val: any) => {
+    if (!val || val === 'undefined' || val === 'null' || val === '[object Object]') return '';
+    return String(val).trim();
+  };
+
+  const companyName = sanitizeStr(t.provider) || sanitizeStr(t.company_name) || sanitizeStr(rich.provider) || sanitizeStr(rich.company_name);
+  const pickup = sanitizeStr(t.pickup_location) || sanitizeStr(t.pickup_address) || sanitizeStr(rich.pickup_location) || '';
+  const dropoff = sanitizeStr(t.dropoff_location) || sanitizeStr(t.destination_address) || sanitizeStr(rich.dropoff_location) || '';
+  
+  return {
+    ...t,
+    type: t.transfer_type || (rich.pickup_type === 'airport' ? 'airport_pickup' : (t.type || 'hotel_transfer')),
+    pickup_datetime: t.pickup_datetime || t.pickup_time,
+    pickup_location: pickup,
+    dropoff_location: dropoff,
+    
+    // Natively read columns with serialization fallbacks
+    provider: companyName,
+    company_name: companyName,
+    booking_reference: t.booking_reference || rich.booking_reference,
+    passenger_name: t.passenger_name || rich.passenger_name,
+    passenger_phone: t.passenger_phone || rich.passenger_phone,
+    vehicle_type: t.vehicle_type || t.vehicle_info || rich.vehicle_type,
+    meeting_point: t.meeting_point || rich.meeting_point,
+    support_phone: t.support_phone || rich.support_phone,
+    support_whatsapp: t.support_whatsapp || rich.support_whatsapp,
+    passengers: t.passengers !== undefined ? t.passengers : (rich.passengers !== undefined ? rich.passengers : 1),
+    luggage: t.luggage || rich.luggage,
+    flight_linkage: t.flight_linkage || rich.flight_linkage || (t.flight_number ? {
+      airline: t.airline,
+      flight_number: t.flight_number,
+      arrival_time: t.flight_arrival_time
+    } : undefined),
+    pickup_type: t.pickup_type || rich.pickup_type,
+    destination_type: t.destination_type || rich.destination_type,
+    notes: rich.original_notes !== undefined ? rich.original_notes : t.notes
+  };
+};
+
 export const useTravelPlans = () => {
   const { session } = useAuth();
   const [loading, setLoading] = useState(false);
@@ -350,7 +413,7 @@ export const useTravelPlans = () => {
         supabase.from('travel_flights').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('departure_time'),
         supabase.from('travel_hotels').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('check_in'),
         supabase.from('hotel_stays').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('check_in'),
-        supabase.from('travel_transfers').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('pickup_time'),
+        supabase.from('travel_transfers').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('pickup_datetime'),
         supabase.from('travel_restaurants').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('reservation_time'),
         supabase.from('hospitality_events').select('*, hospitality_event_attendees(*)').eq('plan_id', plan.id).is('deleted_at', null).order('start_datetime'),
         supabase.from('hospitality_event_attendees').select('event_id, hospitality_events(*, hospitality_event_attendees(*))').eq('profile_id', targetUserId).is('deleted_at', null),
@@ -379,11 +442,7 @@ export const useTravelPlans = () => {
         flights: flights.data || [],
         hotels: hotels.data || [],
         hotel_stays: hotelStays.data || [],
-        transfers: (transfers.data || []).map((t: any) => ({
-          ...t,
-          type: t.type || t.transfer_type,
-          pickup_datetime: t.pickup_datetime || t.pickup_time
-        })),
+        transfers: (transfers.data || []).map((t: any) => parseRichTransfer(t)),
         restaurants: restaurants.data || [],
         hospitality_events: [
           ...(hospitality.data || []),
@@ -429,7 +488,7 @@ export const useTravelPlans = () => {
         supabase.from('travel_flights').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('departure_time'),
         supabase.from('travel_hotels').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('check_in'),
         supabase.from('hotel_stays').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('check_in'),
-        supabase.from('travel_transfers').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('pickup_time'),
+        supabase.from('travel_transfers').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('pickup_datetime'),
         supabase.from('travel_restaurants').select('*').eq('plan_id', plan.id).is('deleted_at', null).order('reservation_time'),
         supabase.from('hospitality_events').select(`
           *,
@@ -464,11 +523,7 @@ export const useTravelPlans = () => {
         flights: flights.data || [],
         hotels: hotels.data || [],
         hotel_stays: hotelStays.data || [],
-        transfers: (transfers.data || []).map((t: any) => ({
-          ...t,
-          type: t.type || t.transfer_type,
-          pickup_datetime: t.pickup_datetime || t.pickup_time
-        })),
+        transfers: (transfers.data || []).map((t: any) => parseRichTransfer(t)),
         restaurants: restaurants.data || [],
         hospitality_events: [
           ...(hospitality.data || []),
@@ -518,8 +573,48 @@ export const useTravelPlans = () => {
     
     // Normalize for transfers
     if (table === 'travel_transfers') {
-      if (finalPayload.type) finalPayload.transfer_type = finalPayload.type;
-      if (finalPayload.pickup_datetime) finalPayload.pickup_time = finalPayload.pickup_datetime;
+      const flightLink = payload.flight_linkage || {};
+      
+      finalPayload = {
+        id: payload.id,
+        plan_id: payload.plan_id,
+        provider: payload.provider || payload.company_name,
+        transfer_type: payload.transfer_type || payload.type || 'airport_to_hotel',
+        pickup_type: payload.pickup_type,
+        pickup_datetime: payload.pickup_datetime || payload.pickup_time || new Date().toISOString(),
+        pickup_address: payload.pickup_location !== undefined ? payload.pickup_location : payload.pickup_address,
+        pickup_airport_code: payload.pickup_airport_code,
+        destination_type: payload.destination_type,
+        destination_address: payload.dropoff_location !== undefined ? payload.dropoff_location : payload.destination_address,
+        destination_name: payload.destination_name,
+        vehicle_type: payload.vehicle_type || payload.vehicle_info,
+        passengers: payload.passengers ? parseInt(String(payload.passengers)) : null,
+        luggage: payload.luggage ? String(payload.luggage) : null,
+        booking_reference: payload.booking_reference,
+        passenger_name: payload.passenger_name,
+        passenger_phone: payload.passenger_phone,
+        meeting_point: payload.meeting_point,
+        support_phone: payload.support_phone,
+        whatsapp_available: payload.whatsapp_available || false,
+        airline: payload.airline || flightLink.airline,
+        flight_number: payload.flight_number || flightLink.flight_number,
+        flight_arrival_time: payload.flight_arrival_time || flightLink.arrival_time,
+        driver_name: payload.driver_name,
+        driver_phone: payload.driver_phone,
+        notes: payload.notes,
+        raw_payload: payload.raw_payload || {},
+        parsed_confidence: payload.parsed_confidence,
+        status: payload.status || 'confirmed',
+        source: payload.source || 'parser',
+        visible_to_client: payload.visible_to_client !== undefined ? payload.visible_to_client : true
+      };
+      
+      // Clean undefined keys
+      Object.keys(finalPayload).forEach(key => {
+        if (finalPayload[key] === undefined) {
+          delete finalPayload[key];
+        }
+      });
     }
     
     const { data, error } = await supabase
