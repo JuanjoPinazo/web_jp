@@ -461,13 +461,44 @@ export default function DashboardPage() {
     activePlan.hotel_stays?.forEach(h => {
       const checkInDate = new Date(h.check_in);
       checkInDate.setUTCHours(15, 0, 0);
+
+      // Si hay un vuelo el mismo día del check-in, retrasamos la hora prevista en la agenda
+      // para que aparezca lógicamente después de la llegada del vuelo (ej: hora de aterrizaje + 1 hora).
+      const sameDayFlights = activePlan.flights.filter(f => {
+        if (!f.is_verified || !f.arrival_time) return false;
+        const flightDate = new Date(f.arrival_time).toISOString().split('T')[0];
+        const hotelDate = new Date(h.check_in).toISOString().split('T')[0];
+        return flightDate === hotelDate;
+      });
+
+      let descriptionSuffix = '';
+      if (sameDayFlights.length > 0) {
+        const latestFlight = [...sameDayFlights].sort(
+          (a, b) => new Date(b.arrival_time).getTime() - new Date(a.arrival_time).getTime()
+        )[0];
+        const arrivalTime = new Date(latestFlight.arrival_time);
+        
+        // 1 hora de margen después de aterrizar (maletas + tránsito)
+        const expectedCheckIn = new Date(arrivalTime.getTime() + 60 * 60 * 1000);
+        
+        if (expectedCheckIn > checkInDate) {
+          checkInDate.setTime(expectedCheckIn.getTime());
+          const timeStr = arrivalTime.toLocaleTimeString('es-ES', { 
+            hour: '2-digit', 
+            minute: '2-digit',
+            timeZone: 'UTC' 
+          });
+          descriptionSuffix = ` (Previsto tras aterrizar a las ${timeStr})`;
+        }
+      }
+
       events.push({
         id: `hotel-in-${h.id}`,
         type: 'hotel_checkin',
         datetime: checkInDate,
         title: `Check-in ${h.hotel_name}`,
         location: h.address || h.hotel_name,
-        description: `Habitación: ${h.room_type || 'Estándar'}. Ref: ${h.booking_reference}`,
+        description: `Habitación: ${h.room_type || 'Estándar'}. Ref: ${h.booking_reference}${descriptionSuffix}`,
         icon: Building2,
         color: 'text-emerald-500',
         cta: { label: 'Ver Reserva', type: 'document' },

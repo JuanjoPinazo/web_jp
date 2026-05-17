@@ -57,11 +57,39 @@ export async function decodeBarcodeFromPdf(buffer: Buffer): Promise<{
 
     // 4. Decodificar usando zxing-wasm
     // Las tarjetas de embarque suelen usar PDF417 o Aztec
-    const barcodes = await readBarcodes(processedImage, {
+    let barcodes = await readBarcodes(processedImage, {
       formats: ['PDF417', 'QRCode', 'Aztec', 'DataMatrix'],
       tryHarder: true,
       tryRotate: true
     });
+
+    // Si no se detectó nada, probamos a rotar la imagen por si el código está en vertical (como en Air France)
+    if (!barcodes || barcodes.length === 0) {
+      console.log('[QR/Barcode] No se detectó código en orientación original. Probando rotaciones...');
+      const rotations = [90, 180, 270];
+      for (const angle of rotations) {
+        try {
+          console.log(`[QR/Barcode] Probando rotación a ${angle} grados...`);
+          const rotatedBuffer = await sharp(processedImage)
+            .rotate(angle)
+            .toBuffer();
+          
+          const rotatedBarcodes = await readBarcodes(rotatedBuffer, {
+            formats: ['PDF417', 'QRCode', 'Aztec', 'DataMatrix'],
+            tryHarder: true,
+            tryRotate: true
+          });
+
+          if (rotatedBarcodes && rotatedBarcodes.length > 0) {
+            barcodes = rotatedBarcodes;
+            console.log(`[QR/Barcode] ¡ÉXITO! Código detectado tras rotar ${angle} grados.`);
+            break;
+          }
+        } catch (rotErr) {
+          console.error(`[QR/Barcode] Error en rotación ${angle}:`, rotErr);
+        }
+      }
+    }
 
     if (barcodes && barcodes.length > 0) {
       const bestMatch = barcodes[0];

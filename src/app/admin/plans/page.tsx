@@ -112,6 +112,7 @@ export default function AdminPlansPage() {
   const [editingFlight, setEditingFlight] = useState<any>(null);
   const [editingHotel, setEditingHotel] = useState<any>(null);
   const [editingDocument, setEditingDocument] = useState<any>(null);
+  const [isReScanning, setIsReScanning] = useState(false);
   const [showHotelImport, setShowHotelImport] = useState(false);
   const [selectedUser, setSelectedUser] = useState('');
   const [selectedContext, setSelectedContext] = useState('');
@@ -380,6 +381,55 @@ export default function AdminPlansPage() {
     }
   };
 
+  const handleReScanBarcode = async () => {
+    if (!editingDocument || !editingDocument.file_url) {
+      alert({ title: 'Error', message: 'No hay ningún archivo PDF asociado a este documento.', type: 'danger' });
+      return;
+    }
+
+    try {
+      setIsReScanning(true);
+      const { reScanDocumentAction } = await import('@/app/actions/travel-extraction');
+      const result = await reScanDocumentAction(editingDocument.file_url);
+
+      if (result.success && result.payload) {
+        let passengerName = editingDocument.passenger_name;
+        let seat = editingDocument.seat_assignment;
+        let pnr = editingDocument.booking_reference;
+
+        if (result.qrData) {
+          passengerName = result.qrData.passenger_name || passengerName;
+          seat = result.qrData.seat || seat;
+          pnr = result.qrData.booking_reference || pnr;
+        }
+
+        setEditingDocument({
+          ...editingDocument,
+          qr_code: result.payload,
+          passenger_name: passengerName,
+          seat_assignment: seat,
+          booking_reference: pnr
+        });
+
+        alert({ 
+          title: 'Código Decodificado', 
+          message: `Se ha leído y procesado el código de barras (${result.format}) con éxito. Se han rellenado los campos de pasajero, asiento y localizador si estaban disponibles.`, 
+          type: 'success' 
+        });
+      } else {
+        alert({ 
+          title: 'Sin Resultados', 
+          message: result.error || 'No se pudo decodificar ningún código de barras en el documento.', 
+          type: 'warning' 
+        });
+      }
+    } catch (err: any) {
+      alert({ title: 'Error', message: err.message || 'Error inesperado durante el escaneo.', type: 'danger' });
+    } finally {
+      setIsReScanning(false);
+    }
+  };
+
   const handleSaveDocument = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingDocument) return;
@@ -416,6 +466,7 @@ export default function AdminPlansPage() {
       await saveTravelDocument({
         id: editingDocument.id,
         plan_id: selectedPlan.id,
+        file_url: editingDocument.file_url,
         ...updatePayload
       });
 
@@ -2371,8 +2422,28 @@ export default function AdminPlansPage() {
 
                   {editingDocument.document_type === 'boarding_pass' && (
                     <div className="space-y-4 p-5 bg-accent/5 rounded-3xl border border-accent/10">
-                      <div className="flex items-center gap-2 text-accent font-black text-[10px] uppercase tracking-widest px-1">
-                        <QrCode size={14} /> Detalles de la Tarjeta de Embarque
+                      <div className="flex items-center justify-between gap-2 px-1">
+                        <div className="flex items-center gap-2 text-accent font-black text-[10px] uppercase tracking-widest">
+                          <QrCode size={14} /> Detalles de la Tarjeta de Embarque
+                        </div>
+                        {editingDocument.file_url && (
+                          <button
+                            type="button"
+                            onClick={handleReScanBarcode}
+                            disabled={isReScanning}
+                            className="text-[9px] font-black uppercase text-accent border border-accent/30 rounded-lg px-2 py-1 hover:bg-accent/10 transition-colors flex items-center gap-1 disabled:opacity-40"
+                          >
+                            {isReScanning ? (
+                              <>
+                                <Loader2 size={10} className="animate-spin" /> Escaneando...
+                              </>
+                            ) : (
+                              <>
+                                <RefreshCw size={10} /> Re-escanear PDF
+                              </>
+                            )}
+                          </button>
+                        )}
                       </div>
                       
                       <div className="grid grid-cols-2 gap-4">
