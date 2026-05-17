@@ -586,6 +586,68 @@ export default function DashboardPage() {
     return timelineEvents.find(e => e.datetime > now);
   }, [timelineEvents]);
 
+  const aiBriefingText = useMemo(() => {
+    if (!activePlan) return "Bienvenido a tu panel de control. No hay actividades programadas en este plan.";
+
+    const cityName = selectedContext?.name || "París";
+    
+    // Buscar si hay algún vuelo hoy
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    
+    const flightToday = activePlan.flights.find(f => {
+      if (!f.is_verified) return false;
+      const flightDate = new Date(f.departure_time).toISOString().split('T')[0];
+      return flightDate === todayStr;
+    });
+
+    // Buscar si hay alguna cena o evento de hospitalidad hoy
+    const dinnerToday = timelineEvents.find(e => {
+      const eventDate = e.datetime.toISOString().split('T')[0];
+      return eventDate === todayStr && (e.type === 'dinner' || e.type === 'hospitality');
+    });
+
+    if (flightToday && dinnerToday) {
+      const flightTimeStr = new Date(flightToday.departure_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+      const dinnerTimeStr = dinnerToday.datetime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+      
+      let uberText = '';
+      if (nextAction?.id === dinnerToday.id && smartDeparture) {
+        const departureTimeStr = new Date(smartDeparture.recommendedTime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+        uberText = ` Te recomendamos solicitar tu UBER antes de las ${departureTimeStr} para llegar a tiempo (trayecto estimado de ${smartDeparture.estimatedTravelTimeMinutes} min).`;
+      } else {
+        const estDepTime = new Date(dinnerToday.datetime.getTime() - 45 * 60 * 1000);
+        const estDepStr = estDepTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+        uberText = ` Te aconsejamos pedir tu transporte/UBER alrededor de las ${estDepStr} para llegar con total puntualidad.`;
+      }
+
+      return `Hoy tienes tu vuelo ${flightToday.flight_number} hacia ${flightToday.arrival_location} a las ${flightTimeStr}. Por la noche, te espera tu cena en ${dinnerToday.location} a las ${dinnerTimeStr}.${uberText}`;
+    }
+
+    if (dinnerToday) {
+      const dinnerTimeStr = dinnerToday.datetime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+      
+      let uberText = '';
+      if (nextAction?.id === dinnerToday.id && smartDeparture) {
+        const departureTimeStr = new Date(smartDeparture.recommendedTime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+        uberText = ` Te recomendamos solicitar tu UBER antes de las ${departureTimeStr} para llegar a tiempo (trayecto estimado de ${smartDeparture.estimatedTravelTimeMinutes} min).`;
+      } else {
+        const estDepTime = new Date(dinnerToday.datetime.getTime() - 45 * 60 * 1000);
+        const estDepStr = estDepTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+        uberText = ` Te aconsejamos pedir tu transporte/UBER alrededor de las ${estDepStr} para llegar con total puntualidad.`;
+      }
+
+      return `Tu cita clave de hoy es la cena VIP en ${dinnerToday.location} a las ${dinnerTimeStr}.${uberText}`;
+    }
+
+    if (flightToday) {
+      const flightTimeStr = new Date(flightToday.departure_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+      return `¡Buen viaje hoy! Tienes programado tu vuelo ${flightToday.flight_number} desde ${flightToday.departure_location} a las ${flightTimeStr}. Buen trayecto hacia ${flightToday.arrival_location}.`;
+    }
+
+    return `Tu agenda en ${cityName} está despejada para el día de hoy. Disfruta de tu estancia y no dudes en consultar con tu Concierge IA cualquier recomendación gastronómica o de transporte.`;
+  }, [activePlan, selectedContext, timelineEvents, nextAction, smartDeparture]);
+
   useEffect(() => {
     const calculateDeparture = async () => {
       if (!nextAction || userLocations.length === 0) {
@@ -894,7 +956,7 @@ export default function DashboardPage() {
                       <span className="text-[10px] font-black uppercase tracking-widest text-foreground">Briefing IA</span>
                     </div>
                     <p className="text-xs font-medium text-muted leading-relaxed">
-                      "Cielo despejado en París (18°C). El tráfico hacia el Palacio de Congresos es fluido. Recuerda que tu cena VIP es a las 21:00."
+                      "{aiBriefingText}"
                     </p>
                   </div>
 
@@ -1157,19 +1219,39 @@ export default function DashboardPage() {
               </button>
             )}
             
-            {selectedEvent?.type === 'flight' && (
-              <button 
-                onClick={() => {
-                  const doc = activePlan?.documents.find(d => d.related_flight_id === selectedEvent.payload.id);
-                  if (doc) setSelectedQR({ ...doc, flight: selectedEvent.payload });
-                  setIsSheetOpen(false);
-                }}
-                className="w-full py-5 rounded-2xl bg-foreground text-background font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-3"
-              >
-                <QrCode size={18} />
-                Tarjeta de Embarque
-              </button>
-            )}
+            {selectedEvent?.type === 'flight' && (() => {
+              const doc = activePlan?.documents.find(d => 
+                d.related_flight_id === selectedEvent.payload.id && 
+                (d.document_type === 'boarding_pass' || d.title.toLowerCase().includes('tarjeta'))
+              ) || activePlan?.documents.find(d => 
+                d.related_flight_id === selectedEvent.payload.id
+              );
+              return (
+                <div className="space-y-3 w-full">
+                  <button 
+                    onClick={() => {
+                      if (doc) setSelectedQR({ ...doc, flight: selectedEvent.payload });
+                      setIsSheetOpen(false);
+                    }}
+                    className="w-full py-5 rounded-2xl bg-foreground text-background font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-3"
+                  >
+                    <QrCode size={18} />
+                    Ver Código QR
+                  </button>
+                  {doc?.file_url && (
+                    <a
+                      href={doc.file_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="w-full py-5 rounded-2xl bg-background border border-border text-foreground hover:bg-muted font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-3 transition-all"
+                    >
+                      <FileText size={18} className="text-accent" />
+                      Ver PDF Original
+                    </a>
+                  )}
+                </div>
+              );
+            })()}
 
             {selectedEvent && (
               <AddPassButton 
@@ -1197,6 +1279,17 @@ export default function DashboardPage() {
                 id={selectedQR.flight.id} 
                 className="w-full py-4 bg-slate-900 text-white border-none" 
               />
+              {selectedQR.file_url && (
+                <a
+                  href={selectedQR.file_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-4 px-6 rounded-2xl bg-slate-100 text-slate-900 hover:bg-slate-200 transition-all font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 border border-slate-200 text-center"
+                >
+                  <FileText size={16} className="text-slate-600" />
+                  Ver PDF Original
+                </a>
+              )}
             </div>
           </motion.div>
         )}
