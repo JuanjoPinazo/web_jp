@@ -378,11 +378,26 @@ function buildHtml(data: {
               <p style="margin: 0 0 4px 0; font-size: 10px; color: ${accent}; font-weight: 900; letter-spacing: 3px; text-transform: uppercase;">Tu Coordinador Logístico</p>
               <p style="margin: 0 0 8px 0; font-size: 16px; font-weight: 900; color: #ffffff;">${coordinator.name}</p>
               ${coordinator.role ? `<p style="margin: 0 0 12px 0; font-size: 11px; color: ${muted};">${coordinator.role}</p>` : ''}
-              <table cellpadding="0" cellspacing="0" align="center">
+              <table cellpadding="0" cellspacing="0" align="center" style="margin: 0 auto;">
                 <tr>
-                  ${coordinator.phone ? `<td style="padding: 0 6px;"><a href="tel:${coordinator.phone}" style="display: inline-block; background: rgba(0,229,255,0.08); border: 1px solid rgba(0,229,255,0.2); color: ${accent}; padding: 8px 16px; border-radius: 8px; font-size: 11px; font-weight: 900; text-decoration: none; letter-spacing: 1px;">📞 ${coordinator.phone}</a></td>` : ''}
-                  ${coordinator.whatsapp ? `<td style="padding: 0 6px;"><a href="https://wa.me/${coordinator.whatsapp.replace(/\D/g,'')}" style="display: inline-block; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.2); color: #10b981; padding: 8px 16px; border-radius: 8px; font-size: 11px; font-weight: 900; text-decoration: none; letter-spacing: 1px;">💬 WhatsApp</a></td>` : ''}
-                  ${coordinator.email ? `<td style="padding: 0 6px;"><a href="mailto:${coordinator.email}" style="display: inline-block; background: rgba(0,229,255,0.05); border: 1px solid ${border}; color: ${muted}; padding: 8px 16px; border-radius: 8px; font-size: 11px; font-weight: 900; text-decoration: none; letter-spacing: 1px;">✉ Email</a></td>` : ''}
+                  ${coordinator.phone ? `
+                  <td style="padding: 0 8px; text-align: center;">
+                    <a href="tel:${coordinator.phone}" title="Llamar" style="display: inline-block; background: rgba(0,229,255,0.08); border: 1px solid rgba(0,229,255,0.2); color: ${accent}; width: 44px; height: 44px; line-height: 44px; border-radius: 50%; font-size: 18px; text-decoration: none; text-align: center;">
+                      📞
+                    </a>
+                  </td>` : ''}
+                  ${coordinator.whatsapp ? `
+                  <td style="padding: 0 8px; text-align: center;">
+                    <a href="https://wa.me/${coordinator.whatsapp.replace(/\D/g,'')}" title="WhatsApp" style="display: inline-block; background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.2); color: #10b981; width: 44px; height: 44px; line-height: 44px; border-radius: 50%; font-size: 18px; text-decoration: none; text-align: center;">
+                      💬
+                    </a>
+                  </td>` : ''}
+                  ${coordinator.email ? `
+                  <td style="padding: 0 8px; text-align: center;">
+                    <a href="mailto:${coordinator.email}" title="Enviar Email" style="display: inline-block; background: rgba(255,255,255,0.05); border: 1px solid ${border}; color: ${muted}; width: 44px; height: 44px; line-height: 44px; border-radius: 50%; font-size: 18px; text-decoration: none; text-align: center;">
+                      ✉
+                    </a>
+                  </td>` : ''}
                 </tr>
               </table>
             </td>
