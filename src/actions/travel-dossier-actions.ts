@@ -47,6 +47,13 @@ export async function sendTravelDossierEmail(planId: string, profileId: string, 
       
     attachmentsCount = attachments.length;
 
+    // Filter the rendered attachment metadata to match
+    if (attachmentIds?.length && dossierData.attachments) {
+      dossierData.attachments = dossierData.attachments.filter((_, i) => attachmentIds.includes(i));
+    } else if (attachmentIds && attachmentIds.length === 0) {
+      dossierData.attachments = [];
+    }
+
     // 3. Render premium dark luxury HTML
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://jpintelligence.vercel.app';
     const html = await renderTravelDossierEmailHtml(dossierData, siteUrl);

@@ -21,6 +21,8 @@ import { searchNearbyPlacesAction, saveSavedPlaceAction } from '@/actions/google
 import { getAIRecommendationsAction } from '@/actions/ai-recommendation-actions';
 import { askContextualAssistantAction } from '@/actions/ai-assistant-actions';
 import { fetchAlertsAction, processPlanAlertsAction, markAlertAsReadAction } from '@/actions/alert-actions';
+import { getTravelTimelineAction } from '@/actions/travel-timeline-actions';
+import { getLiveTravelStatusAction } from '@/actions/live-travel-actions';
 import { 
   Footprints, Bus, Zap, Info, Compass, Coffee, Landmark, Pill, BusFront, 
   ShoppingCart, Star, Heart, Search, Sparkles, ShieldAlert, MessageCircle, 
@@ -122,6 +124,10 @@ export default function DashboardPage() {
   const [allContextEvents, setAllContextEvents] = useState<any[]>([]);
   const [planRoutes, setPlanRoutes] = useState<any[]>([]);
   
+  // State for Server Action Timeline
+  const [rawTimelineEvents, setRawTimelineEvents] = useState<any[]>([]);
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  
   // Exploration states
   const [explorationResults, setExplorationResults] = useState<any[]>([]);
   const [isSearchingPlaces, setIsSearchingPlaces] = useState(false);
@@ -150,6 +156,10 @@ export default function DashboardPage() {
   // Smart Departure states
   const [userLocations, setUserLocations] = useState<any[]>([]);
   const [smartDeparture, setSmartDeparture] = useState<any>(null);
+  
+  // Live Travel Engine states
+  const [liveStatus, setLiveStatus] = useState<any>(null);
+  const [liveLoading, setLiveLoading] = useState(false);
   
   // Premium UI states
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
@@ -397,6 +407,7 @@ export default function DashboardPage() {
   useEffect(() => {
     const loadPlan = async () => {
       if (!selectedContextId) return;
+      setTimelineLoading(true);
       const plan = await getMyActivePlan(selectedContextId, effectiveUserId);
       setActivePlan(plan);
       
@@ -408,7 +419,24 @@ export default function DashboardPage() {
         if (routeRes.success) {
           setPlanRoutes(routeRes.routes || []);
         }
+
+        // FUENTE ÚNICA: Cargar timeline de la acción del servidor
+        const timelineRes = await getTravelTimelineAction(plan.id);
+        if (timelineRes.success && timelineRes.data) {
+          setRawTimelineEvents(timelineRes.data);
+        } else {
+          setRawTimelineEvents([]);
+        }
+
+        // Live Travel Engine Evaluation
+        setLiveLoading(true);
+        const liveRes = await getLiveTravelStatusAction(plan.id);
+        if (liveRes.success && liveRes.data) {
+          setLiveStatus(liveRes.data);
+        }
+        setLiveLoading(false);
       }
+      setTimelineLoading(false);
     };
     loadPlan();
   }, [selectedContextId, getMyActivePlan, getEnabledModules]);
@@ -422,23 +450,29 @@ export default function DashboardPage() {
     return enabledModules[moduleId] === true;
   };
 
+  // Helper to safely format local ISO string to YYYY-MM-DD
+  const getTodayStr = () => {
+    const d = new Date();
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   // --- UNIFIED TIMELINE LOGIC ---
   const timelineEvents = useMemo(() => {
-    if (!activePlan) return [];
+    if (rawTimelineEvents.length === 0) return [];
     
-    // Process all events through our new Travel Timeline Engine!
-    const normalized = processTimelineEvents(activePlan, activePlan.documents || []);
-    
-    // Map icons and styles for client rendering
-    return normalized.map(e => {
+    // Map icons and styles for client rendering from server-action timeline data
+    return rawTimelineEvents.map(e => {
       // Map icons
       let IconComponent = Sparkles;
-      let colorClass = 'text-accent';
+      let colorClass = 'text-[#00D1FF]';
       
       switch (e.event_type) {
         case 'flight':
           IconComponent = e.id.includes('arr') ? MapPin : Plane;
-          colorClass = e.id.includes('arr') ? 'text-blue-500' : 'text-accent';
+          colorClass = e.id.includes('arr') ? 'text-blue-500' : 'text-[#00D1FF]';
           break;
         case 'transfer':
           IconComponent = Car;
@@ -454,7 +488,7 @@ export default function DashboardPage() {
           break;
         case 'hospitality':
           IconComponent = Utensils;
-          colorClass = 'text-accent';
+          colorClass = 'text-[#00D1FF]';
           break;
         case 'agenda':
           IconComponent = Activity;
@@ -482,6 +516,32 @@ export default function DashboardPage() {
         lng = e.metadata?.longitude;
       }
 
+      // Live Travel Engine Enrichment
+      let flightPayload = e.metadata;
+      let eventTitle = e.title;
+      let eventTimeRaw = new Date(e.start_datetime);
+      let eventTime = eventTimeRaw.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+
+      if (e.event_type === 'flight' && liveStatus?.activeFlightStatus && liveStatus.activeFlightStatus.flightId === e.metadata?.id) {
+        const live = liveStatus.activeFlightStatus;
+        flightPayload = {
+          ...e.metadata,
+          gate: live.gate || e.metadata?.gate || 'G12',
+          status: live.status,
+          delay_minutes: live.delayMinutes
+        };
+
+        if (live.status === 'DELAYED') {
+          eventTitle = `✈️ Vuelo Retrasado ${e.metadata?.flight_number || ''}`;
+          eventTimeRaw = new Date(live.estimatedTime);
+          eventTime = eventTimeRaw.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+        } else if (live.status === 'CANCELLED') {
+          eventTitle = `❌ Vuelo Cancelado ${e.metadata?.flight_number || ''}`;
+        } else if (live.status === 'BOARDING') {
+          eventTitle = `⏳ Embarcando Vuelo ${e.metadata?.flight_number || ''}`;
+        }
+      }
+
       return {
         id: e.id,
         type: e.event_type === 'hotel' 
@@ -491,21 +551,21 @@ export default function DashboardPage() {
             : e.event_type === 'restaurant'
               ? 'dinner'
               : e.event_type,
-        datetime: new Date(e.start_datetime),
-        title: e.title,
+        datetime: eventTimeRaw,
+        title: eventTitle,
         location: e.location || 'Ubicación por confirmar',
         description: e.subtitle || '',
         icon: IconComponent,
         color: colorClass,
-        payload: e.metadata,
+        payload: flightPayload,
         lat,
         lng,
         actions: e.actions || [],
         documents: e.related_documents || [],
-        time: new Date(e.start_datetime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
+        time: eventTime
       };
     });
-  }, [activePlan]);
+  }, [rawTimelineEvents, liveStatus]);
 
   const nextAction = useMemo(() => {
     const now = new Date();
@@ -519,18 +579,18 @@ export default function DashboardPage() {
     
     // Buscar si hay algún vuelo hoy
     const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
+    const todayStr = getTodayStr();
     
     const flightTodayEvent = timelineEvents.find(e => {
       if (e.type !== 'flight') return false;
-      const eventDateStr = e.datetime.toISOString().split('T')[0];
+      const eventDateStr = e.datetime.toLocaleDateString('en-CA');
       return eventDateStr === todayStr;
     });
     const flightToday = flightTodayEvent?.payload;
 
     // Buscar si hay alguna cena o evento de hospitalidad hoy
     const dinnerToday = timelineEvents.find(e => {
-      const eventDate = e.datetime.toISOString().split('T')[0];
+      const eventDate = e.datetime.toLocaleDateString('en-CA');
       return eventDate === todayStr && (e.type === 'dinner' || e.type === 'hospitality');
     });
 
@@ -577,6 +637,18 @@ export default function DashboardPage() {
 
   useEffect(() => {
     const calculateDeparture = async () => {
+      // Prioritize the Live Travel Engine traffic evaluation
+      if (liveStatus?.activeTrafficStatus) {
+        const traffic = liveStatus.activeTrafficStatus;
+        setSmartDeparture({
+          recommendedTime: new Date(traffic.recommendedDepartureTime),
+          estimatedTravelTimeMinutes: Math.round(traffic.durationInTrafficSeconds / 60),
+          travelDurationMinutes: Math.round(traffic.durationInTrafficSeconds / 60),
+          congestionLevel: traffic.congestionLevel
+        });
+        return;
+      }
+
       if (!nextAction || userLocations.length === 0) {
         setSmartDeparture(null);
         return;
@@ -602,15 +674,16 @@ export default function DashboardPage() {
       setSmartDeparture(res);
     };
     calculateDeparture();
-  }, [nextAction, userLocations]);
+  }, [nextAction, userLocations, liveStatus]);
 
+  // STAGE 3: Filtrar eventos estrictamente del día de hoy
   const activeDayEvents = useMemo(() => {
     if (timelineEvents.length === 0) return [];
-    const now = new Date();
-    const todayStr = now.toISOString().split('T')[0];
-    const hasEventsToday = timelineEvents.some(e => e.datetime.toISOString().split('T')[0] === todayStr);
-    const displayDateStr = hasEventsToday ? todayStr : timelineEvents[0].datetime.toISOString().split('T')[0];
-    return timelineEvents.filter(e => e.datetime.toISOString().split('T')[0] === displayDateStr);
+    const todayStr = getTodayStr();
+    return timelineEvents.filter(e => {
+      const eventDateStr = e.datetime.toLocaleDateString('en-CA');
+      return eventDateStr === todayStr;
+    });
   }, [timelineEvents]);
 
   const airportMode = useMemo(() => {
@@ -675,7 +748,7 @@ export default function DashboardPage() {
     const associatedHotel = associatedHotelEvent?.payload;
 
     // Find transfer voucher document inside associatedTransferEvent's documents
-    const transferVoucher = associatedTransferEvent?.documents?.find(d => 
+    const transferVoucher = associatedTransferEvent?.documents?.find((d: any) => 
       !d.deleted_at && (d.related_transfer_id === associatedTransfer.id || 
       (associatedTransfer.booking_reference && d.booking_reference === associatedTransfer.booking_reference))
     ) || null;
@@ -705,7 +778,7 @@ export default function DashboardPage() {
     }
 
     // Find boarding pass inside nextFlightEvent's documents
-    const boardingPass = nextFlightEvent?.documents?.find(d => 
+    const boardingPass = nextFlightEvent?.documents?.find((d: any) => 
       (d.document_type === 'boarding_pass' || d.title.toLowerCase().includes('tarjeta'))
     ) || null;
 
@@ -847,151 +920,446 @@ export default function DashboardPage() {
           className="max-w-xl mx-auto px-6 py-10"
         >
           {activeTab === 'home' && (
-            <div className="space-y-10">
-              <ContextHero 
-                activePlan={activePlan} 
-                userName={userName}
-                unreadAlertsCount={unreadAlertsCount}
-                onShowAlerts={() => setShowAlerts(true)}
-                airportMode={airportMode}
-                smartDeparture={smartDeparture}
-              />
-
-              {/* Next Action Briefing (Tarjeta Activa) */}
-              {nextAction && (
-                <motion.div 
-                  variants={itemVariants}
-                  className="p-8 rounded-[3rem] bg-foreground text-background shadow-2xl relative overflow-hidden group active:scale-[0.98] transition-all"
-                  onClick={() => {
-                    setSelectedEvent(nextAction);
-                    setIsSheetOpen(true);
-                  }}
-                >
-                  <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
-                    <nextAction.icon size={120} strokeWidth={1} />
+            <div className="space-y-8">
+              {/* HEADER CONCIERGE */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <p className="text-[10px] font-black text-[#00D1FF] uppercase tracking-[0.3em]">
+                      {new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' }).toUpperCase()}
+                    </p>
+                    <h1 className="text-4xl font-black text-white tracking-tighter flex items-center gap-2">
+                      <MapPin size={24} className="text-[#00D1FF]" />
+                      {selectedContext?.name || activePlan?.contexts?.name || 'París'}
+                    </h1>
                   </div>
-                  <div className="relative z-10 space-y-6">
-                    <div className="flex items-center gap-3">
-                      <div className="px-3 py-1 rounded-full bg-accent text-white text-[9px] font-black uppercase tracking-widest">
-                        Próxima Acción
+                  
+                  {/* General Status Pill */}
+                  {(() => {
+                    const hasCriticalAlerts = alerts.some(a => !a.read_at && (a.title.toLowerCase().includes('urgente') || a.title.toLowerCase().includes('atención') || a.title.toLowerCase().includes('pendiente')));
+                    let statusLabel = "Todo bajo control";
+                    let statusColor = "text-[#00D1FF] bg-[#00D1FF]/10 border-[#00D1FF]/20";
+                    if (hasCriticalAlerts) {
+                      statusLabel = "Atención requerida";
+                      statusColor = "text-red-400 bg-red-400/10 border-red-400/20";
+                    } else if (nextAction) {
+                      const diffMs = nextAction.datetime.getTime() - new Date().getTime();
+                      const diffHours = diffMs / (3600 * 1000);
+                      if (diffHours > 0 && diffHours <= 2) {
+                        statusLabel = "Próxima acción";
+                        statusColor = "text-amber-400 bg-amber-400/10 border-amber-400/20";
+                      }
+                    }
+                    return (
+                      <span className={cn("px-4 py-1.5 rounded-full border text-[9px] font-black uppercase tracking-widest backdrop-blur-md shadow-sm transition-all", statusColor)}>
+                        {statusLabel}
+                      </span>
+                    );
+                  })()}
+                </div>
+
+                {/* Evento Activo Ahora */}
+                {(() => {
+                  const now = new Date();
+                  const activeEvent = timelineEvents.find(e => {
+                    const start = new Date(e.datetime);
+                    const end = e.payload?.end_datetime ? new Date(e.payload.end_datetime) : new Date(start.getTime() + 2 * 60 * 60 * 1000);
+                    return now >= start && now <= end;
+                  });
+                  if (!activeEvent) return null;
+                  return (
+                    <div className="flex items-center gap-3 p-4 rounded-2xl bg-surface/30 border border-[#00D1FF]/20 backdrop-blur-xl animate-pulse">
+                      <div className="w-2 h-2 rounded-full bg-[#00D1FF]" />
+                      <span className="text-[10px] font-black uppercase tracking-widest text-[#00D1FF]">Evento Activo Ahora:</span>
+                      <span className="text-xs font-medium text-white">{activeEvent.title}</span>
+                    </div>
+                  );
+                })()}
+
+                {/* TELEMETRÍA EN VIVO (CLIMA Y TRÁFICO) */}
+                {liveStatus && (
+                  <div className="flex flex-wrap gap-2.5 pt-1">
+                    {liveStatus.activeWeatherStatus && (
+                      <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-white/80 backdrop-blur-md shadow-sm">
+                        <span className="text-sm">
+                          {liveStatus.activeWeatherStatus.condition === 'RAIN' ? '🌧️' : 
+                           liveStatus.activeWeatherStatus.condition === 'WINDY' ? '💨' : 
+                           liveStatus.activeWeatherStatus.condition === 'HEAT_WAVE' ? '🔥' : 
+                           liveStatus.activeWeatherStatus.condition === 'CLOUDY' ? '☁️' : '☀️'}
+                        </span>
+                        <span className="font-bold text-white">{liveStatus.activeWeatherStatus.temperatureCelsius}°C</span>
+                        <span className="opacity-60 font-medium">• {liveStatus.activeWeatherStatus.description}</span>
                       </div>
-                      <span className="text-[10px] font-black uppercase tracking-widest opacity-40">Hoy • {nextAction.time}</span>
-                    </div>
-                    <div className="space-y-2">
-                      <h3 className="text-4xl font-black tracking-tighter leading-none">{nextAction.title}</h3>
-                      <p className="text-sm font-medium opacity-60 flex items-center gap-2">
-                        <MapPin size={14} />
-                        {nextAction.location}
-                      </p>
-                    </div>
-                    <div className="flex items-center justify-between pt-4 border-t border-background/10">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-accent/20 flex items-center justify-center text-accent">
-                          <Navigation size={14} />
+                    )}
+                    {liveStatus.activeTrafficStatus && (
+                      <div className={cn(
+                        "flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs backdrop-blur-md font-medium shadow-sm",
+                        liveStatus.activeTrafficStatus.congestionLevel === 'HEAVY' 
+                          ? "bg-red-500/10 border-red-500/20 text-red-400" 
+                          : "bg-amber-500/10 border-amber-500/20 text-amber-400"
+                      )}>
+                        <span>🚗</span>
+                        <span className="font-bold">Tráfico {liveStatus.activeTrafficStatus.congestionLevel === 'HEAVY' ? 'Intenso' : 'Moderado'}</span>
+                        <span>• ETA +{liveStatus.activeTrafficStatus.delayMinutes} min</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* LIVE TRAVEL ENGINE RECOMMENDATIONS */}
+                {liveStatus?.recommendations && liveStatus.recommendations.length > 0 && (
+                  <div className="space-y-3 pt-2">
+                    {liveStatus.recommendations.slice(0, 3).map((rec: any) => {
+                      let priorityColor = "bg-[#00D1FF]/5 border-[#00D1FF]/20 text-[#00D1FF]";
+                      if (rec.priority === 'urgent') {
+                        priorityColor = "bg-red-500/5 border-red-500/20 text-red-400";
+                      } else if (rec.priority === 'high') {
+                        priorityColor = "bg-amber-500/5 border-amber-500/20 text-amber-400";
+                      }
+
+                      let RecIcon = Sparkles;
+                      if (rec.type === 'departure') RecIcon = Clock;
+                      else if (rec.type === 'transport') RecIcon = Car;
+                      else if (rec.type === 'operational') RecIcon = Plane;
+
+                      return (
+                        <div key={rec.id} className={cn("p-4 rounded-2xl border backdrop-blur-md flex items-start gap-3.5 shadow-sm transition-all text-left", priorityColor)}>
+                          <div className="p-2.5 rounded-xl bg-white/5 shrink-0 text-[#00D1FF]">
+                            <RecIcon size={16} />
+                          </div>
+                          <div className="flex-1 space-y-1">
+                            <div className="flex items-center justify-between">
+                              <p className="text-[10px] font-black uppercase tracking-widest opacity-80">{rec.title}</p>
+                              {rec.priority === 'urgent' && (
+                                <span className="px-1.5 py-0.5 rounded-md bg-red-500/20 text-[7px] font-black uppercase tracking-widest text-red-400">Crítico</span>
+                              )}
+                            </div>
+                            <p className="text-xs text-white/90 leading-relaxed font-medium">{rec.message}</p>
+                            {rec.actionLabel && (
+                              <button 
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (rec.actionUrl === 'coordinator_call') {
+                                    const phone = activePlan?.logistic_contact?.phone;
+                                    if (phone) window.open(`tel:${phone}`);
+                                  } else if (rec.actionUrl === 'show_boarding_pass') {
+                                    const doc = activePlan?.documents?.find((d: any) => d.document_type === 'boarding_pass');
+                                    if (doc) window.open(doc.file_url, '_blank');
+                                  } else if (rec.actionUrl?.startsWith('http')) {
+                                    window.open(rec.actionUrl, '_blank');
+                                  } else {
+                                    router.push(rec.actionUrl);
+                                  }
+                                }}
+                                className="mt-2 text-[9px] font-black uppercase tracking-widest text-[#00D1FF] hover:underline flex items-center gap-1"
+                              >
+                                {rec.actionLabel}
+                                <ArrowRight size={10} />
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <span className="text-[10px] font-black uppercase tracking-widest">Ver Detalles</span>
-                      </div>
-                      <ArrowRight size={20} className="opacity-40 group-hover:translate-x-2 transition-transform" />
-                    </div>
+                      );
+                    })}
                   </div>
-                </motion.div>
-              )}
+                )}
 
-              {/* Timeline Section (Unified Flow) */}
-              <motion.section variants={itemVariants} className="space-y-8">
+                {/* Alertas urgentes de hoy */}
+                {alerts.filter(a => !a.read_at).length > 0 && (
+                  <div className="space-y-2">
+                    {alerts.filter(a => !a.read_at).slice(0, 2).map(alert => (
+                      <div key={alert.id} className="p-4 rounded-2xl bg-red-500/5 border border-red-500/20 backdrop-blur-md flex items-center justify-between gap-4">
+                        <div className="flex items-center gap-3">
+                          <AlertCircle className="text-red-400 shrink-0" size={16} />
+                          <div className="space-y-0.5">
+                            <p className="text-[10px] font-black text-red-400 uppercase tracking-widest">Alerta</p>
+                            <p className="text-xs font-bold text-white">{alert.title}</p>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={async () => {
+                            await markAlertAsReadAction(alert.id);
+                            const updated = alerts.map(a => a.id === alert.id ? { ...a, read_at: new Date().toISOString() } : a);
+                            setAlerts(updated);
+                          }}
+                          className="text-[9px] font-black uppercase tracking-widest text-muted hover:text-white transition-colors"
+                        >
+                          Entendido
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* PRÓXIMA ACCIÓN */}
+              {nextAction ? (
+                <div className="space-y-4">
+                  <div className="flex items-center gap-4 px-2">
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-accent">Siguiente Acción</h3>
+                    <div className="flex-1 h-px bg-accent/20" />
+                  </div>
+
+                  <motion.div 
+                    variants={itemVariants}
+                    className="p-8 rounded-[2.5rem] bg-foreground text-background shadow-2xl relative overflow-hidden group active:scale-[0.98] transition-all cursor-pointer border border-[#00D1FF]/10 hover:border-[#00D1FF]/40"
+                    onClick={() => {
+                      setSelectedEvent(nextAction);
+                      setIsSheetOpen(true);
+                    }}
+                  >
+                    <div className="absolute top-0 right-0 p-8 opacity-10 group-hover:opacity-20 transition-opacity">
+                      <nextAction.icon size={120} strokeWidth={1} />
+                    </div>
+                    <div className="relative z-10 space-y-6">
+                      <div className="flex items-center gap-3">
+                        <div className="px-3 py-1 rounded-full bg-[#00D1FF] text-white text-[9px] font-black uppercase tracking-widest">
+                          {nextAction.type === 'flight' ? 'Vuelo' : 
+                           nextAction.type === 'transfer' ? 'Traslado' : 
+                           nextAction.type === 'hotel_checkin' ? 'Check-in Hotel' : 
+                           nextAction.type === 'hotel_checkout' ? 'Check-out Hotel' : 
+                           nextAction.type === 'dinner' ? 'Cena' : 
+                           nextAction.type === 'agenda' ? 'Sesión' : 'Actividad'}
+                        </div>
+                        <span className="text-[10px] font-black uppercase tracking-widest opacity-40">Hoy • {nextAction.time}</span>
+                      </div>
+                      <div className="space-y-2">
+                        <h3 className="text-3xl font-black tracking-tighter leading-none">{nextAction.title}</h3>
+                        <p className="text-xs font-semibold opacity-60 flex items-center gap-2">
+                          <MapPin size={14} className="text-[#00D1FF]" />
+                          {nextAction.location}
+                        </p>
+                      </div>
+                      <div className="flex items-center justify-between pt-4 border-t border-background/10">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-[#00D1FF]/20 flex items-center justify-center text-[#00D1FF]">
+                            <Navigation size={14} />
+                          </div>
+                          <span className="text-[10px] font-black uppercase tracking-widest">Ver Detalles y Mapa</span>
+                        </div>
+                        <ArrowRight size={20} className="opacity-40 group-hover:translate-x-2 transition-transform" />
+                      </div>
+                    </div>
+                  </motion.div>
+                </div>
+              ) : null}
+
+              {/* TIMELINE DE HOY (Strict Filter) */}
+              <div className="space-y-6">
                 <div className="flex items-center justify-between px-2">
                   <div className="flex items-center gap-4">
-                    <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-accent">Tu Itinerario</h3>
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-accent">Timeline de hoy</h3>
                     <div className="h-px w-12 bg-accent/20" />
                   </div>
                   <button 
                     onClick={() => setShowTimeline(true)}
-                    className="text-[9px] font-black uppercase tracking-widest text-muted hover:text-accent transition-colors"
+                    className="text-[9px] font-black uppercase tracking-widest text-[#00D1FF] hover:underline transition-colors animate-pulse"
                   >
-                    Agenda Completa
+                    Ver Itinerario Completo
                   </button>
                 </div>
-                
-                <div className="space-y-6">
-                  {activeDayEvents.map((event, idx) => (
-                    <TimelineEvent 
-                      key={event.id}
-                      time={event.time}
-                      title={event.title}
-                      location={event.location}
-                      description={event.description}
-                      icon={event.icon}
-                      isActive={nextAction?.id === event.id}
-                      isLast={idx === activeDayEvents.length - 1}
-                      onClick={() => {
-                        setSelectedEvent(event);
-                        setIsSheetOpen(true);
-                      }}
-                    />
-                  ))}
-                  {activeDayEvents.length === 0 && (
-                    <div className="p-12 rounded-[3rem] border border-dashed border-border/50 flex flex-col items-center text-center gap-4 bg-surface/10">
-                      <div className="w-16 h-16 rounded-[2rem] bg-surface flex items-center justify-center text-muted/20">
-                        <Calendar size={32} />
-                      </div>
-                      <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">No hay eventos programados para hoy</p>
-                    </div>
-                  )}
-                </div>
-              </motion.section>
 
-              {/* Concierge Hub (IA Contextual & Quick Actions) */}
-              <motion.section variants={itemVariants} className="space-y-6">
+                {activeDayEvents.length > 0 ? (
+                  <div className="space-y-4">
+                    {activeDayEvents.map((event, idx) => (
+                      <div 
+                        key={event.id}
+                        className={cn(
+                          "p-5 rounded-3xl bg-surface/30 border border-border/40 backdrop-blur-md flex flex-col gap-4 hover:bg-surface/50 transition-all cursor-pointer relative",
+                          nextAction?.id === event.id && "border-[#00D1FF]/40 bg-surface/40 shadow-lg shadow-[#00D1FF]/5"
+                        )}
+                        onClick={() => {
+                          setSelectedEvent(event);
+                          setIsSheetOpen(true);
+                        }}
+                      >
+                        <div className="flex items-start gap-4">
+                          <div className={cn("w-10 h-10 rounded-2xl flex items-center justify-center text-white shrink-0", 
+                            event.type.includes('flight') && 'bg-blue-500/20 text-blue-400',
+                            event.type === 'transfer' && 'bg-amber-500/20 text-amber-400',
+                            event.type.includes('hotel') && 'bg-emerald-500/20 text-emerald-400',
+                            event.type === 'dinner' && 'bg-orange-500/20 text-orange-400',
+                            event.type === 'agenda' && 'bg-emerald-400/20 text-emerald-300',
+                            event.type === 'hospitality' && 'bg-[#00D1FF]/20 text-[#00D1FF]'
+                          )}>
+                            <event.icon size={20} />
+                          </div>
+                          
+                          <div className="flex-1 space-y-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-muted">{event.time}</span>
+                              {nextAction?.id === event.id && (
+                                <span className="px-2 py-0.5 rounded-full bg-[#00D1FF]/10 text-[#00D1FF] text-[8px] font-black uppercase tracking-widest">Siguiente</span>
+                              )}
+                            </div>
+                            <h4 className="text-sm font-black text-white leading-tight">{event.title}</h4>
+                            <p className="text-[11px] font-medium text-muted flex items-center gap-1.5">
+                              <MapPin size={10} className="text-[#00D1FF]" />
+                              {event.location}
+                            </p>
+                          </div>
+                        </div>
+
+                        {/* ACCIONES RÁPIDAS DEL EVENTO */}
+                        {event.actions && event.actions.length > 0 && (
+                          <div className="flex gap-2 pt-2 border-t border-white/5 overflow-x-auto no-scrollbar" onClick={e => e.stopPropagation()}>
+                            {event.actions.slice(0, 3).map((act: any, aIdx: number) => {
+                              const ActIcon = act.icon === 'FileText' ? FileText : 
+                                              act.icon === 'Phone' || act.icon === 'PhoneCall' ? Phone : 
+                                              act.icon === 'MapPin' || act.icon === 'Map' ? MapPin : 
+                                              act.icon === 'Navigation' ? Navigation : Sparkles;
+                              return (
+                                <button
+                                  key={aIdx}
+                                  onClick={() => {
+                                    if (act.type === 'document') window.open(act.value, '_blank');
+                                    else if (act.type === 'call') window.open(act.value);
+                                    else if (act.type === 'navigate' || act.type === 'map') window.open(act.value, '_blank');
+                                    else if (act.type === 'copy') {
+                                      navigator.clipboard.writeText(act.value);
+                                      alert(`Copiado: "${act.value}"`);
+                                    }
+                                  }}
+                                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-surface-subtle border border-border/40 hover:bg-surface text-[9px] font-black uppercase tracking-widest text-muted hover:text-white transition-colors"
+                                >
+                                  <ActIcon size={12} className="text-[#00D1FF]" />
+                                  {act.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  /* EMPTY STATE DE HOY */
+                  <div className="p-12 rounded-[2.5rem] bg-surface/10 border border-dashed border-border/50 flex flex-col items-center text-center gap-5 backdrop-blur-sm">
+                    <div className="w-16 h-16 rounded-[2rem] bg-surface/30 border border-border/40 flex items-center justify-center text-muted/30">
+                      <CalendarRange size={32} className="text-[#00D1FF]" />
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-[10px] font-black text-muted uppercase tracking-[0.25em]">Hoy</p>
+                      <h4 className="text-sm font-black text-white">Hoy no tienes acciones programadas</h4>
+                      <p className="text-[11px] text-muted max-w-[240px] mx-auto leading-relaxed">Tu agenda está totalmente libre para hoy en esta ciudad.</p>
+                    </div>
+                    <button 
+                      onClick={() => setShowTimeline(true)}
+                      className="px-6 py-3.5 rounded-2xl bg-[#00D1FF] text-white hover:opacity-95 font-black uppercase tracking-widest text-[9px] shadow-lg shadow-[#00D1FF]/20 active:scale-95 transition-all"
+                    >
+                      Ver itinerario completo
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* ACCIONES RÁPIDAS GENERALES */}
+              <div className="space-y-4">
                 <div className="flex items-center gap-4 px-2">
-                  <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-accent">Centro de Asistencia</h3>
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.4em] text-accent">Acciones Rápidas</h3>
                   <div className="flex-1 h-px bg-accent/20" />
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* IA Briefing Block */}
-                  <div className="p-6 rounded-[2.5rem] bg-surface/30 border border-border/40 backdrop-blur-xl space-y-4">
-                    <div className="flex items-center gap-3">
-                      <Sparkles size={18} className="text-accent" />
-                      <span className="text-[10px] font-black uppercase tracking-widest text-foreground">Briefing IA</span>
-                    </div>
-                    <p className="text-xs font-medium text-muted leading-relaxed">
-                      "{aiBriefingText}"
-                    </p>
-                  </div>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  {/* Boarding Pass */}
+                  {(() => {
+                    const todayFlight = timelineEvents.find(e => e.type === 'flight' && e.datetime.toLocaleDateString('en-CA') === getTodayStr());
+                    const doc = todayFlight?.documents?.find((d: any) => d.document_type === 'boarding_pass' || d.title.toLowerCase().includes('tarjeta')) || 
+                                activePlan?.documents?.find((d: any) => d.document_type === 'boarding_pass');
+                    return (
+                      <button 
+                        onClick={() => {
+                          if (doc) {
+                            if (doc.qr_code || doc.qr_raw_payload) {
+                              setSelectedQR({ ...doc, flight: todayFlight?.payload || {} });
+                            } else {
+                              window.open(doc.file_url, '_blank');
+                            }
+                          } else {
+                            alert('No se ha encontrado ninguna tarjeta de embarque activa en tus documentos de hoy.');
+                          }
+                        }}
+                        disabled={!doc}
+                        className={cn(
+                          "p-4 rounded-2xl bg-surface/30 border border-border/40 flex flex-col items-center justify-center gap-2 hover:bg-surface/50 transition-all",
+                          !doc && "opacity-40 cursor-not-allowed hover:bg-surface/30"
+                        )}
+                      >
+                        <Ticket size={18} className={cn("text-[#00D1FF]", !doc && "text-muted")} />
+                        <span className="text-[9px] font-black uppercase tracking-widest text-muted text-center leading-none">Tarjeta de Embarque</span>
+                      </button>
+                    );
+                  })()}
 
-                  {/* Quick Actions Grid */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <button 
-                      onClick={() => setShowMap(true)}
-                      className="p-5 rounded-2xl bg-surface/30 border border-border/40 flex flex-col items-center justify-center gap-3 hover:bg-surface/60 transition-all"
-                    >
-                      <MapPin size={20} className="text-accent" />
-                      <span className="text-[9px] font-black uppercase tracking-widest text-muted">Mapa</span>
-                    </button>
-                    <button 
-                      onClick={() => setActiveTab('explore')}
-                      className="p-5 rounded-2xl bg-surface/30 border border-border/40 flex flex-col items-center justify-center gap-3 hover:bg-surface/60 transition-all"
-                    >
-                      <Compass size={20} className="text-accent" />
-                      <span className="text-[9px] font-black uppercase tracking-widest text-muted">Explorar</span>
-                    </button>
-                    <button 
-                      onClick={() => setActiveTab('assistant')}
-                      className="p-5 rounded-2xl bg-surface/30 border border-border/40 flex flex-col items-center justify-center gap-3 hover:bg-surface/60 transition-all"
-                    >
-                      <Sparkles size={20} className="text-accent" />
-                      <span className="text-[9px] font-black uppercase tracking-widest text-muted">IA Concierge</span>
-                    </button>
-                    <button 
-                      onClick={() => setShowAlerts(true)}
-                      className="p-5 rounded-2xl bg-surface/30 border border-border/40 flex flex-col items-center justify-center gap-3 hover:bg-surface/60 transition-all"
-                    >
-                      <Bell size={20} className="text-accent" />
-                      <span className="text-[9px] font-black uppercase tracking-widest text-muted">Alertas</span>
-                    </button>
-                  </div>
+                  {/* Cómo llegar */}
+                  <button 
+                    onClick={() => {
+                      if (nextAction) {
+                        window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(nextAction.location)}`, '_blank');
+                      } else {
+                        const hotel = activePlan?.hotel_stays?.[0];
+                        if (hotel?.address) {
+                          window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(hotel.address)}`, '_blank');
+                        } else {
+                          alert('No hay una ubicación próxima configurada.');
+                        }
+                      }
+                    }}
+                    className="p-4 rounded-2xl bg-surface/30 border border-border/40 flex flex-col items-center justify-center gap-2 hover:bg-surface/50 transition-all"
+                  >
+                    <Navigation size={18} className="text-[#00D1FF]" />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-muted text-center leading-none">Cómo Llegar</span>
+                  </button>
+
+                  {/* Contactar coordinador */}
+                  <button 
+                    onClick={() => {
+                      const coord = activePlan?.logistic_contact;
+                      if (coord?.whatsapp) {
+                        window.open(`https://wa.me/${coord.whatsapp.replace(/\+/g, '')}`, '_blank');
+                      } else if (coord?.phone) {
+                        window.open(`tel:${coord.phone}`);
+                      } else {
+                        handleAssistantMessage('Necesito contactar con mi coordinador de viaje');
+                      }
+                    }}
+                    className="p-4 rounded-2xl bg-surface/30 border border-border/40 flex flex-col items-center justify-center gap-2 hover:bg-surface/50 transition-all"
+                  >
+                    <Phone size={18} className="text-[#00D1FF]" />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-muted text-center leading-none">Coordinador</span>
+                  </button>
+
+                  {/* Ver documentos */}
+                  <button 
+                    onClick={() => {
+                      if (activePlan?.documents && activePlan.documents.length > 0) {
+                        setSelectedEvent({
+                          title: "Documentación de Viaje",
+                          location: "Archivos y Vouchers Oficiales",
+                          description: "Aquí tienes acceso a toda la documentación digitalizada para tu viaje.",
+                          type: "documents_list"
+                        });
+                        setIsSheetOpen(true);
+                      } else {
+                        alert('No se encontraron documentos en este dossier.');
+                      }
+                    }}
+                    className="p-4 rounded-2xl bg-surface/30 border border-border/40 flex flex-col items-center justify-center gap-2 hover:bg-surface/50 transition-all"
+                  >
+                    <FileText size={18} className="text-[#00D1FF]" />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-muted text-center leading-none">Documentos</span>
+                  </button>
+
+                  {/* Asistente IA */}
+                  <button 
+                    onClick={() => setActiveTab('assistant')}
+                    className="p-4 rounded-2xl bg-surface/30 border border-border/40 flex flex-col items-center justify-center gap-2 hover:bg-surface/50 transition-all col-span-2 md:col-span-1"
+                  >
+                    <Sparkles size={18} className="text-[#00D1FF]" />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-muted text-center leading-none">Asistente IA</span>
+                  </button>
                 </div>
-              </motion.section>
+              </div>
             </div>
           )}
 
@@ -1208,6 +1576,28 @@ export default function DashboardPage() {
           )}
 
           <div className="flex flex-col gap-3">
+            {selectedEvent?.type === 'documents_list' && (
+              <div className="space-y-3 w-full max-h-[300px] overflow-y-auto no-scrollbar">
+                {activePlan?.documents.map((doc: any) => (
+                  <div key={doc.id} className="p-3.5 rounded-xl bg-surface-subtle border border-border flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5">
+                      <FileText size={16} className="text-[#00D1FF]" />
+                      <div className="text-left">
+                        <p className="text-xs font-bold text-white leading-tight">{doc.title}</p>
+                        <p className="text-[9px] text-muted">{doc.document_type || 'Archivo'}</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => window.open(doc.file_url, '_blank')}
+                      className="px-3.5 py-1.5 rounded-lg bg-surface hover:bg-surface-subtle border border-border text-[9px] font-black uppercase tracking-widest text-white transition-colors"
+                    >
+                      Abrir
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {selectedEvent?.payload?.latitude && (
               <button 
                 onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${selectedEvent.payload.latitude},${selectedEvent.payload.longitude}`)}
@@ -1470,13 +1860,49 @@ export default function DashboardPage() {
               <div className="space-y-4">
                 {alerts.map(a => (
                   <div key={a.id} className="p-6 rounded-[2rem] bg-surface-subtle border border-border flex gap-4">
-                    <Bell className="text-accent shrink-0" size={24} />
+                    <Bell className="text-[#00D1FF] shrink-0" size={24} />
                     <div className="space-y-1">
                       <h4 className="font-black text-foreground">{a.title}</h4>
                       <p className="text-xs text-muted">{a.message}</p>
                     </div>
                   </div>
                 ))}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showTimeline && (
+          <div className="fixed inset-0 z-[500] bg-background/80 backdrop-blur-md flex items-end">
+            <motion.div initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }} className="w-full bg-surface rounded-t-[3rem] p-8 max-h-[85vh] overflow-y-auto no-scrollbar">
+              <div className="flex justify-between items-center mb-8">
+                <div className="space-y-1">
+                  <p className="text-[10px] font-black text-[#00D1FF] uppercase tracking-[0.3em]">Agenda Completa</p>
+                  <h3 className="text-2xl font-black text-white tracking-tighter">Itinerario Completo</h3>
+                </div>
+                <button onClick={() => setShowTimeline(false)} className="p-2 bg-surface-subtle rounded-full text-muted hover:text-white transition-colors">
+                  <X size={24} />
+                </button>
+              </div>
+              <div className="space-y-8">
+                {timelineEvents.length > 0 ? (
+                  <TimelineSection 
+                    title="Cronología Completa" 
+                    events={timelineEvents} 
+                    onEventClick={(event: any) => {
+                      setSelectedEvent(event);
+                      setIsSheetOpen(true);
+                      setShowTimeline(false);
+                    }} 
+                  />
+                ) : (
+                  <div className="p-12 rounded-[2.5rem] bg-surface/10 border border-dashed border-border/50 flex flex-col items-center text-center gap-4">
+                    <Calendar size={32} className="text-muted/40" />
+                    <p className="text-[10px] font-black text-muted uppercase tracking-[0.2em]">No hay eventos programados en este plan</p>
+                  </div>
+                )}
               </div>
             </motion.div>
           </div>
