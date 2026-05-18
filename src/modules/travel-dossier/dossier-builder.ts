@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from '@/lib/supabase-admin';
+import { adaptTimelineToDossierDays } from './timeline-email-adapter';
 
 export interface DossierEvent {
   type: 'flight' | 'transfer' | 'hotel' | 'hospitality' | 'restaurant';
@@ -42,28 +43,6 @@ export interface DossierData {
 function getMonthAbbreviation(date: Date): string {
   const months = ['ENE', 'FEB', 'MAR', 'ABR', 'MAY', 'JUN', 'JUL', 'AGO', 'SEP', 'OCT', 'NOV', 'DIC'];
   return months[date.getUTCMonth()];
-}
-
-function formatDateLabel(dateStr: string): string {
-  try {
-    const d = new Date(dateStr);
-    const day = d.getUTCDate();
-    const month = getMonthAbbreviation(d);
-    return `${day} ${month}`;
-  } catch {
-    return 'DÍA';
-  }
-}
-
-function formatEventTime(dateStr: string): string {
-  try {
-    const d = new Date(dateStr);
-    const hours = String(d.getUTCHours()).padStart(2, '0');
-    const minutes = String(d.getUTCMinutes()).padStart(2, '0');
-    return `${hours}:${minutes}`;
-  } catch {
-    return '—';
-  }
 }
 
 export async function buildTravelDossierData(planId: string): Promise<DossierData> {
@@ -162,50 +141,8 @@ export async function buildTravelDossierData(planId: string): Promise<DossierDat
     eventCity = flightEvents[0].metadata.arrival_location;
   }
 
-  // 5. Gather raw dossier events to build timeline
-  const dossierEvents: DossierEvent[] = timeline.map(e => {
-    // Determine the emoji icon
-    let emojiIcon = '🩺';
-    if (e.event_type === 'flight') {
-      emojiIcon = e.id.includes('arr') ? '🛬' : '✈️';
-    } else if (e.event_type === 'transfer') {
-      emojiIcon = '🚘';
-    } else if (e.event_type === 'hotel') {
-      emojiIcon = e.id.includes('in') ? '🏨' : '🔑';
-    } else if (e.event_type === 'restaurant') {
-      emojiIcon = '🍽️';
-    } else if (e.event_type === 'hospitality') {
-      emojiIcon = '🥂';
-    }
-
-    return {
-      type: e.event_type === 'agenda' ? 'hospitality' : e.event_type,
-      time: e.start_datetime,
-      formattedTime: formatEventTime(e.start_datetime),
-      title: e.title,
-      subtitle: e.subtitle,
-      icon: emojiIcon,
-      dateKey: formatDateLabel(e.start_datetime),
-      originalObject: e.metadata
-    };
-  });
-
-  // 6. Sort all timeline events chronologically
-  dossierEvents.sort((a, b) => new Date(a.time).getTime() - new Date(b.time).getTime());
-
-  // 7. Group events by date labels
-  const timelineDaysMap = new Map<string, DossierEvent[]>();
-  dossierEvents.forEach(e => {
-    if (!timelineDaysMap.has(e.dateKey)) {
-      timelineDaysMap.set(e.dateKey, []);
-    }
-    timelineDaysMap.get(e.dateKey)!.push(e);
-  });
-
-  const timelineDays = Array.from(timelineDaysMap.entries()).map(([dateLabel, events]) => ({
-    dateLabel,
-    events
-  }));
+  // 5. Build grouped timeline via the canonical adapter
+  const timelineDays = adaptTimelineToDossierDays(timeline);
 
   // Clean coordinator values
   const formattedCoordinator = coordinator ? {

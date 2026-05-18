@@ -290,8 +290,8 @@ export const AirportModeView = ({ data, smartDeparture, isAdmin, onClose, onActi
               {/* QR Code Section */}
               <div className="flex flex-col items-center justify-center py-6 space-y-4">
                 <div className="p-4 bg-white rounded-3xl border-2 border-black/5">
-                  {boardingPass?.qr_raw_payload ? (
-                    <QRCodeSVG value={boardingPass.qr_raw_payload} size={200} level="H" />
+                  {(boardingPass?.qr_raw_payload || boardingPass?.qr_code) ? (
+                    <QRCodeSVG value={boardingPass.qr_raw_payload || boardingPass.qr_code || ''} size={200} level="H" />
                   ) : (
                     <div className="w-[200px] h-[200px] flex flex-col items-center justify-center text-black/20 gap-3">
                       <QrCode size={64} strokeWidth={1} />

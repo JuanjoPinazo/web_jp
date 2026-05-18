@@ -11,6 +11,7 @@ import {
 } from '@/lib/parsers';
 import { DocumentClassifierService } from '@/modules/document-intelligence/DocumentClassifierService';
 import { TransferParserService } from '@/modules/document-intelligence/TransferParserService';
+import { DocumentIntelligenceEngine } from '@/modules/document-intelligence/engine/DocumentIntelligenceEngine';
 
 export interface ExtractedData {
   type: 'hotel' | 'flight' | 'transfer' | 'document' | 'boarding_pass';
@@ -381,259 +382,102 @@ export async function extractTravelInfo(formData: FormData): Promise<ExtractedDa
   
   if (!file) throw new Error('No se ha subido ningún archivo.');
 
-  console.log(`\n--- [DEBUG PDF UPLOAD] ---`);
+  console.log(`\n--- [DocumentIntelligenceEngine Integration] ---`);
   console.log(`FILE: ${file.name}, TYPE: ${forcedType}, PROVIDER: ${forcedProvider}`);
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  const isImage = file.type.startsWith('image/') || file.name.match(/\.(jpg|jpeg|png|webp)$/i);
-  
-  let rawText = '';
-  
-  if (!isImage) {
-    rawText = await extractTextWithPdftotext(buffer);
-    if (rawText.startsWith('__ERROR__')) {
-      const errorMsg = rawText.replace('__ERROR__: ', '');
-      return { type: 'document', data: {}, confidence: 0, rawText: '', error: errorMsg } as any;
-    }
-  }
-  
-  if (isImage || !rawText || rawText.trim().length < 10) {
-    console.log('[DEBUG] PDF/Imagen no contiene texto digital. Activando motor de Visión por IA...');
-    
-    // 1. Try Transfer Vision first if filename or forcedType matches
-    if (forcedType === 'transfer' || forcedType === 'transfer_voucher' || file.name.toLowerCase().includes('transfer') || file.name.toLowerCase().includes('traslado')) {
-      const visionTransferData = await TransferParserService.parseTransfer('', buffer, file.type);
-      if (visionTransferData && visionTransferData.pickup_address) {
-        return {
-          type: 'transfer',
-          data: normalizeDates(visionTransferData),
-          confidence: visionTransferData.parsed_confidence || 95,
-          rawText: `[Extracción por Visión Artificial (OCR)] - Traslado: ${visionTransferData.booking_reference}`,
-          file
-        };
-      }
-    }
 
-    // 2. Try flight vision next
-    const visionData = await parseFlightWithVision(buffer, forcedProvider);
-    if (visionData && visionData.flight_number) {
-      const isBoardingPass = !!visionData.seat || forcedType === 'boarding_pass';
+  try {
+    const result = await DocumentIntelligenceEngine.processDocument(buffer, file.name, file.type, {
+      forcedType: forcedType === 'auto' ? undefined : forcedType,
+      forcedProvider: forcedProvider === 'auto' ? undefined : forcedProvider
+    });
+
+    const { entity, rawText, classification } = result;
+
+    console.log(`[extractTravelInfo] rawText length: ${rawText?.length || 0} chars`);
+    console.log(`[extractTravelInfo] detected type: ${classification.type} | provider: ${classification.provider} | confidence: ${classification.confidence}%`);
+    console.log(`[extractTravelInfo] parser used: ${entity?.type || 'none'}`);
+
+    if (!entity) {
+      console.warn('[DocumentIntelligenceEngine] Parsing returned null entity.');
       return {
-        type: isBoardingPass ? 'boarding_pass' : 'flight',
-        data: normalizeDates(visionData),
-        confidence: 95,
-        rawText: `[Extracción por Visión Artificial (OCR)] - Aerolínea: ${visionData.airline}`,
+        type: 'document',
+        data: {},
+        confidence: 0,
+        rawText: rawText || '',
+        error: 'No se pudo estructurar la información del documento.',
         file
       };
     }
-    
-    return { type: 'document', data: {}, confidence: 0, rawText: '', error: 'No se pudo extraer texto del PDF.' } as any;
-  }
 
-  // 1. Classify document using our modular DocumentClassifierService
-  const classification = DocumentClassifierService.classifyText(rawText);
-  console.log(`[Document Classifier] Classified as: ${classification.type} (Provider: ${classification.provider}, Confidence: ${classification.confidence})`);
+    // Map NormalizedTravelEntity to ExtractedData structure expected by frontend
+    let mappedType: 'hotel' | 'flight' | 'transfer' | 'document' | 'boarding_pass' = 'document';
+    if (entity.type === 'boarding_pass') mappedType = 'boarding_pass';
+    else if (entity.type === 'flight_confirmation') mappedType = 'flight';
+    else if (entity.type === 'hotel_reservation') mappedType = 'hotel';
+    else if (entity.type === 'transfer_voucher') mappedType = 'transfer';
 
-  let providerKey = forcedProvider;
-  if (providerKey === 'auto') {
-    providerKey = detectProvider(rawText);
-  }
-
-  console.log(`[DEBUG] Proveedor a usar: ${providerKey}`);
-  
-  // --- FLUJO DE EXTRACCIÓN DIRIGIDO ---
-
-  // 1. AIR FRANCE / HOP
-  if (providerKey === 'air_france') {
-    let afData = parseAirFrance(rawText);
-    
-    // Always attempt to decode the barcode for Air France boarding passes to ensure maximum accuracy (especially for airport IATAs and sequence numbers)
-    const isBoardingPass = rawText.toUpperCase().includes('BOARDING PASS') || 
-                          rawText.toUpperCase().includes('ACC\u00C8S \u00C0 BORD') || 
-                          rawText.toUpperCase().includes('TARJETA DE EMBARQUE') || 
-                          (afData && !!afData.seat) || 
-                          forcedType === 'boarding_pass';
-
-    let barcodeDecoded = false;
-    let qrDetected = false;
-    let qrPayload = undefined;
-
-    if (isBoardingPass) {
-      console.log('[DEBUG] Air France detected as Boarding Pass. Attempting to decode barcode...');
-      const barcodeResult = await decodeBarcodeFromPdf(buffer);
-      if (barcodeResult.success && barcodeResult.payload) {
-        qrDetected = true;
-        barcodeDecoded = true;
-        qrPayload = barcodeResult.payload;
-        const qrData = parseIataBCBP(barcodeResult.payload);
-        if (qrData) {
-          console.log('[DEBUG] Enriched Air France with BCBP Barcode data:', qrData);
-          afData = {
-            ...afData,
-            airline: 'AIRFRANCE',
-            confidence: 100,
-            qr_detected: true,
-            qr_decoded: true,
-            passenger_name: qrData.passenger_name || afData?.passenger_name,
-            booking_reference: qrData.booking_reference || afData?.booking_reference,
-            departure_location: qrData.departure_location || afData?.departure_location,
-            arrival_location: qrData.arrival_location || afData?.arrival_location,
-            seat: qrData.seat || afData?.seat,
-          };
-          if (qrData.flight_number_raw) {
-            const num = qrData.flight_number_raw.replace(/^0+/, '');
-            afData.flight_number = `AF${num}`;
-          }
-        }
-      }
-    }
-
-    // Check if we need AI fallback (if parsing failed or is incomplete)
-    const isMissingCriticalInfo = !afData || !afData.flight_number || !afData.booking_reference || !afData.departure_location || !afData.arrival_location;
-    if (isMissingCriticalInfo) {
-      console.log('[DEBUG] Deterministic Air France parser incomplete or failed. Triggering AI Fallback...');
-      const aiData = await parseFlightWithAI(rawText, 'air_france');
-      if (aiData) {
-        afData = {
-          ...afData,
-          ...aiData,
-          airline: 'AIRFRANCE',
-          confidence: 98
-        };
-      }
-    }
-
-    if (afData) {
-      // Ensure airline is exactly 'AIRFRANCE'
-      afData.airline = 'AIRFRANCE';
-      
-      return { 
-        type: isBoardingPass ? 'boarding_pass' : 'flight', 
-        data: normalizeDates(afData), 
-        confidence: barcodeDecoded ? 100 : afData.confidence, 
-        rawText, 
-        qr_detected: qrDetected || afData.qr_detected,
-        qr_decoded: barcodeDecoded || afData.qr_decoded,
-        qr_raw_payload: qrPayload,
-        file 
+    let mappedData: any = {};
+    if (entity.flight) {
+      mappedData = {
+        ...entity.flight,
+        booking_reference: entity.booking_reference,
+        passenger_name: entity.passenger_name
+      };
+    } else if (entity.hotel) {
+      mappedData = {
+        ...entity.hotel,
+        booking_reference: entity.booking_reference
+      };
+    } else if (entity.transfer) {
+      mappedData = {
+        ...entity.transfer,
+        // UI legacy field mapping
+        pickup_location: entity.transfer.pickup_address,
+        dropoff_location: entity.transfer.destination_address,
+        pickup_airport_code: entity.transfer.pickup_airport_code,
+        destination_name: entity.transfer.destination_name,
+        company_name: entity.transfer.provider,
+        provider: entity.transfer.provider,
+        booking_reference: entity.booking_reference,
+        passenger_name: entity.passenger_name
+      };
+    } else if (entity.restaurant) {
+      mappedData = {
+        ...entity.restaurant,
+        booking_reference: entity.booking_reference
+      };
+    } else if (entity.event) {
+      mappedData = {
+        ...entity.event,
+        booking_reference: entity.booking_reference
       };
     }
+
+    const confidenceValue = (entity.confidence || classification.confidence) / 100;
+
+    return {
+      type: mappedType,
+      data: normalizeDates(mappedData),
+      confidence: confidenceValue,
+      rawText: rawText || '',
+      qr_detected: entity.flight?.qr_detected,
+      qr_decoded: entity.flight?.qr_decoded,
+      qr_raw_payload: entity.flight?.qr_raw_payload,
+      file
+    };
+  } catch (err: any) {
+    console.error('Error in extractTravelInfo integration:', err);
+    return {
+      type: 'document',
+      data: {},
+      confidence: 0,
+      rawText: '',
+      error: err.message || 'Error durante la extracción del documento.',
+      file
+    };
   }
-
-  // 2. VUELING
-  if (providerKey === 'vueling' || providerKey === 'auto') {
-    // Si es BP o auto, intentar BP primero
-    if (forcedType === 'auto' || forcedType === 'boarding_pass') {
-      const vuelingBP = parseVuelingBoardingPass(rawText);
-        if (vuelingBP) {
-          const barcodeResult = await decodeBarcodeFromPdf(buffer);
-          
-          // ENRIQUECER CON DATOS DEL QR (Máxima fiabilidad)
-          if (barcodeResult.success && barcodeResult.payload) {
-            const qrData = parseIataBCBP(barcodeResult.payload);
-            if (qrData) {
-              console.log('[DEBUG] Enriqueciendo con datos del QR:', qrData.departure_location, '->', qrData.arrival_location);
-              vuelingBP.departure_location = qrData.departure_location || vuelingBP.departure_location;
-              vuelingBP.arrival_location = qrData.arrival_location || vuelingBP.arrival_location;
-              vuelingBP.seat = qrData.seat || vuelingBP.seat;
-              vuelingBP.booking_reference = qrData.booking_reference || vuelingBP.booking_reference;
-              if (qrData.flight_number_raw) {
-                // El flight number en QR suele venir como "08162" o similar
-                const num = qrData.flight_number_raw.replace(/^0+/, '');
-                vuelingBP.flight_number = `VY${num}`;
-              }
-            }
-          }
-
-          return { 
-            type: 'boarding_pass', 
-            data: normalizeDates(vuelingBP), 
-            confidence: barcodeResult.success ? 1 : vuelingBP.confidence, 
-            rawText,
-            qr_detected: barcodeResult.success || vuelingBP.qr_detected,
-            qr_decoded: barcodeResult.success,
-            qr_raw_payload: barcodeResult.payload || undefined,
-            file
-          };
-        }
-    }
-
-    // Si es reserva o auto, intentar confirmación
-    if (forcedType === 'auto' || forcedType === 'flight_confirmation') {
-      const vuelingConf = parseVuelingFlightConfirmation(rawText);
-      if (vuelingConf) {
-        return { type: 'flight', data: normalizeDates(vuelingConf), confidence: vuelingConf.confidence, rawText, file };
-      }
-    }
-  }
-
-  // 3. HOTEL (Booking / Hoteles.com / Generic)
-  if (providerKey === 'booking' || providerKey === 'hoteles_com' || providerKey === 'auto' || forcedType === 'hotel_booking' || forcedType === 'hotel') {
-    const hotelData = parseHotelBooking(rawText);
-    
-    // Trigger AI fallback for hotel if deterministic extraction is incomplete
-    const isMissingHotelInfo = !hotelData || !hotelData.hotel_name || !hotelData.check_in;
-    if (isMissingHotelInfo) {
-      console.log('[DEBUG] Deterministic Hotel parser incomplete. Triggering AI Fallback...');
-      const aiHotelData = await parseHotelWithAI(rawText);
-      if (aiHotelData) {
-        return {
-          type: 'hotel',
-          data: normalizeDates(aiHotelData),
-          confidence: 95,
-          rawText,
-          file
-        };
-      }
-    }
-    
-    if (hotelData) {
-      return { type: 'hotel', data: normalizeDates(hotelData), confidence: hotelData.confidence, rawText, file };
-    }
-  }
-
-  // 4. TRANSFER / TRASLADO (Suntransfers / Generic) — Modular TransferParserService
-  const isTransfer = forcedType === 'transfer' || forcedType === 'transfer_voucher' || 
-                     classification.type === 'transfer_voucher' || detectTypeFromText(rawText) === 'transfer';
-  if (isTransfer) {
-    console.log(`[DEBUG] Transfer type detected (classification: ${classification.type}, provider: ${classification.provider}). Triggering TransferParserService...`);
-    const transferData = await TransferParserService.parseTransfer(rawText, buffer);
-    if (transferData) {
-      // Map TransferParserService NormalizedTransfer → ExtractedData.data shape
-      return {
-        type: 'transfer' as const,
-        data: normalizeDates({
-          ...transferData,
-          // Map normalized fields to the shape the admin UI expects
-          pickup_location: transferData.pickup_address,
-          dropoff_location: transferData.destination_address,
-          company_name: transferData.provider,
-          // Keep all extended fields
-          pickup_type: transferData.pickup_type,
-          destination_type: transferData.destination_type,
-          meeting_point: transferData.meeting_point,
-          support_phone: transferData.support_phone,
-          support_whatsapp: transferData.support_whatsapp,
-          passengers: transferData.passengers,
-          luggage: transferData.luggage,
-          flight_linkage: transferData.flight_linkage,
-        }),
-        confidence: transferData.parsed_confidence || 95,
-        rawText,
-        file
-      };
-    }
-  }
-
-  // 5. FALLBACK GENERAL (si todo lo anterior falló o es auto)
-  if (providerKey === 'auto') {
-    // Re-intentar Air France por si acaso
-    const afData = parseAirFrance(rawText);
-    if (afData) return { type: 'flight', data: normalizeDates(afData), confidence: afData.confidence, rawText, file };
-  }
-
-  // Fallback final
-  return { type: 'document', data: {}, confidence: 0.1, rawText, file } as any;
 }
 
 export async function reScanDocumentAction(fileUrl: string) {

@@ -132,10 +132,47 @@ export default function AdminPlansPage() {
   const [contextEvents, setContextEvents] = useState<any[]>([]);
   const [showEventSelector, setShowEventSelector] = useState(false);
   const [sendingEmail, setSendingEmail] = useState(false);
+  const [showDossierPanel, setShowDossierPanel] = useState(false);
+  const [dossierTestEmail, setDossierTestEmail] = useState('');
+  const [dossierSending, setDossierSending] = useState<null | 'send' | 'test'>(null);
+  const [dossierLogs, setDossierLogs] = useState<any[]>([]);
+  const [dossierLogsLoaded, setDossierLogsLoaded] = useState(false);
   const [hospPlaceSearch, setHospPlaceSearch] = useState('');
   const [hospPlaceResults, setHospPlaceResults] = useState<any[]>([]);
   const [isSearchingHosp, setIsSearchingHosp] = useState(false);
   const [showHospPlaceList, setShowHospPlaceList] = useState(false);
+
+  // Preview & Send Control State
+  const [dossierInfo, setDossierInfo] = useState<any>(null);
+  const [dossierAttachments, setDossierAttachments] = useState<any[]>([]);
+  const [selectedAttachmentIndexes, setSelectedAttachmentIndexes] = useState<number[]>([]);
+  const [dossierLoading, setDossierLoading] = useState(false);
+
+  const handlePrepareDossier = async (plan: any) => {
+    setShowDossierPanel(true);
+    setDossierLoading(true);
+    setDossierInfo(null);
+    setDossierAttachments([]);
+    setSelectedAttachmentIndexes([]);
+    try {
+      const res = await fetch(`/api/dossier/preview?planId=${plan.id}&json=true`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to load preview');
+      
+      setDossierInfo(json.dossierData);
+      setDossierAttachments(json.attachments || []);
+      setSelectedAttachmentIndexes((json.attachments || []).map((a: any) => a.index));
+      
+      const lr = await fetch(`/api/dossier/send?planId=${plan.id}`);
+      const lj = await lr.json();
+      setDossierLogs(lj.logs || []);
+      setDossierLogsLoaded(true);
+    } catch (err: any) {
+      alert({ title: 'Error al preparar dossier', message: err.message, type: 'danger' });
+    } finally {
+      setDossierLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -412,6 +449,7 @@ export default function AdminPlansPage() {
         setEditingDocument({
           ...editingDocument,
           qr_code: result.payload,
+          qr_raw_payload: result.payload,
           passenger_name: passengerName,
           seat_assignment: seat,
           booking_reference: pnr
@@ -460,8 +498,12 @@ export default function AdminPlansPage() {
         updatePayload.related_hotel_stay_id = editingDocument.related_hotel_stay_id || null;
       if (editingDocument.visible_to_client !== undefined)
         updatePayload.visible_to_client = editingDocument.visible_to_client;
-      if (editingDocument.qr_code !== undefined)
+      if (editingDocument.qr_code !== undefined) {
         updatePayload.qr_code = editingDocument.qr_code;
+        updatePayload.qr_raw_payload = editingDocument.qr_code || null;
+      }
+      if (editingDocument.qr_raw_payload !== undefined)
+        updatePayload.qr_raw_payload = editingDocument.qr_raw_payload;
       if (editingDocument.passenger_name !== undefined)
         updatePayload.passenger_name = editingDocument.passenger_name;
       if (editingDocument.seat_assignment !== undefined)
@@ -685,32 +727,17 @@ export default function AdminPlansPage() {
           <div className="flex gap-2 flex-wrap">
             <Button
               variant="outline"
-              className="rounded-xl px-4 flex items-center gap-2 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={sendingEmail}
-              onClick={async () => {
-                if (!selectedPlan?.profiles?.email) {
-                  alert({ title: 'Sin email', message: 'Este asistente no tiene email registrado.', type: 'danger' });
-                  return;
-                }
-                setSendingEmail(true);
-                try {
-                  const res = await fetch('/api/send-logistics-email', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ planId: selectedPlan.id }),
-                  });
-                  const json = await res.json();
-                  if (!res.ok) throw new Error(json.error || 'Error desconocido');
-                  alert({ title: 'Email enviado ✓', message: `Itinerario enviado a ${json.sentTo}`, type: 'success' });
-                } catch (err: any) {
-                  alert({ title: 'Error al enviar', message: err.message, type: 'danger' });
-                } finally {
-                  setSendingEmail(false);
+              className="rounded-xl px-4 flex items-center gap-2 border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white"
+              onClick={() => {
+                if (showDossierPanel) {
+                  setShowDossierPanel(false);
+                } else {
+                  handlePrepareDossier(selectedPlan);
                 }
               }}
             >
-              {sendingEmail ? <Loader2 size={18} className="animate-spin" /> : <Mail size={18} />}
-              {sendingEmail ? 'Enviando...' : 'Enviar Email Logístico'}
+              <Mail size={18} />
+              Preparar dossier
             </Button>
             <Button variant="outline" className="rounded-xl px-4 flex items-center gap-2 border-accent/20 text-accent hover:bg-accent hover:text-white" onClick={() => setShowHotelImport(true)}>
               <FileSpreadsheet size={18} /> Importar Alojamientos Excel
@@ -720,6 +747,278 @@ export default function AdminPlansPage() {
             </Button>
           </div>
         </div>
+
+        {/* DOSSIER VIAJE PANEL */}
+        {showDossierPanel && selectedPlan && (
+          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-6 space-y-6 relative overflow-hidden transition-all duration-300">
+            {dossierLoading ? (
+              <div className="flex flex-col items-center justify-center py-12 space-y-4">
+                <Loader2 className="animate-spin text-emerald-400" size={32} />
+                <p className="text-xs text-muted uppercase font-black tracking-widest animate-pulse">Construyendo dossier logístico...</p>
+              </div>
+            ) : (
+              <>
+                <div className="flex items-center justify-between border-b border-emerald-500/10 pb-4">
+                  <div>
+                    <h3 className="text-sm font-black uppercase tracking-widest text-emerald-400">Dossier Digital de Viaje</h3>
+                    <p className="text-xs text-muted mt-0.5">Control de pre-visualización y validación antes del envío al cliente</p>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="rounded-xl text-xs text-red-400 border border-red-500/20 hover:bg-red-500/10 uppercase font-black tracking-wider"
+                    onClick={() => setShowDossierPanel(false)}
+                  >
+                    Cancelar
+                  </Button>
+                </div>
+
+                {/* Validaciones: No permitir enviar si */}
+                {(() => {
+                  const hasEmail = !!dossierInfo?.userEmail;
+                  const hasTimeline = dossierInfo?.timelineDays && dossierInfo.timelineDays.length > 0;
+                  const hasAttachmentsSelected = selectedAttachmentIndexes.length > 0;
+                  
+                  const validationErrors = [];
+                  if (!hasEmail) validationErrors.push("El usuario no tiene email configurado.");
+                  if (!hasTimeline) validationErrors.push("La línea de tiempo de viaje está vacía.");
+                  if (!hasAttachmentsSelected) validationErrors.push("No hay ningún documento seleccionado/visible.");
+
+                  if (validationErrors.length > 0) {
+                    return (
+                      <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 space-y-2">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-red-400">⚠️ Bloqueo de Seguridad de Envío</p>
+                        <ul className="list-disc list-inside text-xs text-red-300/80 space-y-1">
+                          {validationErrors.map((err, i) => <li key={i}>{err}</li>)}
+                        </ul>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  {/* Resumen del Timeline */}
+                  <div className="space-y-4">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-muted">Resumen Operativo del Dossier</p>
+                      <div className="mt-2 space-y-2 bg-card/40 rounded-xl p-4 border border-border/40">
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted">Destinatario:</span>
+                          <span className="font-bold text-foreground">{dossierInfo?.userName}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted">Email Cliente:</span>
+                          <span className="font-bold text-emerald-400">{dossierInfo?.userEmail || 'No asignado'}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted">Alojamiento Principal:</span>
+                          <span className="font-bold text-accent">{dossierInfo?.mainHotelName || 'No asignado'}</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted">Evento / Destino:</span>
+                          <span className="font-bold text-foreground">{dossierInfo?.eventName} ({dossierInfo?.eventCity})</span>
+                        </div>
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted">Fechas:</span>
+                          <span className="font-bold text-foreground">{dossierInfo?.eventDates}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Timeline resumida */}
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-muted">Itinerario Resumido</p>
+                      <div className="mt-2 space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                        {dossierInfo?.timelineDays?.map((day: any, i: number) => (
+                          <div key={i} className="space-y-1">
+                            <p className="text-[10px] font-black text-accent uppercase tracking-wider">{day.dateLabel}</p>
+                            {day.events?.map((ev: any, j: number) => (
+                              <div key={j} className="flex items-center gap-2 bg-card/20 rounded-lg px-3 py-1.5 text-xs">
+                                <span className="text-muted shrink-0">{ev.formattedTime}</span>
+                                <span className="font-semibold truncate">{ev.title}</span>
+                              </div>
+                            ))}
+                          </div>
+                        ))}
+                        {(!dossierInfo?.timelineDays || dossierInfo.timelineDays.length === 0) && (
+                          <div className="text-xs text-muted italic p-4 text-center">Sin itinerario configurado</div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Adjuntos y Vista Previa */}
+                  <div className="space-y-4">
+                    {/* Lista de Adjuntos a enviar */}
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-muted">Gestión de Adjuntos a Incluir ({selectedAttachmentIndexes.length})</p>
+                      <div className="mt-2 space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
+                        {dossierAttachments.map((att: any) => {
+                          const isSelected = selectedAttachmentIndexes.includes(att.index);
+                          const iconColor = att.type === 'boarding_pass' ? 'text-blue-400' :
+                                            att.type === 'transfer_voucher' ? 'text-cyan-400' :
+                                            att.type === 'hotel_booking' || att.type === 'hotel_voucher' ? 'text-amber-400' :
+                                            'text-emerald-400';
+                          return (
+                            <div 
+                              key={att.id} 
+                              className={`flex items-center gap-3 text-xs bg-card/40 rounded-xl px-4 py-2 border transition-all cursor-pointer ${isSelected ? 'border-emerald-500/30 bg-emerald-500/5' : 'border-border/30 opacity-60'}`}
+                              onClick={() => {
+                                if (isSelected) {
+                                  setSelectedAttachmentIndexes(selectedAttachmentIndexes.filter(idx => idx !== att.index));
+                                } else {
+                                  setSelectedAttachmentIndexes([...selectedAttachmentIndexes, att.index]);
+                                }
+                              }}
+                            >
+                              <input 
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => {}} // Handled by parent click
+                                className="rounded border-border bg-card text-emerald-500 focus:ring-emerald-500 shrink-0"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <p className="font-black truncate">{att.filename}</p>
+                                <p className="text-[9px] text-muted truncate">{att.title} • <span className={`uppercase font-black ${iconColor}`}>{att.type}</span></p>
+                              </div>
+                            </div>
+                          );
+                        })}
+                        {dossierAttachments.length === 0 && (
+                          <div className="text-xs text-muted italic p-4 text-center bg-card/20 rounded-xl">No se detectaron documentos adjuntos visibles para el cliente.</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Email Live preview button/iframe */}
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-widest text-muted">Vista Previa Interactiva del Email</p>
+                      <div className="mt-2 rounded-xl overflow-hidden border border-border bg-white/5">
+                        <iframe 
+                          src={`/api/dossier/preview?planId=${selectedPlan.id}`}
+                          className="w-full h-[220px] bg-white"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Acciones */}
+                <div className="flex flex-col md:flex-row gap-4 justify-between items-stretch md:items-center border-t border-emerald-500/10 pt-5">
+                  {/* Test Send */}
+                  <div className="flex gap-2 items-center flex-1 max-w-md">
+                    <input
+                      type="email"
+                      placeholder="Email de prueba"
+                      value={dossierTestEmail}
+                      onChange={e => setDossierTestEmail(e.target.value)}
+                      className="flex-1 rounded-xl px-3 py-2 text-xs bg-card border border-border text-foreground placeholder:text-muted focus:outline-none focus:ring-1 focus:ring-accent"
+                    />
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="rounded-xl border-accent/30 text-accent hover:bg-accent/10 disabled:opacity-30 uppercase font-black tracking-widest text-[10px] h-9"
+                      disabled={
+                        !dossierTestEmail || 
+                        dossierSending !== null || 
+                        !dossierInfo?.timelineDays || 
+                        dossierInfo.timelineDays.length === 0 ||
+                        selectedAttachmentIndexes.length === 0
+                      }
+                      onClick={async () => {
+                        setDossierSending('test');
+                        try {
+                          const res = await fetch('/api/dossier/send', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ 
+                              planId: selectedPlan.id, 
+                              profileId: selectedPlan.user_id, 
+                              testEmail: dossierTestEmail,
+                              attachmentIds: selectedAttachmentIndexes
+                            }),
+                          });
+                          const json = await res.json();
+                          if (!res.ok) throw new Error(json.error);
+                          alert({ title: 'Test enviado ✓', message: `Email de prueba enviado a ${dossierTestEmail}`, type: 'success' });
+                        } catch (err: any) {
+                          alert({ title: 'Error test', message: err.message, type: 'danger' });
+                        } finally {
+                          setDossierSending(null);
+                        }
+                      }}
+                    >
+                      {dossierSending === 'test' ? <Loader2 size={12} className="animate-spin" /> : null}
+                      Enviar test a mi email
+                    </Button>
+                  </div>
+
+                  {/* Cancel / Send */}
+                  <div className="flex gap-3 items-center">
+                    <Button
+                      className="rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black uppercase tracking-widest text-xs h-9 px-6 disabled:opacity-30 flex items-center gap-2"
+                      disabled={
+                        dossierSending !== null || 
+                        !dossierInfo?.userEmail || 
+                        !dossierInfo?.timelineDays || 
+                        dossierInfo.timelineDays.length === 0 ||
+                        selectedAttachmentIndexes.length === 0
+                      }
+                      onClick={async () => {
+                        setDossierSending('send');
+                        try {
+                          const res = await fetch('/api/dossier/send', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ 
+                              planId: selectedPlan.id, 
+                              profileId: selectedPlan.user_id,
+                              attachmentIds: selectedAttachmentIndexes
+                            }),
+                          });
+                          const json = await res.json();
+                          if (!res.ok) throw new Error(json.error);
+                          alert({ title: 'Dossier enviado ✓', message: `Dossier enviado a ${json.recipient}`, type: 'success' });
+                          // Refresh logs
+                          const lr = await fetch(`/api/dossier/send?planId=${selectedPlan.id}`);
+                          const lj = await lr.json();
+                          setDossierLogs(lj.logs || []);
+                        } catch (err: any) {
+                          alert({ title: 'Error al enviar', message: err.message, type: 'danger' });
+                        } finally {
+                          setDossierSending(null);
+                        }
+                      }}
+                    >
+                      {dossierSending === 'send' ? <Loader2 size={14} className="animate-spin mr-2" /> : <Mail size={14} className="mr-2" />}
+                      Enviar al usuario
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Last send history */}
+                {dossierLogs.length > 0 && (
+                  <div className="space-y-1.5 border-t border-emerald-500/10 pt-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-muted">Historial de Envíos Realizados</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      {dossierLogs.map((log: any) => (
+                        <div key={log.id} className="flex items-center gap-3 text-[11px] text-foreground/70 bg-card/30 rounded-xl px-4 py-2 border border-border/30">
+                          <span className={`shrink-0 font-bold ${log.status === 'sent' ? 'text-emerald-400' : 'text-red-400'}`}>
+                            {log.status === 'sent' ? '✓ ENVIADO' : '✗ FALLIDO'}
+                          </span>
+                          <span className="truncate flex-1 font-semibold">{log.recipient_email}</span>
+                          <span className="text-muted shrink-0 ml-auto">{new Date(log.created_at).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                          <span className="text-muted font-bold shrink-0">{log.attachments_count} adj.</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {/* --- SMART DISTANCES SECTION --- */}
         <SmartDistances 
@@ -1334,7 +1633,10 @@ export default function AdminPlansPage() {
             <FileText size={14} className="text-accent" /> Documentación
           </h3>
           <div className="bg-background border border-border rounded-2xl divide-y divide-border">
-            {selectedPlan.documents?.map((doc: any) => (
+            {selectedPlan.documents?.filter((doc: any) =>
+              // Transfer vouchers linked to a transfer are shown inline in the Traslados section
+              !(doc.document_type === 'transfer_voucher' && doc.related_transfer_id)
+            ).map((doc: any) => (
               <div key={doc.id} className="p-4 flex items-center justify-between hover:bg-muted/30 transition-all">
                 <div className="flex items-center gap-4">
                   <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${doc.visible_to_client ? 'bg-accent/5 text-accent' : 'bg-muted text-muted-foreground opacity-50'}`}>
@@ -1379,7 +1681,9 @@ export default function AdminPlansPage() {
                 </div>
               </div>
             ))}
-            {!selectedPlan.documents?.length && (
+            {!selectedPlan.documents?.filter((doc: any) =>
+              !(doc.document_type === 'transfer_voucher' && doc.related_transfer_id)
+            ).length && (
               <div className="p-10 text-center text-xs text-muted">No hay documentos registrados para este plan.</div>
             )}
           </div>
@@ -1815,6 +2119,8 @@ export default function AdminPlansPage() {
                               <p className="text-xs font-bold text-foreground">Datos operativos para {extractionResult.data.passenger_name || 'Pasajero'}</p>
                             </div>
                             {/* Ruta */}
+                            <FieldReview label="Código Aeropuerto (IATA)" value={extractionResult.data.pickup_airport_code} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, pickup_airport_code: v}})} />
+                            <FieldReview label="Nombre Destino" value={extractionResult.data.destination_name} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, destination_name: v}})} />
                             <FieldReview label="Origen / Recogida" value={extractionResult.data.pickup_location || extractionResult.data.pickup_address} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, pickup_location: v, pickup_address: v}})} />
                             <FieldReview label="Destino / Entrega" value={extractionResult.data.dropoff_location || extractionResult.data.destination_address} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, dropoff_location: v, destination_address: v}})} />
                             <FieldReview label="Tipo Recogida" value={extractionResult.data.pickup_type} optional={true} onChange={(v:any) => setExtractionResult({...extractionResult, data: {...extractionResult.data, pickup_type: v}})} />
@@ -2061,7 +2367,8 @@ export default function AdminPlansPage() {
                                  passenger_phone: editData.passenger_phone,
                                  meeting_point: editData.meeting_point,
                                  support_phone: editData.support_phone,
-                                 whatsapp_available: editData.whatsapp_available || false,
+                                 support_whatsapp: editData.support_whatsapp,
+                                 whatsapp_available: editData.whatsapp_available || !!editData.support_whatsapp || false,
                                  driver_name: editData.driver_name,
                                  driver_phone: editData.driver_phone,
                                  notes: extendedNotes.join('\n'),
@@ -2072,9 +2379,12 @@ export default function AdminPlansPage() {
                                  source: 'transfer_confirmation_import'
                                };
 
-                              console.log('SAVING TRANSFER PAYLOAD', transferPayload);
+                              console.log('[DIE] SAVING TRANSFER PAYLOAD →', JSON.stringify(transferPayload, null, 2));
                               const savedTransfer = await saveItem('travel_transfers', transferPayload);
-                              if (savedTransfer) savedItemId = savedTransfer.id;
+                              if (savedTransfer) {
+                                savedItemId = savedTransfer.id;
+                                console.log(`[DIE] ✅ saved travel_transfers id: ${savedTransfer.id}`);
+                              }
                             }
 
                             // 5. GUARDAR EN TRAVEL_DOCUMENTS
@@ -2083,13 +2393,13 @@ export default function AdminPlansPage() {
                               const fileName = `${extType}_${Date.now()}.${extension}`;
                               const { data: uploadData } = await supabase.storage
                                 .from('travel-documents').upload(`${targetPlanId}/${fileName}`, extractionResult.file);
-                              
+
                               if (uploadData) {
                                 const { data: { publicUrl } } = supabase.storage.from('travel-documents').getPublicUrl(uploadData.path);
-                                
+
                                 let docTitle = `Reserva · ${editData.airline || editData.hotel_name || editData.company_name || 'Servicio'} ${editData.flight_number || editData.booking_reference || ''}`;
                                 let docType = 'flight_confirmation';
-                                
+
                                 if (extType === 'boarding_pass') {
                                   docTitle = `Tarjeta de Embarque · ${editData.airline} ${editData.flight_number}`;
                                   docType = 'boarding_pass';
@@ -2097,7 +2407,8 @@ export default function AdminPlansPage() {
                                   docTitle = `Estancia · ${editData.hotel_name}`;
                                   docType = 'hotel_booking';
                                 } else if (extType === 'transfer') {
-                                  docTitle = 'Voucher oficial traslado';
+                                  const tProvider = editData.company_name || editData.provider || 'Traslado';
+                                  docTitle = `Voucher oficial traslado ${tProvider}`.trim();
                                   docType = 'transfer_voucher';
                                 }
 
@@ -2106,13 +2417,14 @@ export default function AdminPlansPage() {
                                   title: docTitle,
                                   display_title: docTitle,
                                   document_type: docType,
-                                  description: extType === 'transfer' 
-                                    ? `${editData.pickup_location} → ${editData.dropoff_location}`
+                                  description: extType === 'transfer'
+                                    ? `${editData.pickup_airport_code || editData.pickup_location} → ${editData.destination_name || editData.dropoff_location}`
                                     : (extType === 'hotel' ? editData.address : `${editData.departure_location || ''} → ${editData.arrival_location || ''}`),
                                   file_url: publicUrl,
                                   passenger_name: editData.passenger_name || guestName,
                                   booking_reference: editData.booking_reference || editData.confirmation_number,
                                   visible_to_client: true,
+                                  related_entity: extType === 'transfer' ? 'transfer' : extType === 'hotel' ? 'hotel' : 'flight',
                                   qr_code: extractionResult.qr_raw_payload || editData.qr_code,
                                   qr_decoded: extractionResult.qr_decoded || false,
                                   qr_raw_payload: extractionResult.qr_raw_payload || null
@@ -2120,15 +2432,22 @@ export default function AdminPlansPage() {
 
                                 if (extType === 'flight' || extType === 'boarding_pass') {
                                   docPayload.related_flight_id = savedItemId;
+                                  docPayload.related_entity_id = savedItemId;
                                   docPayload.seat_assignment = editData.seat;
                                   docPayload.boarding_group = editData.boarding_group;
                                 } else if (extType === 'hotel') {
                                   docPayload.related_hotel_stay_id = savedItemId;
+                                  docPayload.related_entity_id = savedItemId;
                                 } else if (extType === 'transfer') {
                                   docPayload.related_transfer_id = savedItemId;
+                                  docPayload.related_entity_id = savedItemId;
                                 }
 
-                                await saveTravelDocument(docPayload);
+                                console.log('[DIE] Saving travel_documents payload →', JSON.stringify(docPayload, null, 2));
+                                const savedDoc = await saveTravelDocument(docPayload);
+                                if (savedDoc) {
+                                  console.log(`[DIE] ✅ saved travel_documents id: ${savedDoc.id}`);
+                                }
                               }
                             }
 

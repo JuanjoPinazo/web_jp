@@ -1278,7 +1278,9 @@ export default function DashboardPage() {
                       <div className="w-2 h-2 rounded-full bg-green-500" />
                       <div className="flex-1">
                         <p className="text-[9px] font-black text-muted uppercase tracking-widest">Recogida</p>
-                        <p className="text-sm font-bold text-foreground">{t.pickup_location}</p>
+                        <p className="text-sm font-bold text-foreground">
+                          {t.pickup_airport_code ? `${t.pickup_airport_code} · ` : ''}{t.pickup_location}
+                        </p>
                       </div>
                     </div>
                     <div className="ml-1 border-l-2 border-dashed border-amber-500/30 h-4" />
@@ -1286,7 +1288,12 @@ export default function DashboardPage() {
                       <div className="w-2 h-2 rounded-full bg-red-500" />
                       <div className="flex-1">
                         <p className="text-[9px] font-black text-muted uppercase tracking-widest">Destino</p>
-                        <p className="text-sm font-bold text-foreground">{t.dropoff_location}</p>
+                        <p className="text-sm font-bold text-foreground">
+                          {t.destination_name || t.dropoff_location}
+                        </p>
+                        {t.destination_name && t.dropoff_location && t.destination_name !== t.dropoff_location && (
+                          <p className="text-[10px] text-muted">{t.dropoff_location}</p>
+                        )}
                       </div>
                     </div>
                   </div>

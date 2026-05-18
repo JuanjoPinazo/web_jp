@@ -1,11 +1,12 @@
 import React from 'react';
-import { renderToStaticMarkup } from 'react-dom/server';
 import { DossierData, DossierEvent } from './dossier-builder';
 
 // Premium Visual Cinematográfico Dark Luxury Email Template
 export const TravelDossierEmail: React.FC<{ data: DossierData; siteUrl: string }> = ({ data, siteUrl }) => {
   const {
     userName,
+    userEmail,
+    tempPassword,
     eventName,
     eventDates,
     eventCity,
@@ -161,6 +162,94 @@ export const TravelDossierEmail: React.FC<{ data: DossierData; siteUrl: string }
                   </p>
                 </td>
               </tr>
+
+              {/* CREDENCIALES DE ACCESO - only when tempPassword provided */}
+              {tempPassword && (
+                <tr>
+                  <td style={{ padding: '0 40px 28px 40px', background: '#0c0d12' }}>
+                    <table cellPadding={0} cellSpacing={0} width="100%" style={{
+                      background: 'rgba(0, 229, 255, 0.04)',
+                      border: `1px solid rgba(0, 229, 255, 0.2)`,
+                      borderRadius: '20px',
+                      padding: '24px',
+                    }}>
+                      <tr>
+                        <td colSpan={2} style={{ paddingBottom: '14px' }}>
+                          <p style={{
+                            margin: 0,
+                            fontSize: '11px',
+                            color: accentNeon,
+                            fontWeight: 900,
+                            letterSpacing: '2px',
+                            textTransform: 'uppercase'
+                          }}>
+                            🔑 Credenciales de Acceso
+                          </p>
+                          <p style={{
+                            margin: '4px 0 0 0',
+                            fontSize: '12px',
+                            color: textMuted
+                          }}>
+                            Use estas credenciales para acceder a su plataforma personal de viaje
+                          </p>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style={{ padding: '8px 0', fontSize: '11px', color: textMuted, fontWeight: 700, textTransform: 'uppercase', width: '120px' }}>Usuario</td>
+                        <td style={{
+                          padding: '8px 12px',
+                          fontSize: '13px',
+                          color: textWhite,
+                          fontWeight: 600,
+                          fontFamily: 'monospace',
+                          background: 'rgba(255,255,255,0.04)',
+                          borderRadius: '8px'
+                        }}>
+                          {userEmail}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td style={{ padding: '8px 0', fontSize: '11px', color: textMuted, fontWeight: 700, textTransform: 'uppercase' }}>Contraseña</td>
+                        <td style={{
+                          padding: '8px 12px',
+                          fontSize: '14px',
+                          color: accentNeon,
+                          fontWeight: 800,
+                          fontFamily: 'monospace',
+                          letterSpacing: '2px',
+                          background: 'rgba(0, 229, 255, 0.06)',
+                          borderRadius: '8px',
+                          border: `1px solid rgba(0, 229, 255, 0.12)`
+                        }}>
+                          {tempPassword}
+                        </td>
+                      </tr>
+                      <tr>
+                        <td colSpan={2} style={{ paddingTop: '18px', textAlign: 'center' }}>
+                          <a href={`${siteUrl}/login`} target="_blank" rel="noopener noreferrer" style={{
+                            display: 'inline-block',
+                            padding: '12px 28px',
+                            background: 'transparent',
+                            border: `1px solid ${accentNeon}`,
+                            borderRadius: '12px',
+                            color: accentNeon,
+                            fontSize: '12px',
+                            fontWeight: 800,
+                            letterSpacing: '1px',
+                            textTransform: 'uppercase',
+                            textDecoration: 'none'
+                          }}>
+                            Iniciar Sesión →
+                          </a>
+                          <p style={{ margin: '10px 0 0 0', fontSize: '10px', color: textMuted }}>
+                            Se le solicitará cambiar la contraseña en el primer acceso
+                          </p>
+                        </td>
+                      </tr>
+                    </table>
+                  </td>
+                </tr>
+              )}
 
               {/* RESUMEN OPERATIVO - BRIEFING COMPACT CARD */}
               <tr>
@@ -511,7 +600,8 @@ export const TravelDossierEmail: React.FC<{ data: DossierData; siteUrl: string }
 };
 
 // Main function to render TSX template to static HTML
-export function renderTravelDossierEmailHtml(data: DossierData, siteUrl: string): string {
+export async function renderTravelDossierEmailHtml(data: DossierData, siteUrl: string): Promise<string> {
+  const { renderToStaticMarkup } = await import('react-dom/server');
   const element = React.createElement(TravelDossierEmail, { data, siteUrl });
   const markup = renderToStaticMarkup(element);
   

@@ -129,7 +129,10 @@ export function processTimelineEvents(plan: any, documentsList: Document[] = [])
     
     const pickupLoc = (t.pickup_location || (t as any).pickup_address || '').replace(/^(undefined|null)$/gi, '').trim();
     const dropoffLoc = (t.dropoff_location || (t as any).destination_address || '').replace(/^(undefined|null)$/gi, '').trim();
-    
+    // Use short labels when available: IATA code for airport pickup, destination name for hotel/venue
+    const pickupShort = ((t as any).pickup_airport_code || pickupLoc).replace(/^(undefined|null)$/gi, '').trim();
+    const dropoffShort = ((t as any).destination_name || dropoffLoc).replace(/^(undefined|null)$/gi, '').trim();
+
     if (dropoffLoc) {
       actions.push({
         label: 'Cómo llegar',
@@ -154,8 +157,8 @@ export function processTimelineEvents(plan: any, documentsList: Document[] = [])
       event_type: 'transfer',
       start_datetime: t.pickup_datetime || (t as any).pickup_time || plan.start_date,
       title: eventTitle,
-      subtitle: `${pickupLoc} → ${dropoffLoc}`,
-      location: `Recogida: ${pickupLoc}`,
+      subtitle: `${pickupShort} → ${dropoffShort}`,
+      location: `Recogida: ${pickupShort}`,
       icon: 'Car',
       priority: 3,
       metadata: t,
@@ -367,8 +370,11 @@ export async function buildTravelTimeline(planId: string): Promise<TravelTimelin
   if (!planId) return [];
 
   try {
+    const { getSupabaseAdmin } = await import('@/lib/supabase-admin');
+    const supabaseAdmin = getSupabaseAdmin();
+
     // 1. Fetch main plan
-    const { data: plan, error: planError } = await supabase
+    const { data: plan, error: planError } = await supabaseAdmin
       .from('contact_travel_plans')
       .select('*')
       .eq('id', planId)
@@ -382,12 +388,12 @@ export async function buildTravelTimeline(planId: string): Promise<TravelTimelin
 
     // 2. Fetch all logistic components in parallel
     const [flights, stays, transfers, restaurants, hospitality, documents] = await Promise.all([
-      supabase.from('travel_flights').select('*').eq('plan_id', planId).is('deleted_at', null).order('departure_time'),
-      supabase.from('hotel_stays').select('*').eq('plan_id', planId).is('deleted_at', null).order('check_in'),
-      supabase.from('travel_transfers').select('*').eq('plan_id', planId).is('deleted_at', null),
-      supabase.from('travel_restaurants').select('*').eq('plan_id', planId).is('deleted_at', null).order('reservation_time'),
-      supabase.from('hospitality_events').select('*').eq('plan_id', planId).is('deleted_at', null).order('start_datetime'),
-      supabase.from('travel_documents').select('*').eq('plan_id', planId).is('deleted_at', null)
+      supabaseAdmin.from('travel_flights').select('*').eq('plan_id', planId).is('deleted_at', null).order('departure_time'),
+      supabaseAdmin.from('hotel_stays').select('*').eq('plan_id', planId).is('deleted_at', null).order('check_in'),
+      supabaseAdmin.from('travel_transfers').select('*').eq('plan_id', planId).is('deleted_at', null),
+      supabaseAdmin.from('travel_restaurants').select('*').eq('plan_id', planId).is('deleted_at', null).order('reservation_time'),
+      supabaseAdmin.from('hospitality_events').select('*').eq('plan_id', planId).is('deleted_at', null).order('start_datetime'),
+      supabaseAdmin.from('travel_documents').select('*').eq('plan_id', planId).is('deleted_at', null)
     ]);
 
     // 3. Assemble complete plan structure

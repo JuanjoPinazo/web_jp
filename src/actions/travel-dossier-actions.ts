@@ -17,7 +17,7 @@ export interface SendEmailResponse {
  * Server Action: Generates, packages, and sends the premium digital travel dossier
  * to the specified user with systematically organized attachments and log auditing.
  */
-export async function sendTravelDossierEmail(planId: string, profileId: string): Promise<SendEmailResponse> {
+export async function sendTravelDossierEmail(planId: string, profileId: string, attachmentIds?: number[]): Promise<SendEmailResponse> {
   const supabase = getSupabaseAdmin();
   let recipientEmail = 'Desconocido';
   let attachmentsCount = 0;
@@ -38,12 +38,18 @@ export async function sendTravelDossierEmail(planId: string, profileId: string):
     }
 
     // 2. Fetch, sort, download, and professionally rename attachments
-    const attachments = await getTravelDossierAttachments(planId);
+    const allAttachments = await getTravelDossierAttachments(planId);
+    
+    // Filter to selected attachments if provided
+    const attachments = attachmentIds?.length
+      ? allAttachments.filter((_, i) => attachmentIds.includes(i))
+      : allAttachments;
+      
     attachmentsCount = attachments.length;
 
     // 3. Render premium dark luxury HTML
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://jpintelligence.vercel.app';
-    const html = renderTravelDossierEmailHtml(dossierData, siteUrl);
+    const html = await renderTravelDossierEmailHtml(dossierData, siteUrl);
 
     // 4. Send email using Resend
     console.log(`[ServerAction] Triggering email delivery via Resend to: ${recipientEmail} with ${attachmentsCount} attachments.`);
