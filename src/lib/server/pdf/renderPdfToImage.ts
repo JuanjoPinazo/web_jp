@@ -22,7 +22,16 @@ export async function renderPdfToImage(buffer: Buffer, page: number = 1): Promis
 
     // 2. Render PDF page to PNG using pdftocairo
     // We use a high resolution (300 DPI) for clarity on mobile
-    const cmd = '/opt/homebrew/bin/pdftocairo';
+    let cmd = 'pdftocairo';
+    
+    if (process.platform === 'darwin') {
+      const fs = await import('node:fs');
+      if (fs.existsSync('/opt/homebrew/bin/pdftocairo')) {
+        cmd = '/opt/homebrew/bin/pdftocairo';
+      } else if (fs.existsSync('/usr/local/bin/pdftocairo')) {
+        cmd = '/usr/local/bin/pdftocairo';
+      }
+    }
     const env = { 
       ...process.env, 
       PATH: `${process.env.PATH}:/opt/homebrew/bin:/usr/local/bin` 

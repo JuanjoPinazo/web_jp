@@ -29,8 +29,16 @@ export async function decodeBarcodeFromPdf(buffer: Buffer): Promise<{
 
     // 2. Convertir primera página a imagen (PNG) usando pdftocairo (Poppler)
     // -r 600: Muy alta resolución para códigos complejos (PDF417/Aztec)
-    // FORZAMOS RUTA ABSOLUTA PARA DEBUG
-    const cmd = '/opt/homebrew/bin/pdftocairo';
+    let cmd = 'pdftocairo';
+    
+    if (process.platform === 'darwin') {
+      const fs = await import('node:fs');
+      if (fs.existsSync('/opt/homebrew/bin/pdftocairo')) {
+        cmd = '/opt/homebrew/bin/pdftocairo';
+      } else if (fs.existsSync('/usr/local/bin/pdftocairo')) {
+        cmd = '/usr/local/bin/pdftocairo';
+      }
+    }
 
     const env = { 
       ...process.env, 

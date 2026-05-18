@@ -8,9 +8,9 @@ export interface TimelineAction {
   icon?: string;
 }
 
-export interface TimelineEvent {
+export interface TravelTimelineEvent {
   id: string;
-  plan_id: string;
+  plan_id?: string;
   event_type: 'flight' | 'transfer' | 'hotel' | 'hospitality' | 'restaurant' | 'agenda';
   start_datetime: string;
   end_datetime?: string;
@@ -21,25 +21,31 @@ export interface TimelineEvent {
   priority?: number;
   metadata?: any;
   actions?: TimelineAction[];
-  documents?: Document[];
+  related_documents?: Document[];
 }
+
+export type TimelineEvent = TravelTimelineEvent;
 
 /**
  * Normalizes all travel elements into a standard chronological timeline.
  */
-export function processTimelineEvents(plan: any, documentsList: Document[] = []): TimelineEvent[] {
+export function processTimelineEvents(plan: any, documentsList: Document[] = []): TravelTimelineEvent[] {
   if (!plan) return [];
-  const events: TimelineEvent[] = [];
+  const events: TravelTimelineEvent[] = [];
 
   const docs: Document[] = documentsList.length > 0 ? documentsList : (plan.documents || []);
 
   // 1. FLIGHTS (Departure & Arrival)
   const flights: Flight[] = plan.flights || [];
   flights.filter(f => f.is_verified).forEach(f => {
-    // Related documents
-    const relatedDocs = docs.filter(d => d.related_flight_id === f.id || d.booking_reference === f.reservation_code);
+    // Related documents matching direct columns, string reference code, or generic entity relations
+    const relatedDocs = docs.filter(d => 
+      d.related_flight_id === f.id || 
+      d.booking_reference === f.reservation_code ||
+      (d.related_entity === 'flight' && d.related_entity_id === f.id)
+    );
     const boardingPass = relatedDocs.find(d => d.document_type === 'boarding_pass');
-
+ 
     // Departure Event
     const depActions: TimelineAction[] = [];
     if (boardingPass?.file_url) {
@@ -53,7 +59,7 @@ export function processTimelineEvents(plan: any, documentsList: Document[] = [])
         icon: 'MapPin'
       });
     }
-
+ 
     events.push({
       id: `flight-dep-${f.id}`,
       plan_id: plan.id,
@@ -67,9 +73,9 @@ export function processTimelineEvents(plan: any, documentsList: Document[] = [])
       priority: 1,
       metadata: f,
       actions: depActions,
-      documents: relatedDocs
+      related_documents: relatedDocs
     });
-
+ 
     // Arrival Event
     const arrActions: TimelineAction[] = [];
     if (f.arrival_location) {
@@ -80,7 +86,7 @@ export function processTimelineEvents(plan: any, documentsList: Document[] = [])
         icon: 'Map'
       });
     }
-
+ 
     events.push({
       id: `flight-arr-${f.id}`,
       plan_id: plan.id,
@@ -93,7 +99,7 @@ export function processTimelineEvents(plan: any, documentsList: Document[] = [])
       priority: 2,
       metadata: f,
       actions: arrActions,
-      documents: relatedDocs
+      related_documents: relatedDocs
     });
   });
 
@@ -102,7 +108,8 @@ export function processTimelineEvents(plan: any, documentsList: Document[] = [])
   transfers.filter(t => t.visible_to_client).forEach(t => {
     const relatedDocs = docs.filter(d => 
       d.related_transfer_id === t.id || 
-      (t.booking_reference && d.booking_reference === t.booking_reference && d.document_type === 'transfer_voucher')
+      (t.booking_reference && d.booking_reference === t.booking_reference) ||
+      (d.related_entity === 'transfer' && d.related_entity_id === t.id)
     );
     const voucherDoc = relatedDocs.find(d => d.document_type === 'transfer_voucher') || relatedDocs[0];
 
@@ -153,14 +160,18 @@ export function processTimelineEvents(plan: any, documentsList: Document[] = [])
       priority: 3,
       metadata: t,
       actions,
-      documents: relatedDocs
+      related_documents: relatedDocs
     });
   });
 
   // 3. HOTEL STAYS (Check-in & Check-out)
   const stays: HotelStay[] = plan.hotel_stays || [];
   stays.forEach(h => {
-    const relatedDocs = docs.filter(d => d.related_hotel_stay_id === h.id || d.booking_reference === h.booking_reference);
+    const relatedDocs = docs.filter(d => 
+      d.related_hotel_stay_id === h.id || 
+      (h.booking_reference && d.booking_reference === h.booking_reference) ||
+      (d.related_entity === 'hotel' && d.related_entity_id === h.id)
+    );
     const voucherDoc = relatedDocs.find(d => d.document_type === 'hotel_booking') || relatedDocs[0];
 
     // Check-in (usually set at 15:00 UTC/Local)
@@ -233,7 +244,7 @@ export function processTimelineEvents(plan: any, documentsList: Document[] = [])
       priority: 4,
       metadata: h,
       actions: inActions,
-      documents: relatedDocs
+      related_documents: relatedDocs
     });
 
     // Check-out (usually set at 12:00 UTC/Local)
@@ -262,13 +273,17 @@ export function processTimelineEvents(plan: any, documentsList: Document[] = [])
       priority: 5,
       metadata: h,
       actions: outActions,
-      documents: relatedDocs
+      related_documents: relatedDocs
     });
   });
 
   // 4. RESTAURANTS
   const restaurants: Restaurant[] = plan.restaurants || [];
   restaurants.forEach(r => {
+    const relatedDocs = docs.filter(d => 
+      (d.related_entity === 'restaurant' && d.related_entity_id === r.id)
+    );
+
     const actions: TimelineAction[] = [];
     actions.push({
       label: 'Navegar restaurante',
@@ -289,7 +304,7 @@ export function processTimelineEvents(plan: any, documentsList: Document[] = [])
       priority: 6,
       metadata: r,
       actions,
-      documents: []
+      related_documents: relatedDocs
     });
   });
 
@@ -299,6 +314,11 @@ export function processTimelineEvents(plan: any, documentsList: Document[] = [])
     const isAgenda = e.type === 'meeting' || 
       /session|opening|opening session|agenda|congress|symposium|conference|keynote|meeting|clinic|eupcr|euro/i.test(e.title) ||
       /session|opening|agenda|congress|symposium|conference/i.test(e.description || '');
+
+    const relatedDocs = docs.filter(d => 
+      (d.related_entity === 'hospitality' && d.related_entity_id === e.id) ||
+      (d.related_entity === 'agenda' && d.related_entity_id === e.id)
+    );
 
     const actions: TimelineAction[] = [];
     if (e.venue_address || e.venue_name) {
@@ -326,7 +346,7 @@ export function processTimelineEvents(plan: any, documentsList: Document[] = [])
       priority: 7,
       metadata: e,
       actions,
-      documents: []
+      related_documents: relatedDocs
     });
   });
 
@@ -343,7 +363,7 @@ export function processTimelineEvents(plan: any, documentsList: Document[] = [])
  * Primary Core Service Function: Fetches all logistic entities for a travel plan 
  * and builds a beautifully normalized chronological timeline.
  */
-export async function buildTravelTimeline(planId: string): Promise<TimelineEvent[]> {
+export async function buildTravelTimeline(planId: string): Promise<TravelTimelineEvent[]> {
   if (!planId) return [];
 
   try {

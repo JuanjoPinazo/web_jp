@@ -501,7 +501,7 @@ export default function DashboardPage() {
         lat,
         lng,
         actions: e.actions || [],
-        documents: e.documents || [],
+        documents: e.related_documents || [],
         time: new Date(e.start_datetime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })
       };
     });
@@ -521,11 +521,12 @@ export default function DashboardPage() {
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
     
-    const flightToday = activePlan.flights.find(f => {
-      if (!f.is_verified) return false;
-      const flightDate = new Date(f.departure_time).toISOString().split('T')[0];
-      return flightDate === todayStr;
+    const flightTodayEvent = timelineEvents.find(e => {
+      if (e.type !== 'flight') return false;
+      const eventDateStr = e.datetime.toISOString().split('T')[0];
+      return eventDateStr === todayStr;
     });
+    const flightToday = flightTodayEvent?.payload;
 
     // Buscar si hay alguna cena o evento de hospitalidad hoy
     const dinnerToday = timelineEvents.find(e => {
@@ -616,20 +617,21 @@ export default function DashboardPage() {
     if (!activePlan) return null;
     const now = new Date();
     
-    // Find upcoming flight or recently departed flight
-    const nextFlight = activePlan.flights
-      .filter(f => f.is_verified && !f.deleted_at)
-      .find(f => {
-        const depTime = new Date(f.departure_time);
-        const arrTime = f.arrival_time ? new Date(f.arrival_time) : new Date(depTime.getTime() + 2 * 60 * 60 * 1000);
-        
-        const diffMs = depTime.getTime() - now.getTime();
-        const diffHours = diffMs / (3600 * 1000);
-        
-        // Active if departing within 24h OR departed/arrived in the last 12 hours
-        return (diffHours > -12 && diffHours < 24);
-      });
+    // Find upcoming flight or recently departed flight in timelineEvents
+    const nextFlightEvent = timelineEvents.find(e => {
+      if (e.type !== 'flight') return false; // Only departure event, arrival is 'flight_arrival'
+      const depTime = e.datetime;
+      const f = e.payload;
+      if (!f) return false;
+      
+      const diffMs = depTime.getTime() - now.getTime();
+      const diffHours = diffMs / (3600 * 1000);
+      
+      // Active if departing within 24h OR departed/arrived in the last 12 hours
+      return (diffHours > -12 && diffHours < 24);
+    });
 
+    const nextFlight = nextFlightEvent?.payload;
     if (!nextFlight) return null;
 
     const depTime = new Date(nextFlight.departure_time);
@@ -640,17 +642,18 @@ export default function DashboardPage() {
     // Determine Landed vs Pre-flight phase
     const isLanded = now.getTime() > (depTime.getTime() + 45 * 60 * 1000);
 
-    // Find associated transfer
-    const associatedTransfer = activePlan.transfers?.find(t => {
-      if (t.deleted_at) return false;
-      const tPickupTime = t.pickup_datetime ? new Date(t.pickup_datetime) : null;
-      if (!tPickupTime) return false;
+    // Find associated transfer in timelineEvents
+    const associatedTransferEvent = timelineEvents.find(e => {
+      if (e.type !== 'transfer') return false;
+      const t = e.payload;
+      if (!t) return false;
+      const tPickupTime = e.datetime;
       
       const timeDiffHours = (tPickupTime.getTime() - arrTime.getTime()) / (3600 * 1000);
       const isTimeClose = timeDiffHours >= -2 && timeDiffHours <= 8; // pickup within 8 hours of arrival
       
       const arrLoc = (nextFlight.arrival_location || '').toLowerCase();
-      const pickLoc = (t.pickup_location || (t as any).pickup_address || '').toLowerCase();
+      const pickLoc = (t.pickup_location || '').toLowerCase();
       
       const isLocMatch = pickLoc.includes(arrLoc) || 
                          arrLoc.includes(pickLoc) ||
@@ -658,20 +661,24 @@ export default function DashboardPage() {
       
       return isTimeClose && isLocMatch;
     });
+    const associatedTransfer = associatedTransferEvent?.payload;
 
-    // Find associated hotel
-    const associatedHotel = activePlan.hotel_stays?.find(h => {
-      if (h.deleted_at) return false;
-      const checkinDate = new Date(h.check_in);
+    // Find associated hotel stay in timelineEvents
+    const associatedHotelEvent = timelineEvents.find(e => {
+      if (e.type !== 'hotel_checkin') return false; // check-in
+      const h = e.payload;
+      if (!h) return false;
+      const checkinDate = e.datetime;
       return checkinDate.toDateString() === arrTime.toDateString() ||
              Math.abs(checkinDate.getTime() - arrTime.getTime()) < 36 * 60 * 60 * 1000;
     });
+    const associatedHotel = associatedHotelEvent?.payload;
 
-    // Find transfer voucher document
-    const transferVoucher = associatedTransfer ? activePlan.documents.find(d => 
+    // Find transfer voucher document inside associatedTransferEvent's documents
+    const transferVoucher = associatedTransferEvent?.documents?.find(d => 
       !d.deleted_at && (d.related_transfer_id === associatedTransfer.id || 
-      (associatedTransfer.booking_reference && d.booking_reference === associatedTransfer.booking_reference && d.document_type === 'transfer_voucher'))
-    ) : null;
+      (associatedTransfer.booking_reference && d.booking_reference === associatedTransfer.booking_reference))
+    ) || null;
 
     let state: 'preparation' | 'go_to_airport' | 'boarding_soon' | 'final_call' | 'landed' = 'preparation';
     let statusText = 'Preparación de viaje';
@@ -697,10 +704,10 @@ export default function DashboardPage() {
       }
     }
 
-    const boardingPass = activePlan.documents.find(d => 
-      d.related_flight_id === nextFlight.id && 
+    // Find boarding pass inside nextFlightEvent's documents
+    const boardingPass = nextFlightEvent?.documents?.find(d => 
       (d.document_type === 'boarding_pass' || d.title.toLowerCase().includes('tarjeta'))
-    );
+    ) || null;
 
     return {
       flight: nextFlight,
@@ -714,7 +721,7 @@ export default function DashboardPage() {
       transferVoucher,
       isLanded
     };
-  }, [activePlan]);
+  }, [timelineEvents]);
 
   useEffect(() => {
     if (airportMode && (airportMode.diffMin < 360 || airportMode.isLanded) && !showAirportFullView) {

@@ -1,6 +1,7 @@
 import { supabase } from '@/lib/supabase';
 import { FullTravelPlan } from '@/hooks/useTravelPlans';
 import { sendPushToProfile } from '@/modules/push/push-service';
+import { processTimelineEvents } from '@/core/services/travel-timeline.service';
 
 export interface Alert {
   id?: string;
@@ -22,152 +23,159 @@ export const generatePlanAlerts = async (plan: FullTravelPlan, profileId: string
   const alerts: Omit<Alert, 'id' | 'created_at'>[] = [];
   const now = new Date();
 
-  // 1. Vuelo próximo (<4h)
-  plan.flights.forEach(flight => {
-    const depTime = new Date(flight.departure_time);
-    const diffHours = (depTime.getTime() - now.getTime()) / (1000 * 60 * 60);
-    
-    if (diffHours > 0 && diffHours < 4) {
-      alerts.push({
-        plan_id: plan.id,
-        profile_id: profileId,
-        type: 'flight',
-        title: 'Modo Aeropuerto Disponible',
-        message: `Tu vuelo ${flight.flight_number} sale pronto. Activa el modo aeropuerto para ver tu tarjeta de embarque y puerta.`,
-        priority: 'high',
-        action_label: 'Ver Vuelo',
-        action_url: `/dashboard?tab=home&view=airport`,
-        metadata: { dedupe_key: `flight_early_${flight.id}` }
+  // Process unified timeline events from the plan
+  const timeline = processTimelineEvents(plan, plan.documents || []);
+
+  // Fetch user locations for smart departures
+  const { data: userLocs } = await supabase.from('user_locations').select('*').eq('profile_id', profileId);
+  const defaultLoc = userLocs?.find((l: any) => l.is_default_departure) || userLocs?.[0];
+
+  timeline.forEach(e => {
+    // 1. Flights (Early check & Smart Departure)
+    if (e.event_type === 'flight' && !e.id.includes('arr')) {
+      const flight = e.metadata;
+      if (!flight) return;
+      const depTime = new Date(e.start_datetime);
+      const diffHours = (depTime.getTime() - now.getTime()) / (1000 * 60 * 60);
+
+      // Flight soon (<4h)
+      if (diffHours > 0 && diffHours < 4) {
+        alerts.push({
+          plan_id: plan.id,
+          profile_id: profileId,
+          type: 'flight',
+          title: 'Modo Aeropuerto Disponible',
+          message: `Tu vuelo ${flight.flight_number || ''} sale pronto. Activa el modo aeropuerto para ver tu tarjeta de embarque y puerta.`,
+          priority: 'high',
+          action_label: 'Ver Vuelo',
+          action_url: `/dashboard?tab=home&view=airport`,
+          metadata: { dedupe_key: `flight_early_${flight.id}` }
+        });
+      }
+
+      // Smart Departure for flight (3 hours before departure)
+      if (defaultLoc) {
+        const recommendedDeparture = new Date(depTime.getTime() - 180 * 60 * 1000); 
+        if (now >= recommendedDeparture && now < depTime) {
+          alerts.push({
+            plan_id: plan.id,
+            profile_id: profileId,
+            type: 'flight',
+            title: 'Sal ahora hacia el aeropuerto',
+            message: `Es hora de salir hacia el aeropuerto para tu vuelo ${flight.flight_number || ''}. Tráfico estimado: Normal.`,
+            priority: 'urgent',
+            action_label: 'Cómo llegar',
+            action_url: `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(flight.departure_location || '')}`,
+            metadata: { dedupe_key: `smart_departure_flight_${flight.id}` }
+          });
+        }
+      }
+
+      // Boarding passes ready
+      e.related_documents?.forEach(doc => {
+        if ((doc.document_type === 'boarding_pass' || doc.title?.toLowerCase().includes('tarjeta')) && !doc.deleted_at) {
+          alerts.push({
+            plan_id: plan.id,
+            profile_id: profileId,
+            type: 'boarding_pass',
+            title: 'Tarjeta de Embarque Lista',
+            message: `Ya tienes disponible tu tarjeta de embarque para el trayecto a ${flight.arrival_location || 'tu destino'}.`,
+            priority: 'normal',
+            action_label: 'Ver QR',
+            action_url: `show_qr:${doc.id}`,
+            metadata: { dedupe_key: `boarding_pass_${doc.id}` }
+          });
+        }
       });
     }
-  });
 
-  // 2. Boarding pass disponible
-  plan.documents.forEach(doc => {
-    if ((doc.document_type === 'boarding_pass' || doc.title?.toLowerCase().includes('tarjeta')) && !doc.deleted_at) {
-      alerts.push({
-        plan_id: plan.id,
-        profile_id: profileId,
-        type: 'boarding_pass',
-        title: 'Tarjeta de Embarque Lista',
-        message: `Ya tienes disponible tu tarjeta de embarque para el trayecto a ${plan.flights.find(f => f.id === doc.related_flight_id)?.arrival_location || 'tu destino'}.`,
-        priority: 'normal',
-        action_label: 'Ver QR',
-        action_url: `show_qr:${doc.id}`,
-        metadata: { dedupe_key: `boarding_pass_${doc.id}` }
-      });
-    }
-  });
-
-  // 3. Cena próxima (<2h)
-  plan.hospitality_events.forEach(event => {
-    if (event.type === 'dinner' || event.type === 'lunch') {
-      const startTime = new Date(event.start_datetime);
+    // 2. Hospitality / Restaurants
+    if (e.event_type === 'hospitality' || e.event_type === 'restaurant') {
+      const event = e.metadata;
+      if (!event) return;
+      const startTime = new Date(e.start_datetime);
       const diffHours = (startTime.getTime() - now.getTime()) / (1000 * 60 * 60);
-      
+
+      // Dinner/event soon (<2h)
       if (diffHours > 0 && diffHours < 2) {
         alerts.push({
           plan_id: plan.id,
           profile_id: profileId,
           type: 'dining',
-          title: 'Cena Próxima',
-          message: `Tu reserva en ${event.title} comienza en menos de 2 horas.`,
+          title: e.event_type === 'restaurant' ? 'Reserva de Restaurante' : 'Cena Próxima',
+          message: `Tu reserva en ${e.title} comienza en menos de 2 horas.`,
           priority: 'normal',
           action_label: 'Ver Detalles',
-          action_url: `view_event:${event.id}`,
+          action_url: e.event_type === 'restaurant' ? `view_restaurant:${event.id}` : `view_event:${event.id}`,
           metadata: { dedupe_key: `dining_soon_${event.id}` }
         });
       }
-    }
-  });
 
-  // 4. Transfer próximo (<90min)
-  plan.transfers.forEach(transfer => {
-    const pickupTime = new Date(transfer.pickup_datetime);
-    const diffMinutes = (pickupTime.getTime() - now.getTime()) / (1000 * 60);
-    
-    if (diffMinutes > 0 && diffMinutes < 90) {
-      alerts.push({
-        plan_id: plan.id,
-        profile_id: profileId,
-        type: 'transfer',
-        title: 'Traslado Próximo',
-        message: `Tu recogida está programada para las ${pickupTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}.`,
-        priority: 'high',
-        action_label: 'Ver Recogida',
-        action_url: `view_transfer:${transfer.id}`,
-        metadata: { dedupe_key: `transfer_soon_${transfer.id}` }
-      });
-    }
-  });
-
-  // 5. Hotel check-in hoy
-  plan.hotel_stays.forEach(stay => {
-    const checkinDate = new Date(stay.check_in);
-    const isToday = checkinDate.toDateString() === now.toDateString();
-    
-    if (isToday) {
-      alerts.push({
-        plan_id: plan.id,
-        profile_id: profileId,
-        type: 'hotel',
-        title: 'Check-in Hotel Disponible',
-        message: `Hoy comienza tu estancia en ${stay.hotel_name}. Recuerda tener tu documento a mano.`,
-        priority: 'normal',
-        action_label: 'Ver Hotel',
-        action_url: `view_hotel:${stay.id}`,
-        metadata: { dedupe_key: `hotel_today_${stay.id}` }
-      });
-    }
-  });
-
-  // 6. Smart Departure (Salida ahora)
-  const { data: userLocs } = await supabase.from('user_locations').select('*').eq('profile_id', profileId);
-  const defaultLoc = userLocs?.find((l: any) => l.is_default_departure) || userLocs?.[0];
-
-  if (defaultLoc) {
-    // Vuelos: Buffer 120min + trayecto
-    for (const flight of plan.flights) {
-      const depTime = new Date(flight.departure_time);
-      // Asumimos 45 min de trayecto medio si no tenemos cálculo real aquí (o podríamos llamar al servicio)
-      // Para simplificar en el engine, usamos una regla de 3 horas antes del vuelo
-      const recommendedDeparture = new Date(depTime.getTime() - 180 * 60 * 1000); 
-      
-      if (now >= recommendedDeparture && now < depTime) {
-        alerts.push({
-          plan_id: plan.id,
-          profile_id: profileId,
-          type: 'flight',
-          title: 'Sal ahora hacia el aeropuerto',
-          message: `Es hora de salir hacia el aeropuerto para tu vuelo ${flight.flight_number}. Tráfico estimado: Normal.`,
-          priority: 'urgent',
-          action_label: 'Cómo llegar',
-          action_url: `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(flight.departure_location)}`,
-          metadata: { dedupe_key: `smart_departure_flight_${flight.id}` }
-        });
+      // Smart Departure for dining/events (45 mins before)
+      if (defaultLoc) {
+        const recommendedDeparture = new Date(startTime.getTime() - 45 * 60 * 1000);
+        if (now >= recommendedDeparture && now < startTime) {
+          alerts.push({
+            plan_id: plan.id,
+            profile_id: profileId,
+            type: 'dining',
+            title: 'Sal ahora hacia tu evento',
+            message: `Es hora de salir hacia ${e.title}. Tu reserva comienza pronto.`,
+            priority: 'high',
+            action_label: 'Cómo llegar',
+            action_url: `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(e.location || '')}`,
+            metadata: { dedupe_key: `smart_departure_event_${event.id}` }
+          });
+        }
       }
     }
 
-    // Eventos: Buffer 15min + trayecto (aprox 45 min antes)
-    for (const event of plan.hospitality_events) {
-      const startTime = new Date(event.start_datetime);
-      const recommendedDeparture = new Date(startTime.getTime() - 45 * 60 * 1000);
-      
-      if (now >= recommendedDeparture && now < startTime) {
+    // 3. Transfers
+    if (e.event_type === 'transfer') {
+      const transfer = e.metadata;
+      if (!transfer) return;
+      const pickupTime = new Date(e.start_datetime);
+      const diffMinutes = (pickupTime.getTime() - now.getTime()) / (1000 * 60);
+
+      // Transfer soon (<90min)
+      if (diffMinutes > 0 && diffMinutes < 90) {
         alerts.push({
           plan_id: plan.id,
           profile_id: profileId,
-          type: 'dining',
-          title: 'Sal ahora hacia tu evento',
-          message: `Es hora de salir hacia ${event.title}. Tu reserva comienza pronto.`,
+          type: 'transfer',
+          title: 'Traslado Próximo',
+          message: `Tu recogida está programada para las ${pickupTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}.`,
           priority: 'high',
-          action_label: 'Cómo llegar',
-          action_url: `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(event.venue_name || '')}`,
-          metadata: { dedupe_key: `smart_departure_event_${event.id}` }
+          action_label: 'Ver Recogida',
+          action_url: `view_transfer:${transfer.id}`,
+          metadata: { dedupe_key: `transfer_soon_${transfer.id}` }
         });
       }
     }
-  }
+
+    // 4. Hotels
+    if (e.event_type === 'hotel' && e.id.includes('in')) {
+      const stay = e.metadata;
+      if (!stay) return;
+      const checkinDate = new Date(e.start_datetime);
+      const isToday = checkinDate.toDateString() === now.toDateString();
+
+      // Check-in today
+      if (isToday) {
+        alerts.push({
+          plan_id: plan.id,
+          profile_id: profileId,
+          type: 'hotel',
+          title: 'Check-in Hotel Disponible',
+          message: `Hoy comienza tu estancia en ${stay.hotel_name || 'tu hotel'}. Recuerda tener tu documento a mano.`,
+          priority: 'normal',
+          action_label: 'Ver Hotel',
+          action_url: `view_hotel:${stay.id}`,
+          metadata: { dedupe_key: `hotel_today_${stay.id}` }
+        });
+      }
+    }
+  });
 
   // Guardar en DB (evitando duplicados por dedupe_key)
   for (const alert of alerts) {

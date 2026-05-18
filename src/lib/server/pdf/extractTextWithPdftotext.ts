@@ -22,8 +22,16 @@ export async function extractTextWithPdftotext(buffer: Buffer): Promise<string> 
     await writeFile(input, buffer);
 
     // 2. Ejecutar pdftotext (requiere poppler instalado: brew install poppler)
-    // FORZAMOS RUTA ABSOLUTA PARA DEBUG
-    const cmd = '/opt/homebrew/bin/pdftotext';
+    let cmd = 'pdftotext';
+    
+    if (process.platform === 'darwin') {
+      const fs = await import('node:fs');
+      if (fs.existsSync('/opt/homebrew/bin/pdftotext')) {
+        cmd = '/opt/homebrew/bin/pdftotext';
+      } else if (fs.existsSync('/usr/local/bin/pdftotext')) {
+        cmd = '/usr/local/bin/pdftotext';
+      }
+    }
     
     console.log(`[DEBUG] Ejecutando: ${cmd}`);
 
