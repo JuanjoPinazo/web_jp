@@ -8,6 +8,26 @@ export class RouteEngine {
   }
 
   /**
+   * Inyecta rutas cacheadas de la base de datos en la caché local del RouteEngine.
+   */
+  static injectCachedRoutes(dbRoutes: any[]) {
+    if (!dbRoutes || !Array.isArray(dbRoutes)) return;
+    dbRoutes.forEach(r => {
+      const mode = r.travel_mode || 'DRIVING';
+      const key = `${r.origin_lat.toFixed(5)},${r.origin_lng.toFixed(5)}_${r.destination_lat.toFixed(5)},${r.destination_lng.toFixed(5)}_${mode}`;
+      
+      this.cache[key] = {
+        distanceMeters: r.distance_meters,
+        durationSeconds: r.duration_seconds,
+        distanceText: r.distance_text,
+        durationText: r.duration_text,
+        mode: mode as any,
+        polyline: r.raw_response?.routes?.[0]?.overview_polyline?.points || r.raw_response?.polyline || undefined
+      };
+    });
+  }
+
+  /**
    * Calcula la distancia Haversine (línea recta) entre dos coordenadas.
    * Se utiliza como fallback si falla la Directions API.
    */

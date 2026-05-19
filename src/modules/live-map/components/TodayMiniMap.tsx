@@ -1,23 +1,34 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import { useState, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import { FullTravelPlan } from '@/hooks/useTravelPlans';
 import { LiveMapService } from '../live-map.service';
 import { MapLocation } from '../types';
-import LiveMap from './LiveMap';
-import { Maximize2, MapPin, Navigation, Info, X } from 'lucide-react';
+import { Maximize2, MapPin, Navigation, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+
+const LiveMap = dynamic(() => import('./LiveMap'), {
+  ssr: false,
+  loading: () => (
+    <div className="w-full h-full flex items-center justify-center bg-[#09090A]">
+      <div className="w-5 h-5 rounded-full border-2 border-accent/20 border-t-accent animate-spin" />
+    </div>
+  )
+});
 
 interface TodayMiniMapProps {
   activePlan: FullTravelPlan | null;
   nextAction: any;
   className?: string;
+  onExpand?: (locationId?: string) => void;
 }
 
 export default function TodayMiniMap({
   activePlan,
   nextAction,
-  className
+  className,
+  onExpand
 }: TodayMiniMapProps) {
   const [isExpanded, setIsExpanded] = useState(false);
 
@@ -94,17 +105,24 @@ export default function TodayMiniMap({
     <div className={cn("w-full space-y-3", className)}>
       {/* Contenedor del Mini Mapa */}
       <div 
-        onClick={() => setIsExpanded(true)}
+        onClick={() => {
+          if (onExpand) {
+            onExpand(activeLocationId);
+          } else {
+            setIsExpanded(true);
+          }
+        }}
         className="relative w-full h-[200px] rounded-[2.5rem] bg-[#111115]/40 border border-white/10 overflow-hidden shadow-xl cursor-pointer hover:border-accent/40 transition-all group"
       >
-        {/* Mapa embebido estático (no interactivo, pero autoverificado) */}
+        {/* Mapa embebido estático */}
         <div className="absolute inset-0 pointer-events-none">
-          <LiveMap 
+          <LiveMap
             locations={locations}
             activeLocationId={activeLocationId}
             showUserLocation={true}
             showRoutes={true}
             interactive={false}
+            hideInternalUI={true}
           />
         </div>
 
@@ -138,7 +156,13 @@ export default function TodayMiniMap({
             </div>
           </div>
           <button 
-            onClick={() => setIsExpanded(true)}
+            onClick={() => {
+              if (onExpand) {
+                onExpand(activeLocationId);
+              } else {
+                setIsExpanded(true);
+              }
+            }}
             className="text-[9px] font-black uppercase tracking-widest bg-accent/10 border border-accent/20 text-accent px-4 py-2 rounded-2xl hover:bg-accent hover:text-white transition-all"
           >
             Ver Ruta
@@ -168,12 +192,13 @@ export default function TodayMiniMap({
 
           {/* Mapa Interactivo de Pantalla Completa */}
           <div className="flex-1 relative">
-            <LiveMap 
+            <LiveMap
               locations={locations}
               activeLocationId={activeLocationId}
               showUserLocation={true}
               showRoutes={true}
               interactive={true}
+              hideInternalUI={false}
             />
           </div>
         </div>

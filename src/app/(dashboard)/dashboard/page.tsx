@@ -29,7 +29,7 @@ import {
   Send, History, Shield, Bell, Navigation, Smartphone, Ticket, QrCode, 
   Calendar, MapPin, Building2, User, Car, Utensils, Plane, Loader2, 
   FileText, Clock, ArrowRight, Download, MessageSquare, AlertCircle, 
-  CalendarRange, ChevronDown, Check, XCircle, Sun, Moon, ExternalLink, X, CheckCircle2, Phone, Activity
+  CalendarRange, ChevronDown, Check, XCircle, Sun, Moon, ExternalLink, X, CheckCircle2, Phone, Activity, Map
 } from 'lucide-react';
 
 // Premium UI Components
@@ -42,6 +42,9 @@ import { TimelineEvent } from '@/components/premium/TimelineEvent';
 import { AirportModeView } from '@/components/premium/AirportModeView';
 import { processTimelineEvents } from '@/core/services/travel-timeline.service';
 import TodayMiniMap from '@/modules/live-map/components/TodayMiniMap';
+import LiveMapTab from '@/modules/live-map/components/LiveMapTab';
+import SupportPanel from '@/modules/coordinator-support/components/SupportPanel';
+import { AlertTriangle } from 'lucide-react';
 
 const WakeLockHandler = () => {
   useEffect(() => {
@@ -142,7 +145,8 @@ export default function DashboardPage() {
   const [isRecommendingWithIA, setIsRecommendingWithIA] = useState(false);
   
   // Navigation & Assistant states
-  const [activeTab, setActiveTab] = useState<'home' | 'explore' | 'assistant' | 'profile'>('home');
+  const [activeTab, setActiveTab] = useState<'home' | 'explore' | 'assistant' | 'profile' | 'map'>('home');
+  const [selectedMapLocId, setSelectedMapLocId] = useState<string | undefined>(undefined);
   const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'assistant'; content: string; actions?: any[] }[]>([]);
   const [currentMessage, setCurrentMessage] = useState('');
   const [isThinking, setIsThinking] = useState(false);
@@ -166,6 +170,27 @@ export default function DashboardPage() {
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [showAirportFullView, setShowAirportFullView] = useState(false);
+
+  // Support Concierge states
+  const [isSupportOpen, setIsSupportOpen] = useState(false);
+  const [supportEntityContext, setSupportEntityContext] = useState<any>(null);
+
+  const handleOpenSupport = (entityContext?: any) => {
+    setSupportEntityContext(entityContext || null);
+    setIsSupportOpen(true);
+  };
+
+  useEffect(() => {
+    const handleOpenSupportEvent = (e: Event) => {
+      const customEvent = e as CustomEvent;
+      handleOpenSupport(customEvent.detail || null);
+    };
+
+    window.addEventListener('open-support-concierge', handleOpenSupportEvent);
+    return () => {
+      window.removeEventListener('open-support-concierge', handleOpenSupportEvent);
+    };
+  }, []);
 
   useEffect(() => {
     if (typeof window !== 'undefined' && 'Notification' in window) {
@@ -876,6 +901,10 @@ export default function DashboardPage() {
             smartDeparture={smartDeparture}
             isAdmin={isAdmin}
             onClose={() => setShowAirportFullView(false)}
+            onOpenSupport={(entity) => {
+              setShowAirportFullView(false);
+              handleOpenSupport(entity);
+            }}
             onAction={(action, payload) => {
               if (action === 'maps') {
                 const dest = payload?.destination || airportMode.flight.departure_location;
@@ -1093,7 +1122,14 @@ export default function DashboardPage() {
                 )}
 
                 {/* MINI MAPA EN VIVO OPERACIONAL */}
-                <TodayMiniMap activePlan={activePlan} nextAction={nextAction} />
+                <TodayMiniMap 
+                  activePlan={activePlan} 
+                  nextAction={nextAction} 
+                  onExpand={(locationId) => {
+                    setSelectedMapLocId(locationId);
+                    setActiveTab('map');
+                  }}
+                />
               </div>
 
               {/* PRÓXIMA ACCIÓN */}
@@ -1367,6 +1403,21 @@ export default function DashboardPage() {
             </div>
           )}
 
+          {activeTab === 'map' && (
+            <motion.div variants={itemVariants} className="w-full">
+              <LiveMapTab 
+                activePlan={activePlan}
+                timelineEvents={timelineEvents}
+                planRoutes={planRoutes}
+                smartDeparture={smartDeparture}
+                nextAction={nextAction}
+                initialSelectedLocationId={selectedMapLocId}
+                onClose={() => setActiveTab('home')}
+                onOpenSupport={handleOpenSupport}
+              />
+            </motion.div>
+          )}
+
           {activeTab === 'explore' && (
             <motion.div variants={itemVariants} className="space-y-8">
               <div className="space-y-1">
@@ -1536,6 +1587,7 @@ export default function DashboardPage() {
         <div className="max-w-xl mx-auto flex items-center justify-between p-2 rounded-[2.5rem] bg-surface/90 backdrop-blur-xl border border-white/10 shadow-2xl">
           {[
             { id: 'home', label: 'Inicio', icon: Building2 },
+            { id: 'map', label: 'Mapa', icon: Map },
             { id: 'explore', label: 'Explorar', icon: Compass },
             { id: 'assistant', label: 'Asistente', icon: Sparkles },
             { id: 'profile', label: 'Perfil', icon: User },
@@ -1818,6 +1870,37 @@ export default function DashboardPage() {
                 className="w-full py-5"
               />
             )}
+
+            {selectedEvent && selectedEvent.lat && selectedEvent.lng && (
+              <button
+                onClick={() => {
+                  setSelectedMapLocId(selectedEvent.id);
+                  setActiveTab('map');
+                  setIsSheetOpen(false);
+                }}
+                className="w-full py-4 rounded-2xl bg-accent/20 border border-accent/30 text-accent hover:bg-accent/30 font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-3 transition-all"
+              >
+                <Map size={16} />
+                Ver en Mapa Inteligente
+              </button>
+            )}
+
+            {selectedEvent && ['flight', 'hotel', 'transfer', 'restaurant', 'hospitality'].includes(selectedEvent.type) && (
+              <button 
+                onClick={() => {
+                  setIsSheetOpen(false);
+                  handleOpenSupport({
+                    type: selectedEvent.type,
+                    id: selectedEvent.id || selectedEvent.payload?.id || selectedEvent.payload?.travel_route_id,
+                    name: selectedEvent.title
+                  });
+                }}
+                className="w-full py-4 rounded-2xl bg-white/5 border border-white/10 text-white font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-2 hover:bg-white/10 transition-colors"
+              >
+                <AlertTriangle size={14} className="text-amber-400" />
+                Reportar Problema
+              </button>
+            )}
           </div>
         </div>
       </BottomActionSheet>
@@ -1886,9 +1969,20 @@ export default function DashboardPage() {
                   <p className="text-[10px] font-black text-[#00D1FF] uppercase tracking-[0.3em]">Agenda Completa</p>
                   <h3 className="text-2xl font-black text-white tracking-tighter">Itinerario Completo</h3>
                 </div>
-                <button onClick={() => setShowTimeline(false)} className="p-2 bg-surface-subtle rounded-full text-muted hover:text-white transition-colors">
-                  <X size={24} />
-                </button>
+                <div className="flex items-center gap-2">
+                  <button 
+                    onClick={() => {
+                      setShowTimeline(false);
+                      handleOpenSupport();
+                    }}
+                    className="px-4 py-2 h-10 rounded-full bg-accent/10 border border-accent/20 flex items-center justify-center text-accent text-[9px] font-black uppercase tracking-widest hover:bg-accent/20 transition-all font-bold"
+                  >
+                    Soporte
+                  </button>
+                  <button onClick={() => setShowTimeline(false)} className="p-2 bg-surface-subtle rounded-full text-muted hover:text-white transition-colors">
+                    <X size={24} />
+                  </button>
+                </div>
               </div>
               <div className="space-y-8">
                 {timelineEvents.length > 0 ? (
@@ -1918,6 +2012,26 @@ export default function DashboardPage() {
         onClose={() => setShowMap(false)}
         locations={mapLocations}
         contextName={selectedContext?.name}
+      />
+
+      {/* Floating Support Action Button */}
+      {['home', 'map', 'profile'].includes(activeTab) && !isSupportOpen && (
+        <button
+          onClick={() => handleOpenSupport()}
+          className="fixed bottom-24 right-6 z-40 w-12 h-12 rounded-full bg-accent text-background flex items-center justify-center shadow-lg shadow-accent/20 border border-accent/30 hover:scale-105 active:scale-95 transition-all animate-in fade-in zoom-in duration-300"
+          title="Soporte Concierge"
+        >
+          <MessageSquare size={20} className="stroke-[2.5]" />
+        </button>
+      )}
+
+      {/* Support Concierge Drawer Panel */}
+      <SupportPanel
+        isOpen={isSupportOpen}
+        onClose={() => setIsSupportOpen(false)}
+        activePlan={activePlan}
+        profile={session.user as any}
+        entityContext={supportEntityContext}
       />
     </div>
   );

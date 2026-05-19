@@ -28,38 +28,31 @@ export function PwaUpdateManager() {
   // Check server version endpoint
   const checkVersion = useCallback(async (isManual = false) => {
     setChecking(true);
-    setManualCheckResult(null);
+    if (isManual) setManualCheckResult(null);
     try {
       const res = await fetch('/api/version', { cache: 'no-store' });
-      if (!res.ok) throw new Error('Failed to fetch version from server');
+      if (!res.ok) {
+        // Fallo silencioso en checks automáticos — el endpoint puede estar temporalmente no disponible
+        if (isManual) setManualCheckResult('Error al conectar con el servidor de versiones.');
+        return;
+      }
       const data: VersionInfo = await res.json();
       setServerVersion(data);
 
-      const isDifferent = 
-        data.version !== localVersion || 
+      const isDifferent =
+        data.version !== localVersion ||
         (localBuildTime && data.buildTime !== localBuildTime);
 
       if (isDifferent) {
-        console.log('[PWA Update] Version mismatch detected. Server:', data, 'Local:', { version: localVersion, buildTime: localBuildTime });
-        
-        // Tell the service worker to fetch updates from the server
-        if (registration) {
-          await registration.update();
-        }
-        
-        if (isManual) {
-          setManualCheckResult('Nueva actualización encontrada en el servidor. Descargando...');
-        }
+        console.log('[PWA Update] Nueva versión detectada. Servidor:', data, 'Local:', { version: localVersion, buildTime: localBuildTime });
+        if (registration) await registration.update();
+        if (isManual) setManualCheckResult('Nueva actualización encontrada en el servidor. Descargando...');
       } else {
-        if (isManual) {
-          setManualCheckResult('Tu aplicación ya está actualizada a la última versión.');
-        }
+        if (isManual) setManualCheckResult('Tu aplicación ya está actualizada a la última versión.');
       }
-    } catch (err) {
-      console.error('[PWA Update] Error checking version:', err);
-      if (isManual) {
-        setManualCheckResult('Error al conectar con el servidor de versiones.');
-      }
+    } catch {
+      // Error de red — fallo silencioso en checks automáticos de background
+      if (isManual) setManualCheckResult('Error al conectar con el servidor de versiones.');
     } finally {
       setChecking(false);
     }

@@ -178,6 +178,17 @@ export default function ProfilePage() {
               )}
             </div>
 
+            <button
+              type="button"
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent('open-support-concierge'));
+              }}
+              className="w-full mt-4 py-4 rounded-2xl bg-accent text-background text-[10px] font-black uppercase tracking-widest hover:brightness-110 active:scale-95 transition-all flex items-center justify-center gap-2 shadow-lg shadow-accent/20"
+            >
+              <AlertCircle size={14} />
+              Soporte Concierge
+            </button>
+
             {/* Logout en mobile dentro de la card de perfil también */}
             <button
               onClick={handleLogout}

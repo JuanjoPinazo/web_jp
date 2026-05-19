@@ -20,6 +20,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Logo } from './Logo';
 import { motion, AnimatePresence } from 'framer-motion';
+import { MessageSquare } from 'lucide-react';
 
 const adminLinks = [
   { href: '/admin', label: 'Inicio', icon: LayoutDashboard },
@@ -28,6 +29,7 @@ const adminLinks = [
   { href: '/admin/recommendations', label: 'Recomendaciones', icon: Sparkles },
   { href: '/admin/plans', label: 'Logística', icon: MapPin },
   { href: '/admin/hospitality', label: 'Hospitality', icon: Utensils },
+  { href: '/admin/support', label: 'Soporte', icon: MessageSquare },
   { href: '/admin/users', label: 'Usuarios', icon: Users },
 ];
 
