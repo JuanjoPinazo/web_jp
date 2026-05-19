@@ -15,6 +15,12 @@ BEGIN
     END IF;
 
     IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns WHERE table_name = 'profiles' AND column_name = 'password_updated_at'
+    ) THEN
+        ALTER TABLE public.profiles ADD COLUMN password_updated_at timestamptz;
+    END IF;
+
+    IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns WHERE table_name = 'access_requests' AND column_name = 'assigned_client_id'
     ) THEN
         ALTER TABLE public.access_requests ADD COLUMN assigned_client_id uuid REFERENCES public.clients(id);

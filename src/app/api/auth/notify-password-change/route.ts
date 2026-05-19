@@ -29,6 +29,33 @@ export async function POST(request: Request) {
       .eq('id', user.id)
       .single();
 
+    const supabaseAdmin = getSupabaseAdmin();
+    // Clear temp_password and set password_updated_at in profiles table
+    let { error: updateError } = await supabaseAdmin
+      .from('profiles')
+      .update({ 
+        temp_password: null,
+        password_updated_at: new Date().toISOString()
+      } as any)
+      .eq('id', user.id);
+
+    // Fallback if password_updated_at column does not exist yet
+    if (updateError && (updateError.message.includes('password_updated_at') || updateError.message.includes('column'))) {
+      console.warn('password_updated_at column not found, falling back to temp_password clear only.');
+      const fallbackResult = await supabaseAdmin
+        .from('profiles')
+        .update({ 
+          temp_password: null 
+        })
+        .eq('id', user.id);
+      updateError = fallbackResult.error;
+    }
+
+    if (updateError) {
+      console.error('Error updating profile password metadata:', updateError);
+      return NextResponse.json({ error: 'Failed to update user profile password status: ' + updateError.message }, { status: 500 });
+    }
+
     // Notify Admin via Resend
     const { resend } = await import('@/lib/resend');
     await resend.emails.send({

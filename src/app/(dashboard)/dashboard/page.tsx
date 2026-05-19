@@ -67,7 +67,7 @@ const WakeLockHandler = () => {
 export default function DashboardPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { session } = useAuth();
+  const { session, logout } = useAuth();
 
   // Impersonation / Preview Logic
   const previewUserId = searchParams.get('preview_user_id');
@@ -1504,7 +1504,7 @@ export default function DashboardPage() {
                   <p className="text-[10px] font-black text-muted uppercase tracking-widest">{session.user?.role || 'CLIENTE VIP'}</p>
                 </div>
                 <button 
-                  onClick={() => supabase.auth.signOut().then(() => router.push('/login'))}
+                  onClick={logout}
                   className="w-full py-5 rounded-2xl bg-red-500/10 text-red-500 text-[10px] font-black uppercase tracking-widest border border-red-500/20"
                 >
                   Cerrar Sesión

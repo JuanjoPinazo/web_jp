@@ -6,9 +6,11 @@ import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/Button';
 import { Shield, Lock, Eye, EyeOff, Loader2, CheckCircle2 } from 'lucide-react';
 import { Logo } from '@/components/Logo';
+import { useAuth } from '@/context/AuthContext';
 
 export default function SetPasswordPage() {
   const router = useRouter();
+  const { refreshSession } = useAuth();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -55,27 +57,43 @@ export default function SetPasswordPage() {
 
       setSuccess(true);
 
-      // Notify Admin
+      // Notify Admin and clear DB flags - AWAIT this so database updates before we refresh session
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.access_token) {
-          await fetch('/api/auth/notify-password-change', {
+          const res = await fetch('/api/auth/notify-password-change', {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${session.access_token}`
             }
           });
+          if (!res.ok) {
+            console.error('Notification API failed with status:', res.status);
+          }
         }
       } catch (notifyErr) {
         console.error('Failed to notify admin about password change:', notifyErr);
       }
 
-      // Wait a bit and redirect to dashboard
-      setTimeout(() => {
+      // Wait a bit, clean up, refresh session, and redirect to dashboard
+      setTimeout(async () => {
+        try {
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem('supabase.auth.recovery');
+            window.history.replaceState(null, '', window.location.pathname);
+          }
+          if (typeof refreshSession === 'function') {
+            await refreshSession();
+          } else {
+            console.warn('refreshSession is not defined in the current auth context. Please reload the page.');
+          }
+        } catch (refreshErr) {
+          console.error('Failed to refresh session or clean up:', refreshErr);
+        }
         router.push('/dashboard');
       }, 2000);
-    } catch (err: any) {
-      setError(err.message || 'Error al establecer la contraseña');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Error al establecer la contraseña');
     } finally {
       setLoading(false);
     }
@@ -115,7 +133,7 @@ export default function SetPasswordPage() {
           <form onSubmit={handleSubmit} className="p-8 md:p-10 rounded-[3rem] bg-surface border border-border shadow-2xl space-y-6">
             <div className="space-y-2 text-center pb-4 border-b border-border/50">
               <p className="text-xs text-muted leading-relaxed italic">
-                "Bienvenido a la excelencia. Por favor, define una contraseña segura para proteger tu dossier operativo."
+                &quot;Bienvenido a la excelencia. Por favor, define una contraseña segura para proteger tu dossier operativo.&quot;
               </p>
             </div>
 
