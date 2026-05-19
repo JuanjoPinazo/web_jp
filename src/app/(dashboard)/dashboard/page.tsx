@@ -4,13 +4,13 @@ import React, { useEffect, useState, useMemo } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { FullTravelPlan, useTravelPlans } from '@/hooks/useTravelPlans';
-import { AddPassButton } from '@/components/wallet/AddPassButton';
+import { AddPassButton, WalletBadge } from '@/components/wallet/AddPassButton';
 import { usePlanModules } from '@/hooks/usePlanModules';
 import { useTheme } from '@/context/ThemeContext';
 import { cn } from '@/lib/utils';
 import { UserLocationsManager } from '@/components/UserLocationsManager';
 import { getUserLocationsAction } from '@/actions/user-location-actions';
-import { calculateRecommendedDeparture } from '@/modules/smart-departure/smart-departure.service';
+import { calculateRecommendedDepartureAction } from '@/actions/smart-departure-actions';
 import { QRCodeSVG } from 'qrcode.react';
 import { motion, AnimatePresence, type Variants } from 'framer-motion';
 import { OutcomeDrawer } from '@/components/OutcomeDrawer';
@@ -38,13 +38,18 @@ import { CompactRow } from '@/components/premium/CompactRow';
 import { TimelineSection } from '@/components/premium/TimelineSection';
 import { BottomActionSheet } from '@/components/premium/BottomActionSheet';
 import { TimelineEvent } from '@/components/premium/TimelineEvent';
+import { MobilityActions } from '@/components/premium/MobilityActions';
+import { ShareLocationDrawer } from '@/components/premium/ShareLocationDrawer';
 
 import { AirportModeView } from '@/components/premium/AirportModeView';
 import { processTimelineEvents } from '@/core/services/travel-timeline.service';
 import TodayMiniMap from '@/modules/live-map/components/TodayMiniMap';
 import LiveMapTab from '@/modules/live-map/components/LiveMapTab';
 import SupportPanel from '@/modules/coordinator-support/components/SupportPanel';
+import dynamic from 'next/dynamic';
+const LiveMap = dynamic(() => import('@/modules/live-map/components/LiveMap'), { ssr: false });
 import { AlertTriangle } from 'lucide-react';
+import { LiveMapExperience } from '@/components/premium/LiveMapExperience';
 
 const WakeLockHandler = () => {
   useEffect(() => {
@@ -65,6 +70,38 @@ const WakeLockHandler = () => {
       }
     };
   }, []);
+  return null;
+};
+
+const getMobilityCoords = (event: any) => {
+  if (!event) return null;
+  
+  // Transfer
+  if (event.type === 'transfer') {
+    const lat = event.payload?.dropoff_lat || event.payload?.pickup_lat || event.lat;
+    const lng = event.payload?.dropoff_lng || event.payload?.pickup_lng || event.lng;
+    if (lat && lng) return { lat, lng };
+  }
+  
+  // Flights
+  if (event.type?.includes('flight')) {
+    const lat = event.payload?.arrival_lat || event.payload?.departure_lat || event.lat;
+    const lng = event.payload?.arrival_lng || event.payload?.departure_lng || event.lng;
+    if (lat && lng) return { lat, lng };
+  }
+
+  // Hospitality / Dinner / Agenda
+  if (event.payload?.venue_lat && event.payload?.venue_lng) {
+    return { lat: event.payload.venue_lat, lng: event.payload.venue_lng };
+  }
+
+  // Hotel / Restaurant / Generic place
+  const lat = event.lat || event.payload?.latitude || event.payload?.geometry?.location?.lat;
+  const lng = event.lng || event.payload?.longitude || event.payload?.geometry?.location?.lng;
+  if (lat && lng) {
+    return { lat, lng };
+  }
+
   return null;
 };
 
@@ -138,7 +175,7 @@ export default function DashboardPage() {
   const [searchCategory, setSearchCategory] = useState('restaurant');
   const [searchRadius, setSearchRadius] = useState(1000);
   const [searchReference, setSearchReference] = useState<'hotel' | 'congress' | 'current'>('hotel');
-  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number; accuracy?: number } | null>(null);
   const [savedPlaces, setSavedPlaces] = useState<any[]>([]);
   const [isSavingPlaceId, setIsSavingPlaceId] = useState<string | null>(null);
   const [aiRecommendations, setAiRecommendations] = useState<any[]>([]);
@@ -147,7 +184,7 @@ export default function DashboardPage() {
   // Navigation & Assistant states
   const [activeTab, setActiveTab] = useState<'home' | 'explore' | 'assistant' | 'profile' | 'map'>('home');
   const [selectedMapLocId, setSelectedMapLocId] = useState<string | undefined>(undefined);
-  const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'assistant'; content: string; actions?: any[] }[]>([]);
+  const [chatHistory, setChatHistory] = useState<{ role: 'user' | 'assistant'; content: string; actions?: any[]; places?: any[]; alert?: string }[]>([]);
   const [currentMessage, setCurrentMessage] = useState('');
   const [isThinking, setIsThinking] = useState(false);
   const [alerts, setAlerts] = useState<any[]>([]);
@@ -170,6 +207,56 @@ export default function DashboardPage() {
   const [selectedEvent, setSelectedEvent] = useState<any>(null);
   const [isSheetOpen, setIsSheetOpen] = useState(false);
   const [showAirportFullView, setShowAirportFullView] = useState(false);
+  const [isShareLocationOpen, setIsShareLocationOpen] = useState(false);
+  const [sharedMeetingPoint, setSharedMeetingPoint] = useState<{
+    lat: number;
+    lng: number;
+    name: string;
+    user: string;
+    type: string;
+  } | null>(null);
+
+  useEffect(() => {
+    const shareLat = searchParams.get('share_lat');
+    const shareLng = searchParams.get('share_lng');
+    const shareName = searchParams.get('share_name');
+    const shareUser = searchParams.get('share_user');
+    const shareType = searchParams.get('share_type');
+
+    if (shareLat && shareLng && shareName && shareUser) {
+      setSharedMeetingPoint({
+        lat: parseFloat(shareLat),
+        lng: parseFloat(shareLng),
+        name: shareName,
+        user: shareUser,
+        type: shareType || 'gps'
+      });
+    }
+  }, [searchParams]);
+
+  const sharedMeetingMetrics = useMemo(() => {
+    if (!userLocation || !sharedMeetingPoint) return null;
+
+    const R = 6371; // km
+    const lat1 = (userLocation.lat * Math.PI) / 180;
+    const lat2 = (sharedMeetingPoint.lat * Math.PI) / 180;
+    const dLat = ((sharedMeetingPoint.lat - userLocation.lat) * Math.PI) / 180;
+    const dLng = ((sharedMeetingPoint.lng - userLocation.lng) * Math.PI) / 180;
+
+    const a =
+      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+      Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const km = R * c * 1.25;
+
+    const walkSpeed = 5; // km/h
+    const etaMin = Math.round((km / walkSpeed) * 60);
+
+    return {
+      km: parseFloat(km.toFixed(2)),
+      etaMin: Math.max(1, etaMin)
+    };
+  }, [userLocation, sharedMeetingPoint]);
 
   // Support Concierge states
   const [isSupportOpen, setIsSupportOpen] = useState(false);
@@ -256,19 +343,58 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (position) => {
-          setUserLocation({
-            lat: position.coords.latitude,
-            lng: position.coords.longitude
+    if (typeof window === 'undefined' || !navigator.geolocation) return;
+
+    // Load from cache first
+    try {
+      const cachedLoc = localStorage.getItem('current_location');
+      const cachedTime = localStorage.getItem('last_updated');
+      const cachedAcc = localStorage.getItem('accuracy');
+      if (cachedLoc && cachedTime) {
+        const timeDiff = Date.now() - new Date(cachedTime).getTime();
+        // If cache is less than 15 minutes old, use it initially
+        if (timeDiff < 15 * 60 * 1000) {
+          const parsed = JSON.parse(cachedLoc);
+          setUserLocation({ 
+            lat: parsed.lat, 
+            lng: parsed.lng, 
+            accuracy: cachedAcc ? parseFloat(cachedAcc) : undefined 
           });
-        },
-        (error) => {
-          console.warn('Geolocation error:', error);
         }
-      );
+      }
+    } catch (e) {
+      console.warn('Error reading location cache:', e);
     }
+
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        const coords = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude,
+          accuracy: position.coords.accuracy
+        };
+        setUserLocation(coords);
+
+        // Save to cache
+        try {
+          localStorage.setItem('current_location', JSON.stringify({ lat: coords.lat, lng: coords.lng }));
+          localStorage.setItem('last_updated', new Date().toISOString());
+          localStorage.setItem('accuracy', coords.accuracy.toString());
+        } catch (e) {
+          console.warn('Error saving location cache:', e);
+        }
+      },
+      (error) => {
+        console.warn('Geolocation watch error:', error);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 30000
+      }
+    );
+
+    return () => navigator.geolocation.clearWatch(watchId);
   }, []);
 
   useEffect(() => {
@@ -358,14 +484,19 @@ export default function DashboardPage() {
         profileId: effectiveUserId,
         userName: userName,
         message: text,
-        history: chatHistory.map(h => ({ role: h.role, content: h.content }))
+        history: chatHistory.map(h => ({ role: h.role, content: h.content })),
+        userLocation: userLocation,
+        weather: liveStatus?.activeWeatherStatus,
+        traffic: liveStatus?.activeTrafficStatus
       });
 
       if (res.success) {
         setChatHistory(prev => [...prev, { 
           role: 'assistant', 
           content: res.answer || '', 
-          actions: res.actions 
+          actions: res.actions,
+          places: res.places || [],
+          alert: res.alert
         }]);
       } else {
         setChatHistory(prev => [...prev, { 
@@ -683,7 +814,7 @@ export default function DashboardPage() {
       const defaultLoc = userLocations.find(l => l.is_default_departure) || userLocations[0];
       if (!defaultLoc) return;
 
-      const res = await calculateRecommendedDeparture({
+      const res = await calculateRecommendedDepartureAction({
         origin: { 
           address: defaultLoc.address, 
           latitude: defaultLoc.latitude, 
@@ -694,10 +825,18 @@ export default function DashboardPage() {
           latitude: nextAction.lat || 0,
           longitude: nextAction.lng || 0 
         },
-        targetArrivalTime: nextAction.datetime,
-        bufferMinutes: nextAction.type === 'flight' ? 120 : 15,
+        targetArrivalTime: nextAction.datetime.toISOString(),
+        planId: activePlan?.id,
+        profileId: isPreviewMode ? (previewUser?.id || '') : (session?.user?.id || ''),
+        eventType: nextAction.type === 'flight' ? 'flight' : 
+                   nextAction.type === 'transfer' ? 'transfer' :
+                   nextAction.type === 'hotel_checkin' ? 'hotel' :
+                   nextAction.type === 'dinner' ? 'restaurant' : 'congress',
+        metadata: nextAction.payload || nextAction
       });
-      setSmartDeparture(res);
+      if (res.success && res.data) {
+        setSmartDeparture(res.data);
+      }
     };
     calculateDeparture();
   }, [nextAction, userLocations, liveStatus]);
@@ -872,6 +1011,36 @@ export default function DashboardPage() {
     }
   }, [activePlan, activeTab]);
 
+  const enrichedRecommendations = useMemo(() => {
+    const list = [...(liveStatus?.recommendations || [])];
+    
+    const isEuroPCRContext = activePlan?.contexts?.name?.toLowerCase().includes('europcr') || 
+                             activePlan?.contexts?.name?.toLowerCase().includes('parís') || 
+                             activePlan?.contexts?.name?.toLowerCase().includes('paris') ||
+                             selectedContext?.name?.toLowerCase().includes('paris') ||
+                             selectedContext?.name?.toLowerCase().includes('parís');
+
+    if (isEuroPCRContext) {
+      list.unshift(
+        {
+          id: 'europcr-rain',
+          title: 'Tráfico EuroPCR & Clima París',
+          message: 'Lluvia prevista en París (18:00h). Tráfico denso en Palais des Congrès. Sal con +15 min de antelación y considera pedir Taxi G7.',
+          priority: 'high',
+          type: 'departure'
+        },
+        {
+          id: 'europcr-access',
+          title: 'Afluencia Palais des Congrès',
+          message: 'Demoras detectadas en accesos. Recomendamos usar el Acceso B del Palais para agilizar el ingreso hoy.',
+          priority: 'medium',
+          type: 'operational'
+        }
+      );
+    }
+    return list;
+  }, [liveStatus, activePlan, selectedContext]);
+
   const containerVariants = {
     hidden: { opacity: 0 },
     visible: { opacity: 1, transition: { staggerChildren: 0.1 } }
@@ -907,9 +1076,8 @@ export default function DashboardPage() {
             }}
             onAction={(action, payload) => {
               if (action === 'maps') {
-                const dest = payload?.destination || airportMode.flight.departure_location;
-                const origin = payload?.origin ? `&origin=${encodeURIComponent(payload.origin)}` : '';
-                window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(dest)}${origin}`);
+                setShowAirportFullView(false);
+                setShowMap(true);
               }
               if (action === 'contact') handleAssistantMessage('Necesito contactar con mi coordinador de viaje');
               if (action === 'docs') {
@@ -942,6 +1110,53 @@ export default function DashboardPage() {
       )}
 
       <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
+        {sharedMeetingPoint && (
+          <div className="max-w-xl mx-auto px-6 pt-6">
+            <div className="p-4.5 rounded-[2rem] bg-accent/10 border border-accent/20 flex items-center justify-between gap-4 backdrop-blur-md animate-in slide-in-from-top duration-300">
+              <div className="flex items-center gap-3.5 min-w-0">
+                <div className="w-10 h-10 rounded-2xl bg-accent/25 flex items-center justify-center text-accent shrink-0 animate-pulse">
+                  <MapPin size={18} />
+                </div>
+                <div className="min-w-0 text-left">
+                  <p className="text-[9px] font-black uppercase text-accent tracking-widest leading-none">Punto de Encuentro Compartido</p>
+                  <h4 className="text-xs font-bold text-white mt-1 leading-tight line-clamp-1">
+                    {sharedMeetingPoint.user} compartió: {sharedMeetingPoint.name}
+                  </h4>
+                  <p className="text-[10px] text-muted mt-0.5 font-medium">
+                    {sharedMeetingMetrics ? (
+                      sharedMeetingMetrics.km < 0.05 
+                        ? 'Estás en el punto de encuentro' 
+                        : `${sharedMeetingPoint.user} está a ${sharedMeetingMetrics.etaMin} min andando (${sharedMeetingMetrics.km} km)`
+                    ) : (
+                      'Esperando señal GPS para calcular distancia...'
+                    )}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  onClick={() => {
+                    setSelectedMapLocId('shared-meeting-point');
+                    setActiveTab('map');
+                  }}
+                  className="text-[9px] font-black uppercase tracking-widest bg-accent text-white px-3.5 py-2.5 rounded-xl hover:opacity-95 transition-all shadow-md active:scale-95"
+                >
+                  Ver
+                </button>
+                <button
+                  onClick={() => {
+                    setSharedMeetingPoint(null);
+                    window.history.replaceState({}, '', '/dashboard');
+                  }}
+                  className="w-9 h-9 rounded-xl bg-white/5 border border-white/10 flex items-center justify-center text-muted hover:text-white transition-colors"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         <motion.div 
           key={activeTab}
           variants={containerVariants}
@@ -988,6 +1203,27 @@ export default function DashboardPage() {
                   })()}
                 </div>
 
+                {/* EuroPCR Companion Promo Card */}
+                <div 
+                  onClick={() => router.push('/europcr')}
+                  className="p-5 rounded-[2.5rem] bg-gradient-to-r from-[#00D1FF]/10 to-[#A855F7]/10 border border-[#00D1FF]/25 shadow-2xl flex items-center justify-between gap-4 cursor-pointer hover:scale-[1.02] transition-transform backdrop-blur-md relative overflow-hidden group"
+                >
+                  <div className="absolute top-0 right-0 w-24 h-24 bg-[#00D1FF]/5 rounded-full blur-xl group-hover:scale-125 transition-transform" />
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="w-11 h-11 rounded-2xl bg-[#00D1FF]/20 border border-[#00D1FF]/30 flex items-center justify-center text-[#00D1FF] shrink-0 animate-pulse">
+                      <Sparkles size={20} />
+                    </div>
+                    <div className="text-left min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[8px] font-black uppercase text-[#00D1FF] tracking-widest bg-[#00D1FF]/15 px-2 py-0.5 rounded-full">Modo Congreso Activo</span>
+                      </div>
+                      <h4 className="text-sm font-black text-white mt-1.5 tracking-tight leading-tight">EuroPCR 2026 Companion</h4>
+                      <p className="text-[10px] text-muted-foreground mt-0.5 font-medium">Asistente en vivo para Palais des Congrès, stands, hotspots médicos y alertas.</p>
+                    </div>
+                  </div>
+                  <ArrowRight size={16} className="text-[#00D1FF] shrink-0 group-hover:translate-x-1 transition-transform" />
+                </div>
+
                 {/* Evento Activo Ahora */}
                 {(() => {
                   const now = new Date();
@@ -1007,9 +1243,45 @@ export default function DashboardPage() {
                 })()}
 
                 {/* TELEMETRÍA EN VIVO (CLIMA Y TRÁFICO) */}
-                {liveStatus && (
+                {(liveStatus || userLocation !== undefined) && (
                   <div className="flex flex-wrap gap-2.5 pt-1">
-                    {liveStatus.activeWeatherStatus && (
+                    {/* GPS Telemetry status */}
+                    {userLocation ? (
+                      <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-[#00D1FF]/5 border border-[#00D1FF]/20 text-xs text-[#00D1FF] backdrop-blur-md shadow-sm">
+                        <span>🛰️</span>
+                        <span className="font-bold">GPS Activo</span>
+                        {userLocation.accuracy !== undefined && (
+                          <span className="opacity-70">• +/- {Math.round(userLocation.accuracy)}m</span>
+                        )}
+                      </div>
+                    ) : (
+                      <button 
+                        onClick={() => {
+                          if (typeof window !== 'undefined' && navigator.geolocation) {
+                            navigator.geolocation.getCurrentPosition(
+                              (pos) => {
+                                setUserLocation({
+                                  lat: pos.coords.latitude,
+                                  lng: pos.coords.longitude,
+                                  accuracy: pos.coords.accuracy
+                                });
+                              },
+                              (err) => {
+                                console.warn(err);
+                                alert("Por favor, permite el acceso a la ubicación en el navegador para que podamos mostrar rutas y recomendaciones cerca de ti.");
+                              },
+                              { enableHighAccuracy: true, timeout: 10000 }
+                            );
+                          }
+                        }}
+                        className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-red-500/10 border border-red-500/20 text-xs text-red-400 backdrop-blur-md shadow-sm animate-pulse hover:bg-red-500/20 transition-all text-left"
+                      >
+                        <span>🛰️</span>
+                        <span className="font-bold">GPS Desactivado (Activar)</span>
+                      </button>
+                    )}
+
+                    {liveStatus?.activeWeatherStatus && (
                       <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-white/5 border border-white/10 text-xs text-white/80 backdrop-blur-md shadow-sm">
                         <span className="text-sm">
                           {liveStatus.activeWeatherStatus.condition === 'RAIN' ? '🌧️' : 
@@ -1021,7 +1293,7 @@ export default function DashboardPage() {
                         <span className="opacity-60 font-medium">• {liveStatus.activeWeatherStatus.description}</span>
                       </div>
                     )}
-                    {liveStatus.activeTrafficStatus && (
+                    {liveStatus?.activeTrafficStatus && (
                       <div className={cn(
                         "flex items-center gap-2 px-3.5 py-2 rounded-xl border text-xs backdrop-blur-md font-medium shadow-sm",
                         liveStatus.activeTrafficStatus.congestionLevel === 'HEAVY' 
@@ -1037,9 +1309,9 @@ export default function DashboardPage() {
                 )}
 
                 {/* LIVE TRAVEL ENGINE RECOMMENDATIONS */}
-                {liveStatus?.recommendations && liveStatus.recommendations.length > 0 && (
+                {enrichedRecommendations && enrichedRecommendations.length > 0 && (
                   <div className="space-y-3 pt-2">
-                    {liveStatus.recommendations.slice(0, 3).map((rec: any) => {
+                    {enrichedRecommendations.slice(0, 3).map((rec: any) => {
                       let priorityColor = "bg-[#00D1FF]/5 border-[#00D1FF]/20 text-[#00D1FF]";
                       if (rec.priority === 'urgent') {
                         priorityColor = "bg-red-500/5 border-red-500/20 text-red-400";
@@ -1163,12 +1435,18 @@ export default function DashboardPage() {
                         </div>
                         <span className="text-[10px] font-black uppercase tracking-widest opacity-40">Hoy • {nextAction.time}</span>
                       </div>
-                      <div className="space-y-2">
+                       <div className="space-y-2">
                         <h3 className="text-3xl font-black tracking-tighter leading-none">{nextAction.title}</h3>
                         <p className="text-xs font-semibold opacity-60 flex items-center gap-2">
                           <MapPin size={14} className="text-[#00D1FF]" />
                           {nextAction.location}
                         </p>
+                        {smartDeparture && (
+                          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-2xl bg-background/10 text-background text-[9px] font-black uppercase tracking-wider border border-background/20 mt-1">
+                            <Zap size={10} className="animate-pulse" />
+                            {smartDeparture.recommendationMessage}
+                          </div>
+                        )}
                       </div>
                       <div className="flex items-center justify-between pt-4 border-t border-background/10">
                         <div className="flex items-center gap-3">
@@ -1226,11 +1504,16 @@ export default function DashboardPage() {
                           </div>
                           
                           <div className="flex-1 space-y-1">
-                            <div className="flex items-center justify-between">
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
                               <span className="text-[10px] font-black uppercase tracking-widest text-muted">{event.time}</span>
-                              {nextAction?.id === event.id && (
-                                <span className="px-2 py-0.5 rounded-full bg-[#00D1FF]/10 text-[#00D1FF] text-[8px] font-black uppercase tracking-widest">Siguiente</span>
-                              )}
+                              <div className="flex items-center gap-1.5">
+                                {['flight', 'transfer', 'hospitality'].includes(event.type) && (
+                                  <WalletBadge compact />
+                                )}
+                                {nextAction?.id === event.id && (
+                                  <span className="px-2 py-0.5 rounded-full bg-[#00D1FF]/10 text-[#00D1FF] text-[8px] font-black uppercase tracking-widest">Siguiente</span>
+                                )}
+                              </div>
                             </div>
                             <h4 className="text-sm font-black text-white leading-tight">{event.title}</h4>
                             <p className="text-[11px] font-medium text-muted flex items-center gap-1.5">
@@ -1331,25 +1614,16 @@ export default function DashboardPage() {
                     );
                   })()}
 
-                  {/* Cómo llegar */}
+                  {/* Mapa Live */}
                   <button 
-                    onClick={() => {
-                      if (nextAction) {
-                        window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(nextAction.location)}`, '_blank');
-                      } else {
-                        const hotel = activePlan?.hotel_stays?.[0];
-                        if (hotel?.address) {
-                          window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(hotel.address)}`, '_blank');
-                        } else {
-                          alert('No hay una ubicación próxima configurada.');
-                        }
-                      }
-                    }}
-                    className="p-4 rounded-2xl bg-surface/30 border border-border/40 flex flex-col items-center justify-center gap-2 hover:bg-surface/50 transition-all"
+                    onClick={() => setShowMap(true)}
+                    className="p-4 rounded-2xl bg-surface/30 border border-[#00D1FF]/30 hover:border-[#00D1FF]/70 flex flex-col items-center justify-center gap-2 hover:bg-surface/50 transition-all relative overflow-hidden group shadow-lg shadow-[#00D1FF]/5"
                   >
-                    <Navigation size={18} className="text-[#00D1FF]" />
-                    <span className="text-[9px] font-black uppercase tracking-widest text-muted text-center leading-none">Cómo Llegar</span>
+                    <div className="absolute inset-0 bg-[#00D1FF]/5 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    <Navigation size={18} className="text-[#00D1FF] animate-pulse" />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-[#00D1FF] text-center leading-none">Mapa Live</span>
                   </button>
+
 
                   {/* Contactar coordinador */}
                   <button 
@@ -1390,13 +1664,40 @@ export default function DashboardPage() {
                     <span className="text-[9px] font-black uppercase tracking-widest text-muted text-center leading-none">Documentos</span>
                   </button>
 
+                  {/* Cerca de mí */}
+                  <button 
+                    onClick={() => router.push('/near-me')}
+                    className="p-4 rounded-2xl bg-surface/30 border border-border/40 flex flex-col items-center justify-center gap-2 hover:bg-surface/50 transition-all"
+                  >
+                    <Compass size={18} className="text-[#00D1FF]" />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-muted text-center leading-none">Cerca de mí</span>
+                  </button>
+
                   {/* Asistente IA */}
                   <button 
                     onClick={() => setActiveTab('assistant')}
-                    className="p-4 rounded-2xl bg-surface/30 border border-border/40 flex flex-col items-center justify-center gap-2 hover:bg-surface/50 transition-all col-span-2 md:col-span-1"
+                    className="p-4 rounded-2xl bg-surface/30 border border-border/40 flex flex-col items-center justify-center gap-2 hover:bg-surface/50 transition-all"
                   >
                     <Sparkles size={18} className="text-[#00D1FF]" />
                     <span className="text-[9px] font-black uppercase tracking-widest text-muted text-center leading-none">Asistente IA</span>
+                  </button>
+
+                  {/* Estoy aquí */}
+                  <button 
+                    onClick={() => setIsShareLocationOpen(true)}
+                    className="p-4 rounded-2xl bg-surface/30 border border-border/40 flex flex-col items-center justify-center gap-2 hover:bg-surface/50 transition-all"
+                  >
+                    <MapPin size={18} className="text-[#00D1FF]" />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-muted text-center leading-none">Estoy aquí</span>
+                  </button>
+
+                  {/* EuroPCR Companion */}
+                  <button 
+                    onClick={() => router.push('/europcr')}
+                    className="p-4 rounded-2xl bg-accent/5 border border-[#00D1FF]/30 flex flex-col items-center justify-center gap-2 hover:bg-accent/10 hover:border-[#00D1FF]/60 transition-all group relative overflow-hidden"
+                  >
+                    <Activity size={18} className="text-[#00D1FF] animate-pulse" />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-[#00D1FF] text-center leading-none">Modo EuroPCR</span>
                   </button>
                 </div>
               </div>
@@ -1505,13 +1806,149 @@ export default function DashboardPage() {
               <div className="flex-1 min-h-[500px] flex flex-col bg-surface/30 border border-border/40 rounded-[3rem] shadow-2xl overflow-hidden relative backdrop-blur-xl">
                 <div className="flex-1 p-6 overflow-y-auto space-y-6 no-scrollbar pb-28">
                   {chatHistory.map((msg, idx) => (
-                    <div key={idx} className={cn("flex flex-col gap-2 max-w-[85%]", msg.role === 'user' ? "ml-auto items-end" : "mr-auto items-start")}>
+                    <div key={idx} className={cn("flex flex-col gap-2 w-full max-w-[85%]", msg.role === 'user' ? "ml-auto items-end" : "mr-auto items-start")}>
+                      {/* Context Alert Banner (if present in message) */}
+                      {msg.role === 'assistant' && msg.alert && (
+                        <div className="w-full bg-amber-500/10 border border-amber-500/20 px-4 py-3 rounded-2xl flex items-center gap-2.5 text-left mb-1 animate-pulse">
+                          <AlertTriangle className="text-amber-500 shrink-0" size={14} />
+                          <span className="text-[10px] font-bold text-amber-400 tracking-wide uppercase">{msg.alert}</span>
+                        </div>
+                      )}
+                      
+                      {/* Main Message Bubble */}
                       <div className={cn(
-                        "p-5 rounded-[2rem]", 
+                        "p-5 rounded-[2rem] w-full text-left", 
                         msg.role === 'user' ? "bg-accent text-white shadow-lg shadow-accent/20" : "bg-surface/50 border border-border/40 backdrop-blur-md"
                       )}>
-                        <p className="text-sm font-medium leading-relaxed">{msg.content}</p>
+                        <p className="text-sm font-medium leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                       </div>
+
+                      {/* City Companion Card (if places are suggested) */}
+                      {msg.role === 'assistant' && msg.places && msg.places.length > 0 && (
+                        <div className="space-y-4 w-full mt-2 animate-in fade-in slide-in-from-bottom-3 duration-300">
+                          {msg.places.map((place: any, pIdx: number) => {
+                            const mapLoc: any = {
+                              id: `poi-${idx}-${pIdx}`,
+                              name: place.name,
+                              type: 'restaurant', // maps to a nice colored pin marker
+                              coordinates: { lat: place.latitude, lng: place.longitude },
+                              address: place.address
+                            };
+
+                            return (
+                              <div key={pIdx} className="bg-[#111115]/90 border border-white/10 rounded-[2.2rem] overflow-hidden shadow-xl w-full">
+                                {/* Map Preview */}
+                                <div className="h-40 w-full relative bg-[#09090A]">
+                                  <LiveMap 
+                                    locations={[mapLoc]} 
+                                    activeLocationId={mapLoc.id}
+                                    showUserLocation={true}
+                                    showRoutes={true}
+                                    interactive={false}
+                                    hideInternalUI={true}
+                                    className="w-full h-full"
+                                  />
+                                  {place.distance_km !== undefined && (
+                                    <div className="absolute top-3 left-3 bg-[#0D0D11]/90 backdrop-blur-md px-3 py-1 rounded-full border border-white/10 text-[8px] font-black text-accent uppercase tracking-wider z-[10]">
+                                      A {place.distance_km} km de ti
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="p-5 space-y-3.5 text-left">
+                                  <div>
+                                    <div className="flex items-center justify-between gap-2">
+                                      <h4 className="text-sm font-black text-white leading-tight">{place.name}</h4>
+                                      <div className="flex items-center gap-1 bg-yellow-500/10 text-yellow-400 px-2 py-0.5 rounded-lg border border-yellow-500/20 text-[9px] font-black">
+                                        <Star size={10} fill="currentColor" />
+                                        {place.rating}
+                                      </div>
+                                    </div>
+                                    <p className="text-[10px] text-muted font-medium mt-1 leading-tight line-clamp-1">{place.address}</p>
+                                    {place.hours && (
+                                      <p className="text-[8px] text-accent font-black uppercase tracking-widest mt-1">{place.hours}</p>
+                                    )}
+                                  </div>
+
+                                  <p className="text-xs text-muted leading-relaxed font-medium">{place.description}</p>
+
+                                  {/* Mobility Metrics */}
+                                  {place.walking_time_min !== undefined && (
+                                    <div className="grid grid-cols-4 gap-2 border-t border-white/5 pt-3">
+                                      <div className="bg-[#111115]/50 p-2 rounded-xl border border-white/5 flex flex-col items-center">
+                                        <span className="text-[7px] font-black text-muted uppercase tracking-wider">Andando</span>
+                                        <span className="text-xs font-bold text-white mt-0.5">{place.walking_time_min}m</span>
+                                      </div>
+                                      <div className="bg-[#111115]/50 p-2 rounded-xl border border-white/5 flex flex-col items-center">
+                                        <span className="text-[7px] font-black text-muted uppercase tracking-wider">Coche</span>
+                                        <span className="text-xs font-bold text-white mt-0.5">{place.driving_time_min}m</span>
+                                      </div>
+                                      <div className="bg-[#111115]/50 p-2 rounded-xl border border-white/5 flex flex-col items-center">
+                                        <span className="text-[7px] font-black text-muted uppercase tracking-wider">Metro</span>
+                                        <span className="text-xs font-bold text-white mt-0.5">{place.transit_time_min}m</span>
+                                      </div>
+                                      <div className="bg-[#111115]/50 p-2 rounded-xl border border-white/5 flex flex-col items-center justify-center">
+                                        <span className="text-[7px] font-black text-muted uppercase tracking-wider leading-none">Uber</span>
+                                        <span className="text-[9px] font-bold text-accent mt-1 leading-none">{place.uber_price_range}</span>
+                                      </div>
+                                    </div>
+                                  )}
+
+                                  {/* Actions */}
+                                  <div className="grid grid-cols-3 gap-1.5 pt-1 border-t border-white/5">
+                                    <button 
+                                      onClick={() => {
+                                        setSelectedEvent({
+                                          title: place.name,
+                                          location: place.address,
+                                          type: 'place',
+                                          payload: {
+                                            name: place.name,
+                                            vicinity: place.address,
+                                            geometry: {
+                                              location: {
+                                                lat: () => place.latitude,
+                                                lng: () => place.longitude
+                                              }
+                                            }
+                                          }
+                                        });
+                                        setIsSheetOpen(true);
+                                      }}
+                                      className="w-full py-2.5 rounded-xl bg-white/5 border border-white/10 flex flex-col items-center justify-center text-[7px] font-black uppercase text-white hover:bg-white/10 transition-colors"
+                                    >
+                                      <Map size={9} className="text-accent mb-0.5" />
+                                      Detalles
+                                    </button>
+                                    
+                                    <button 
+                                      onClick={() => {
+                                        const url = `https://www.google.com/maps/dir/?api=1&destination=${place.latitude},${place.longitude}`;
+                                        window.open(url, '_blank');
+                                      }}
+                                      className="w-full py-2.5 rounded-xl bg-[#00D1FF]/10 border border-[#00D1FF]/30 text-[#00D1FF] flex flex-col items-center justify-center text-[7px] font-black uppercase hover:bg-[#00D1FF]/20 transition-all"
+                                    >
+                                      <Navigation size={9} className="mb-0.5" />
+                                      Google Maps
+                                    </button>
+
+                                    <button 
+                                      onClick={() => {
+                                        const url = `maps://?daddr=${place.latitude},${place.longitude}`;
+                                        window.open(url, '_blank');
+                                      }}
+                                      className="w-full py-2.5 rounded-xl bg-white/10 border border-white/20 text-white flex flex-col items-center justify-center text-[7px] font-black uppercase hover:bg-white/20 transition-all"
+                                    >
+                                      <Navigation size={9} className="mb-0.5 text-emerald-400" />
+                                      Apple Maps
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   ))}
                   {isThinking && (
@@ -1588,13 +2025,19 @@ export default function DashboardPage() {
           {[
             { id: 'home', label: 'Inicio', icon: Building2 },
             { id: 'map', label: 'Mapa', icon: Map },
-            { id: 'explore', label: 'Explorar', icon: Compass },
+            { id: 'near-me', label: 'Cerca de mí', icon: Compass },
             { id: 'assistant', label: 'Asistente', icon: Sparkles },
             { id: 'profile', label: 'Perfil', icon: User },
           ].map(tab => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
+              onClick={() => {
+                if (tab.id === 'near-me') {
+                  router.push('/near-me');
+                } else {
+                  setActiveTab(tab.id as any);
+                }
+              }}
               className={cn("flex-1 flex flex-col items-center gap-1.5 py-3 transition-all", activeTab === tab.id ? "text-accent" : "text-muted")}
             >
               <tab.icon size={20} />
@@ -1654,15 +2097,6 @@ export default function DashboardPage() {
               </div>
             )}
 
-            {selectedEvent?.payload?.latitude && (
-              <button 
-                onClick={() => window.open(`https://www.google.com/maps/dir/?api=1&destination=${selectedEvent.payload.latitude},${selectedEvent.payload.longitude}`)}
-                className="w-full py-5 rounded-2xl bg-accent text-white font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-3 shadow-xl shadow-accent/20"
-              >
-                <Navigation size={18} />
-                Cómo llegar
-              </button>
-            )}
             
             {selectedEvent?.type === 'flight' && (() => {
               const doc = activePlan?.documents.find(d => 
@@ -1846,23 +2280,17 @@ export default function DashboardPage() {
                         Llamar asistencia
                       </a>
                     )}
-
-                    {(t.dropoff_location || t.destination_address) && (
-                      <a
-                        href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(t.dropoff_location || t.destination_address || '')}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="w-full py-4 rounded-2xl bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 font-black uppercase tracking-widest text-[10px] flex items-center justify-center gap-3 transition-all"
-                      >
-                        <MapPin size={16} />
-                        Cómo llegar
-                      </a>
-                    )}
                   </div>
                 </div>
               );
             })()}
 
+            {selectedEvent && ['flight', 'hospitality', 'transfer'].includes(selectedEvent.type) && (
+              <div className="flex justify-between items-center px-1">
+                <span className="text-[10px] font-black uppercase tracking-widest text-muted">Disponible en Wallet</span>
+                <WalletBadge />
+              </div>
+            )}
             {selectedEvent && (
               <AddPassButton 
                 type={selectedEvent.type === 'flight' ? 'flight' : (selectedEvent.type === 'hospitality' ? 'hospitality' : 'transfer')}
@@ -1870,6 +2298,20 @@ export default function DashboardPage() {
                 className="w-full py-5"
               />
             )}
+
+            {(() => {
+              const coords = getMobilityCoords(selectedEvent);
+              if (!coords) return null;
+              return (
+                <MobilityActions 
+                  destinationLat={coords.lat} 
+                  destinationLng={coords.lng} 
+                  destinationName={selectedEvent.title || 'Destino'} 
+                  destinationAddress={selectedEvent.location}
+                  className="mt-4"
+                />
+              );
+            })()}
 
             {selectedEvent && selectedEvent.lat && selectedEvent.lng && (
               <button
@@ -1905,6 +2347,12 @@ export default function DashboardPage() {
         </div>
       </BottomActionSheet>
 
+      <ShareLocationDrawer 
+        isOpen={isShareLocationOpen}
+        onClose={() => setIsShareLocationOpen(false)}
+        activePlan={activePlan}
+      />
+
       <AnimatePresence>
         {selectedQR && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-[300] bg-white flex flex-col items-center justify-center p-8">
@@ -1915,6 +2363,7 @@ export default function DashboardPage() {
                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Asiento</p>
                 <p className="text-3xl font-black text-slate-900">{selectedQR.seat_assignment || '—'}</p>
               </div>
+              <WalletBadge className="bg-black/5 text-black border-black/10" />
               <AddPassButton 
                 type="flight" 
                 id={selectedQR.flight.id} 
@@ -2007,11 +2456,13 @@ export default function DashboardPage() {
         )}
       </AnimatePresence>
 
-      <MapModal
+      <LiveMapExperience
         isOpen={showMap}
         onClose={() => setShowMap(false)}
-        locations={mapLocations}
-        contextName={selectedContext?.name}
+        activePlan={activePlan}
+        liveStatus={liveStatus}
+        timelineEvents={timelineEvents}
+        userName={userName}
       />
 
       {/* Floating Support Action Button */}

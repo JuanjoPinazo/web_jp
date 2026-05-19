@@ -4,6 +4,7 @@ import React from 'react';
 import { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { motion } from 'framer-motion';
+import { WalletBadge } from '@/components/wallet/AddPassButton';
 
 interface TimelineEventProps {
   time: string;
@@ -15,6 +16,7 @@ interface TimelineEventProps {
   isActive?: boolean;
   isLast?: boolean;
   onClick?: () => void;
+  type?: string;
 }
 
 export const TimelineEvent = ({
@@ -26,7 +28,8 @@ export const TimelineEvent = ({
   color = 'text-accent',
   isActive = false,
   isLast = false,
-  onClick
+  onClick,
+  type
 }: TimelineEventProps) => {
   return (
     <div 
@@ -60,12 +63,17 @@ export const TimelineEvent = ({
 
       {/* Content */}
       <div className="flex-1 pt-4 space-y-1">
-        <h3 className={cn(
-          "text-base font-black tracking-tight",
-          isActive ? "text-foreground" : "text-muted"
-        )}>
-          {title}
-        </h3>
+        <div className="flex items-start justify-between flex-wrap gap-2">
+          <h3 className={cn(
+            "text-base font-black tracking-tight",
+            isActive ? "text-foreground" : "text-muted"
+          )}>
+            {title}
+          </h3>
+          {type && ['flight', 'transfer', 'hospitality'].includes(type) && (
+            <WalletBadge compact className="scale-90 origin-right" />
+          )}
+        </div>
         {location && (
           <p className="text-[10px] font-bold text-accent uppercase tracking-[0.15em]">
             {location}

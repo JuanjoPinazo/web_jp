@@ -10,6 +10,7 @@ import {
   Phone, ExternalLink, HelpCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useSearchParams } from 'next/navigation';
 
 // Lazy load Google Maps component to prevent server-side rendering issues and optimize bundle size
 const LiveMap = dynamic(() => import('./LiveMap'), {
@@ -42,6 +43,7 @@ export default function LiveMapTab({
   initialSelectedLocationId,
   onOpenSupport
 }: LiveMapTabProps) {
+  const searchParams = useSearchParams();
   const [showUserLocation, setShowUserLocation] = useState(false);
   const [selectedLocId, setSelectedLocId] = useState<string | null>(null);
   const [travelMode, setTravelMode] = useState<'DRIVING' | 'WALKING' | 'TRANSIT'>('DRIVING');
@@ -109,8 +111,58 @@ export default function LiveMapTab({
       }
     }
 
+    // Add EuroPCR Medical & Safety Hotspots if context is Paris
+    const isParis = activePlan?.contexts?.name?.toLowerCase().includes('europcr') || 
+                    activePlan?.contexts?.name?.toLowerCase().includes('parís') || 
+                    activePlan?.contexts?.name?.toLowerCase().includes('paris');
+    if (isParis) {
+      locs.push(
+        {
+          id: 'europcr-safety-first-aid',
+          name: 'Socorro EuroPCR (Hall A)',
+          type: 'hospitality',
+          coordinates: { lat: 48.8831, lng: 2.2825 },
+          address: 'Palais des Congrès de Paris (Hall A, Nivel 1)',
+          details: 'Puesto médico de emergencia oficial dentro del congreso. Tel: +33140682222'
+        },
+        {
+          id: 'europcr-safety-hospital',
+          name: 'Hôpital Marmottan',
+          type: 'hospitality',
+          coordinates: { lat: 48.8778, lng: 2.2905 },
+          address: '17 Rue d\'Armaillé, 75017 Paris',
+          details: 'Hospital público general de urgencia cercano a Porte Maillot. Tel: +33145740007'
+        },
+        {
+          id: 'europcr-safety-pharmacy',
+          name: 'Pharmacie des Ternes (24/7)',
+          type: 'hospitality',
+          coordinates: { lat: 48.8810, lng: 2.2915 },
+          address: '82 Avenue des Ternes, 75017 Paris',
+          details: 'Farmacia 24 horas abierta de guardia cerca del congreso. Tel: +33145741355'
+        }
+      );
+    }
+
+    // Add shared meeting location if present in searchParams
+    const shareLat = searchParams.get('share_lat');
+    const shareLng = searchParams.get('share_lng');
+    const shareName = searchParams.get('share_name');
+    const shareUser = searchParams.get('share_user');
+
+    if (shareLat && shareLng && shareName && shareUser) {
+      locs.push({
+        id: 'shared-meeting-point',
+        name: `Encuentro: ${shareName}`,
+        type: 'hospitality',
+        coordinates: { lat: parseFloat(shareLat), lng: parseFloat(shareLng) },
+        address: `Punto de encuentro compartido por ${shareUser}`,
+        details: `Coordenadas: ${shareLat}, ${shareLng}`
+      });
+    }
+
     return locs;
-  }, [timelineEvents, activePlan]);
+  }, [timelineEvents, activePlan, searchParams]);
 
   // Find key locations for presets
   const airportLoc = useMemo(() => locations.find(l => l.type === 'airport'), [locations]);
@@ -319,14 +371,16 @@ export default function LiveMapTab({
               <div className="space-y-1">
                 <span className={cn(
                   "inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[9px] font-black uppercase tracking-widest border",
+                  selectedLocation.id.startsWith('europcr-safety') && 'bg-red-500/10 text-red-400 border-red-500/20',
+                  selectedLocation.id === 'shared-meeting-point' && 'bg-[#00D1FF]/10 text-[#00D1FF]/80 border-[#00D1FF]/20 animate-pulse',
                   selectedLocation.type === 'hotel' && 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
                   selectedLocation.type === 'airport' && 'bg-blue-500/10 text-blue-400 border-blue-500/20',
                   selectedLocation.type === 'congress' && 'bg-purple-500/10 text-purple-400 border-purple-500/20',
                   selectedLocation.type === 'restaurant' && 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-                  selectedLocation.type === 'hospitality' && 'bg-pink-500/10 text-pink-400 border-pink-500/20',
+                  selectedLocation.type === 'hospitality' && selectedLocation.id !== 'shared-meeting-point' && !selectedLocation.id.startsWith('europcr-safety') && 'bg-pink-500/10 text-pink-400 border-pink-500/20',
                   selectedLocation.type === 'transfer' && 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20'
                 )}>
-                  {selectedLocation.type || 'Punto Operativo'}
+                  {selectedLocation.id.startsWith('europcr-safety') ? 'Seguridad Médica' : selectedLocation.id === 'shared-meeting-point' ? 'Punto de Encuentro' : (selectedLocation.type || 'Punto Operativo')}
                 </span>
                 <h3 className="text-base font-black tracking-tight text-white line-clamp-1">{selectedLocation.name}</h3>
                 {selectedLocation.address && (

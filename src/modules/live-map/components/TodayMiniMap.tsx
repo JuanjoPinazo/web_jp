@@ -7,6 +7,7 @@ import { LiveMapService } from '../live-map.service';
 import { MapLocation } from '../types';
 import { Maximize2, MapPin, Navigation, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useSearchParams } from 'next/navigation';
 
 const LiveMap = dynamic(() => import('./LiveMap'), {
   ssr: false,
@@ -30,6 +31,7 @@ export default function TodayMiniMap({
   className,
   onExpand
 }: TodayMiniMapProps) {
+  const searchParams = useSearchParams();
   const [isExpanded, setIsExpanded] = useState(false);
 
   // 1. Extraer y complementar las ubicaciones operativas
@@ -66,11 +68,31 @@ export default function TodayMiniMap({
       }
     }
 
+    // Add shared meeting location if present in searchParams
+    const shareLat = searchParams.get('share_lat');
+    const shareLng = searchParams.get('share_lng');
+    const shareName = searchParams.get('share_name');
+    const shareUser = searchParams.get('share_user');
+
+    if (shareLat && shareLng && shareName && shareUser) {
+      extracted.push({
+        id: 'shared-meeting-point',
+        name: `Encuentro: ${shareName}`,
+        type: 'hospitality',
+        coordinates: { lat: parseFloat(shareLat), lng: parseFloat(shareLng) },
+        address: `Punto de encuentro compartido por ${shareUser}`,
+        details: `Coordenadas: ${shareLat}, ${shareLng}`
+      });
+    }
+
     return extracted;
-  }, [activePlan, nextAction]);
+  }, [activePlan, nextAction, searchParams]);
 
   // 2. Determinar la ubicación de destino activa (la siguiente acción)
   const activeLocationId = useMemo(() => {
+    const hasShared = locations.some(l => l.id === 'shared-meeting-point');
+    if (hasShared) return 'shared-meeting-point';
+
     if (!nextAction) return undefined;
     
     // Buscar coincidencia por ID

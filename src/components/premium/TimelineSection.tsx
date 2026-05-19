@@ -44,6 +44,7 @@ export const TimelineSection = ({ title, events, onEventClick }: TimelineSection
             isActive={event.isActive}
             isLast={index === events.length - 1}
             onClick={() => onEventClick?.(event)}
+            type={(event as any).type}
           />
         ))}
       </div>

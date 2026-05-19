@@ -6,4 +6,4 @@ if (!resendApiKey) {
   console.warn('RESEND_API_KEY is not defined in environment variables');
 }
 
-export const resend = new Resend(resendApiKey);
+export const resend = new Resend(resendApiKey || 're_dummy_123');

@@ -12,6 +12,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import { cn } from '@/lib/utils';
 import LiveMap from '@/modules/live-map/components/LiveMap';
 import { MapLocation } from '@/modules/live-map/types';
+import { AddPassButton, WalletBadge } from '@/components/wallet/AddPassButton';
+import { MobilityActions } from '@/components/premium/MobilityActions';
 
 interface AirportModeViewProps {
   data: {
@@ -171,6 +173,15 @@ export const AirportModeView = ({ data, smartDeparture, isAdmin, onClose, onActi
                       <p className="text-xs text-white/80 leading-relaxed">{associatedTransfer.meeting_point}</p>
                     </div>
                   )}
+
+                  {/* Wallet Integration for Transfer */}
+                  <div className="p-4 rounded-2xl bg-white/5 border border-white/5 space-y-3 flex flex-col">
+                    <div className="flex justify-between items-center">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-white/40">Pase de Traslado</p>
+                      <WalletBadge />
+                    </div>
+                    <AddPassButton type="transfer" id={associatedTransfer.id} />
+                  </div>
                 </div>
               ) : (
                 <div className="py-6 text-center space-y-4">
@@ -271,15 +282,6 @@ export const AirportModeView = ({ data, smartDeparture, isAdmin, onClose, onActi
                   </a>
                 )}
 
-                <button 
-                  onClick={() => onAction?.('maps', { destination: associatedTransfer.dropoff_location, origin: associatedTransfer.pickup_location })}
-                  className="p-5 rounded-[2rem] bg-white/5 border border-white/10 flex flex-col items-start gap-4 hover:bg-white/10 transition-all text-left col-span-2"
-                >
-                  <div className="w-10 h-10 rounded-2xl bg-accent/10 flex items-center justify-center text-accent">
-                    <Navigation size={20} />
-                  </div>
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">CÓMO LLEGAR AL DESTINO</span>
-                </button>
               </div>
             )}
 
@@ -350,6 +352,22 @@ export const AirportModeView = ({ data, smartDeparture, isAdmin, onClose, onActi
                   </div>
                 )}
               </div>
+              
+              {(() => {
+                const lat = associatedTransfer?.dropoff_lat || associatedHotel?.latitude || flight?.arrival_lat;
+                const lng = associatedTransfer?.dropoff_lng || associatedHotel?.longitude || flight?.arrival_lng;
+                const name = associatedHotel?.hotel_name || associatedTransfer?.dropoff_location || flight?.arrival_location || 'Destino';
+                if (!lat || !lng) return null;
+                return (
+                  <MobilityActions
+                    destinationLat={lat}
+                    destinationLng={lng}
+                    destinationName={name}
+                    destinationAddress={associatedHotel?.address || associatedTransfer?.dropoff_location}
+                    className="mt-6 pt-6 border-t border-white/10"
+                  />
+                );
+              })()}
             </div>
           </div>
         ) : (
@@ -391,6 +409,12 @@ export const AirportModeView = ({ data, smartDeparture, isAdmin, onClose, onActi
                   )}
                 </div>
                 <p className="text-[10px] font-black uppercase tracking-[0.4em] opacity-40">Escanea para embarcar</p>
+
+                {/* Wallet Integration for Flight */}
+                <div className="w-full pt-4 border-t border-black/5 flex flex-col items-center gap-2">
+                  <WalletBadge className="bg-black/5 text-black border-black/10" />
+                  <AddPassButton type="flight" id={flight.id} className="w-full" />
+                </div>
               </div>
 
               {/* Seat & Gate Info */}
@@ -412,19 +436,31 @@ export const AirportModeView = ({ data, smartDeparture, isAdmin, onClose, onActi
 
             {/* Operational Status Banner */}
             <div className="grid grid-cols-1 gap-4">
-              <div className="p-6 rounded-[2.5rem] bg-accent text-white shadow-xl flex items-center justify-between">
+              <div className="p-6 rounded-[2.5rem] bg-accent text-white shadow-xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center">
+                  <div className="w-12 h-12 rounded-2xl bg-white/20 flex items-center justify-center shrink-0">
                     <Navigation size={24} />
                   </div>
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Tiempo al Aeropuerto</p>
-                    <h3 className="text-lg font-black tracking-tight">Tráfico Fluido • {smartDeparture?.travelDurationMinutes || 35} min</h3>
+                    <p className="text-[10px] font-black uppercase tracking-widest opacity-60">Control Smart Departure</p>
+                    <h3 className="text-lg font-black tracking-tight">
+                      {smartDeparture?.congestionLevel === 'HEAVY' ? 'Congestión Elevada' : 
+                       smartDeparture?.congestionLevel === 'MODERATE' ? 'Tránsito Moderado' : 'Tránsito Fluido'}
+                      {' • '}{smartDeparture?.estimatedTravelTimeMinutes || smartDeparture?.travelDurationMinutes || 35} min
+                    </h3>
+                    {smartDeparture?.recommendedTime && (
+                      <p className="text-[10px] font-bold opacity-80 uppercase tracking-wider mt-0.5">
+                        Salida recomendada: {new Date(smartDeparture.recommendedTime).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
+                      </p>
+                    )}
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="text-2xl font-black tracking-tighter">-{diffMin} min</p>
-                  <p className="text-[10px] font-bold uppercase opacity-60">Despegue</p>
+                <div className="text-right flex sm:flex-col justify-between items-center sm:items-end w-full sm:w-auto border-t sm:border-t-0 border-white/10 pt-2 sm:pt-0">
+                  <span className="sm:hidden text-[10px] font-bold uppercase opacity-60">Tiempo Despegue</span>
+                  <div>
+                    <p className="text-2xl font-black tracking-tighter leading-none">-{diffMin} min</p>
+                    <p className="text-[10px] font-bold uppercase opacity-60 hidden sm:block mt-1">Despegue</p>
+                  </div>
                 </div>
               </div>
 
@@ -455,17 +491,31 @@ export const AirportModeView = ({ data, smartDeparture, isAdmin, onClose, onActi
                 </div>
               )}
 
-              {/* Quick Actions Grid */}
-              <div className="grid grid-cols-2 gap-3">
-                <button 
-                  onClick={() => onAction?.('maps')}
-                  className="p-5 rounded-[2rem] bg-white/5 border border-white/10 flex flex-col items-start gap-4 hover:bg-white/10 transition-all text-left"
-                >
-                  <div className="w-10 h-10 rounded-2xl bg-accent/10 flex items-center justify-center text-accent">
-                    <MapPin size={20} />
+              {/* Smart Details Card */}
+              {smartDeparture && (
+                <div className="p-6 rounded-[2.5rem] bg-white/5 border border-white/10 grid grid-cols-2 gap-4 text-xs font-semibold">
+                  <div>
+                    <p className="text-[8px] font-black uppercase tracking-widest opacity-40">ETA Dinámico</p>
+                    <p className="text-sm font-black text-white mt-0.5">
+                      {smartDeparture.estimatedTravelTimeMinutes || 35} min
+                    </p>
+                    {smartDeparture.trafficDelayMinutes > 0 && (
+                      <p className="text-[9px] text-amber-400 mt-0.5">
+                        (+{smartDeparture.trafficDelayMinutes} min de retraso)
+                      </p>
+                    )}
                   </div>
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">CÓMO LLEGAR</span>
-                </button>
+                  <div>
+                    <p className="text-[8px] font-black uppercase tracking-widest opacity-40">Estado Transfer</p>
+                    <p className="text-sm font-black text-emerald-400 mt-0.5 flex items-center gap-1.5">
+                      <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      {associatedTransfer ? 'Confirmado y en Ruta' : 'No requerido'}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3">
                 <button 
                   onClick={() => {
                     if (onOpenSupport) {
@@ -483,14 +533,29 @@ export const AirportModeView = ({ data, smartDeparture, isAdmin, onClose, onActi
                 </button>
                 <button 
                   onClick={() => onAction?.('docs')}
-                  className="p-5 rounded-[2rem] bg-white/5 border border-white/10 flex flex-col items-start gap-4 hover:bg-white/10 transition-all text-left col-span-2"
+                  className="p-5 rounded-[2rem] bg-white/5 border border-white/10 flex flex-col items-start gap-4 hover:bg-white/10 transition-all text-left"
                 >
                   <div className="w-10 h-10 rounded-2xl bg-accent/10 flex items-center justify-center text-accent">
                     <FileText size={20} />
                   </div>
-                  <span className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">VER TARJETA EMBARQUE</span>
+                  <span className="text-[10px] font-black uppercase tracking-[0.2em] leading-none">VER TARJETA</span>
                 </button>
               </div>
+
+              {(() => {
+                const lat = flight?.departure_lat;
+                const lng = flight?.departure_lng;
+                const name = `${flight?.departure_location || 'Origen'} Aeropuerto`;
+                if (!lat || !lng) return null;
+                return (
+                  <MobilityActions
+                    destinationLat={lat}
+                    destinationLng={lng}
+                    destinationName={name}
+                    className="mt-6 pt-6 border-t border-white/10"
+                  />
+                );
+              })()}
             </div>
           </div>
         )}

@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Sparkles, User, Shield, LogOut, LucideIcon } from 'lucide-react';
+import { Home, Compass, User, Shield, LogOut, LucideIcon, Activity } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useDialog } from '@/context/DialogContext';
 import { cn } from '@/lib/utils';
@@ -17,7 +17,8 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { label: 'Inicio', href: '/dashboard', icon: Home },
-  { label: 'Descubrir', href: '/discover', icon: Sparkles },
+  { label: 'Cerca de mí', href: '/near-me', icon: Compass },
+  { label: 'EuroPCR', href: '/europcr', icon: Activity },
   { label: 'Perfil', href: '/profile', icon: User },
 ];
 
