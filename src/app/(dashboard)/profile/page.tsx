@@ -254,6 +254,26 @@ export default function ProfilePage() {
               Tu información está protegida mediante encriptación SSL y almacenada en la infraestructura oficial de Supabase.
             </p>
           </div>
+
+          <div className="p-8 rounded-[2rem] bg-surface border border-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="space-y-1">
+              <h4 className="text-[10px] font-black uppercase tracking-widest text-white">
+                Versión de la Aplicación
+              </h4>
+              <p className="text-[10px] text-muted font-medium">
+                Versión instalada: v{process.env.NEXT_PUBLIC_APP_VERSION || '1.0.0'}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent('pwa-check-update', { detail: { manual: true } }));
+              }}
+              className="flex items-center justify-center gap-2 px-5 py-3 bg-accent/10 border border-accent/20 hover:bg-accent/20 text-accent text-[9px] font-black uppercase tracking-widest rounded-xl transition-all"
+            >
+              Buscar actualizaciones
+            </button>
+          </div>
         </div>
       </div>
     </div>

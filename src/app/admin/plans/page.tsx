@@ -2504,15 +2504,16 @@ export default function AdminPlansPage() {
       {/* Modal de Edición de Vuelo */}
       <AnimatePresence>
         {editingFlight && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[70] flex items-center justify-center p-4 overflow-y-auto">
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[70] flex items-center justify-center p-4">
             <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-background border border-border w-full max-w-2xl rounded-[32px] overflow-hidden shadow-2xl my-8"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-background border border-border w-full max-w-2xl rounded-[32px] overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
             >
-              <div className="p-8 border-b border-border flex justify-between items-center bg-muted/20">
+              <div className="p-6 md:p-8 border-b border-border flex justify-between items-center bg-muted/20 flex-shrink-0">
                 <div>
-                  <h3 className="text-2xl font-black text-primary tracking-tighter">Editar Segmento de Vuelo</h3>
+                  <h3 className="text-xl md:text-2xl font-black text-primary tracking-tighter">Editar Segmento de Vuelo</h3>
                   <p className="text-[10px] text-muted font-black uppercase tracking-widest mt-1">Control Manual de Logística</p>
                 </div>
                 <Button variant="ghost" className="rounded-full h-10 w-10 p-0" onClick={() => setEditingFlight(null)}>
@@ -2520,89 +2521,91 @@ export default function AdminPlansPage() {
                 </Button>
               </div>
               
-              <form onSubmit={handleSaveFlight} className="p-8 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Tipo de Trayecto</label>
-                    <select 
-                      className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none"
-                      value={editingFlight.type}
-                      onChange={e => setEditingFlight({...editingFlight, type: e.target.value})}
-                    >
-                      <option value="outbound">Vuelo Ida</option>
-                      <option value="return">Vuelo Vuelta</option>
-                    </select>
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Estado de Verificación</label>
-                    <div className="flex gap-2">
-                      <button 
-                        type="button"
-                        onClick={() => setEditingFlight({...editingFlight, is_verified: true})}
-                        className={`flex-1 p-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${editingFlight.is_verified ? 'bg-green-500/10 border-green-500 text-green-600' : 'bg-background border-border text-muted'}`}
+              <form onSubmit={handleSaveFlight} className="flex-1 flex flex-col min-h-0">
+                <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Tipo de Trayecto</label>
+                      <select 
+                        className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent appearance-none"
+                        value={editingFlight.type}
+                        onChange={e => setEditingFlight({...editingFlight, type: e.target.value})}
                       >
-                        Verificado
-                      </button>
-                      <button 
-                        type="button"
-                        onClick={() => setEditingFlight({...editingFlight, is_verified: false})}
-                        className={`flex-1 p-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${!editingFlight.is_verified ? 'bg-orange-500/10 border-orange-500 text-orange-600' : 'bg-background border-border text-muted'}`}
-                      >
-                        Pendiente
-                      </button>
+                        <option value="outbound">Vuelo Ida</option>
+                        <option value="return">Vuelo Vuelta</option>
+                      </select>
                     </div>
-                  </div>
+                    
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Estado de Verificación</label>
+                      <div className="flex gap-2">
+                        <button 
+                          type="button"
+                          onClick={() => setEditingFlight({...editingFlight, is_verified: true})}
+                          className={`flex-1 p-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${editingFlight.is_verified ? 'bg-green-500/10 border-green-500 text-green-600' : 'bg-background border-border text-muted'}`}
+                        >
+                          Verificado
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => setEditingFlight({...editingFlight, is_verified: false})}
+                          className={`flex-1 p-3 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all ${!editingFlight.is_verified ? 'bg-orange-500/10 border-orange-500 text-orange-600' : 'bg-background border-border text-muted'}`}
+                        >
+                          Pendiente
+                        </button>
+                      </div>
+                    </div>
 
-                  <FieldReview 
-                    label="Origen (IATA)" 
-                    value={editingFlight.departure_location} 
-                    onChange={(v:string) => setEditingFlight({...editingFlight, departure_location: v, origin: v})} 
-                  />
-                  <FieldReview 
-                    label="Destino (IATA)" 
-                    value={editingFlight.arrival_location} 
-                    onChange={(v:string) => setEditingFlight({...editingFlight, arrival_location: v, destination: v})} 
-                  />
-                  
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Salida (Fecha/Hora)</label>
-                    <input 
-                      type="datetime-local" 
-                      className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent"
-                      value={editingFlight.departure_time?.slice(0, 16)}
-                      onChange={e => setEditingFlight({...editingFlight, departure_time: e.target.value})}
+                    <FieldReview 
+                      label="Origen (IATA)" 
+                      value={editingFlight.departure_location} 
+                      onChange={(v:string) => setEditingFlight({...editingFlight, departure_location: v, origin: v})} 
                     />
-                  </div>
-                  
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Llegada (Fecha/Hora)</label>
-                    <input 
-                      type="datetime-local" 
-                      className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent"
-                      value={editingFlight.arrival_time?.slice(0, 16)}
-                      onChange={e => setEditingFlight({...editingFlight, arrival_time: e.target.value})}
+                    <FieldReview 
+                      label="Destino (IATA)" 
+                      value={editingFlight.arrival_location} 
+                      onChange={(v:string) => setEditingFlight({...editingFlight, arrival_location: v, destination: v})} 
                     />
-                  </div>
+                    
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Salida (Fecha/Hora)</label>
+                      <input 
+                        type="datetime-local" 
+                        className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent"
+                        value={editingFlight.departure_time?.slice(0, 16)}
+                        onChange={e => setEditingFlight({...editingFlight, departure_time: e.target.value})}
+                      />
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Llegada (Fecha/Hora)</label>
+                      <input 
+                        type="datetime-local" 
+                        className="w-full bg-background border border-border rounded-xl p-3 text-xs outline-none focus:border-accent"
+                        value={editingFlight.arrival_time?.slice(0, 16)}
+                        onChange={e => setEditingFlight({...editingFlight, arrival_time: e.target.value})}
+                      />
+                    </div>
 
-                  <FieldReview label="Aerolínea" value={editingFlight.airline} onChange={(v:any) => setEditingFlight({...editingFlight, airline: v})} />
-                  <FieldReview label="Nº Vuelo" value={editingFlight.flight_number} onChange={(v:any) => setEditingFlight({...editingFlight, flight_number: v})} />
-                  <FieldReview label="Localizador" value={editingFlight.reservation_code} onChange={(v:any) => setEditingFlight({...editingFlight, reservation_code: v})} />
-                  <FieldReview label="Asiento" value={editingFlight.seat} onChange={(v:any) => setEditingFlight({...editingFlight, seat: v})} />
-                  
-                  <FieldReview label="Terminal Salida" value={editingFlight.departure_terminal} onChange={(v:any) => setEditingFlight({...editingFlight, departure_terminal: v})} />
-                  <FieldReview label="Terminal Llegada" value={editingFlight.arrival_terminal} onChange={(v:any) => setEditingFlight({...editingFlight, arrival_terminal: v})} />
-                  
-                  <FieldReview label="Duración (min)" type="number" value={editingFlight.duration_minutes} onChange={(v:any) => setEditingFlight({...editingFlight, duration_minutes: parseInt(v) || 0})} />
-                  <FieldReview label="Distancia (km)" type="number" value={editingFlight.distance_km} onChange={(v:any) => setEditingFlight({...editingFlight, distance_km: parseInt(v) || 0})} />
-                  
-                  <div className="col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <FieldReview label="Cierre Check-in" value={editingFlight.checkin_deadline} onChange={(v:any) => setEditingFlight({...editingFlight, checkin_deadline: v})} />
-                    <FieldReview label="Info. Equipaje" value={editingFlight.baggage_info} onChange={(v:any) => setEditingFlight({...editingFlight, baggage_info: v})} />
+                    <FieldReview label="Aerolínea" value={editingFlight.airline} onChange={(v:any) => setEditingFlight({...editingFlight, airline: v})} />
+                    <FieldReview label="Nº Vuelo" value={editingFlight.flight_number} onChange={(v:any) => setEditingFlight({...editingFlight, flight_number: v})} />
+                    <FieldReview label="Localizador" value={editingFlight.reservation_code} onChange={(v:any) => setEditingFlight({...editingFlight, reservation_code: v})} />
+                    <FieldReview label="Asiento" value={editingFlight.seat} onChange={(v:any) => setEditingFlight({...editingFlight, seat: v})} />
+                    
+                    <FieldReview label="Terminal Salida" value={editingFlight.departure_terminal} onChange={(v:any) => setEditingFlight({...editingFlight, departure_terminal: v})} />
+                    <FieldReview label="Terminal Llegada" value={editingFlight.arrival_terminal} onChange={(v:any) => setEditingFlight({...editingFlight, arrival_terminal: v})} />
+                    
+                    <FieldReview label="Duración (min)" type="number" value={editingFlight.duration_minutes} onChange={(v:any) => setEditingFlight({...editingFlight, duration_minutes: parseInt(v) || 0})} />
+                    <FieldReview label="Distancia (km)" type="number" value={editingFlight.distance_km} onChange={(v:any) => setEditingFlight({...editingFlight, distance_km: parseInt(v) || 0})} />
+                    
+                    <div className="col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <FieldReview label="Cierre Check-in" value={editingFlight.checkin_deadline} onChange={(v:any) => setEditingFlight({...editingFlight, checkin_deadline: v})} />
+                      <FieldReview label="Info. Equipaje" value={editingFlight.baggage_info} onChange={(v:any) => setEditingFlight({...editingFlight, baggage_info: v})} />
+                    </div>
                   </div>
                 </div>
 
-                <div className="pt-6 border-t border-border flex gap-4">
+                <div className="p-6 md:p-8 border-t border-border flex gap-4 flex-shrink-0 bg-surface pb-10 md:pb-8">
                   <Button variant="ghost" type="button" className="flex-1 rounded-2xl py-6 font-bold" onClick={() => setEditingFlight(null)}>Cancelar</Button>
                   <Button type="submit" className="flex-2 rounded-2xl py-6 font-black uppercase tracking-widest text-xs" disabled={isSubmitting}>
                     {isSubmitting ? <Loader2 className="animate-spin" /> : 'Guardar Cambios'}
@@ -2617,15 +2620,16 @@ export default function AdminPlansPage() {
       {/* Modal de Edición de Hotel */}
       <AnimatePresence>
         {editingHotel && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[70] flex items-center justify-center p-4 overflow-y-auto">
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[70] flex items-center justify-center p-4">
             <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-background border border-border w-full max-w-2xl rounded-[32px] overflow-hidden shadow-2xl my-8"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-background border border-border w-full max-w-2xl rounded-[32px] overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
             >
-              <div className="p-8 border-b border-border flex justify-between items-center bg-muted/20">
+              <div className="p-6 md:p-8 border-b border-border flex justify-between items-center bg-muted/20 flex-shrink-0">
                 <div>
-                  <h3 className="text-2xl font-black text-primary tracking-tighter">Gestionar Alojamiento</h3>
+                  <h3 className="text-xl md:text-2xl font-black text-primary tracking-tighter">Gestionar Alojamiento</h3>
                   <p className="text-[10px] text-muted font-black uppercase tracking-widest mt-1">Detalles Premium del Hotel</p>
                 </div>
                 <Button variant="ghost" className="rounded-full h-10 w-10 p-0" onClick={() => setEditingHotel(null)}>
@@ -2678,8 +2682,9 @@ export default function AdminPlansPage() {
                 } finally {
                   setIsSubmitting(false);
                 }
-              }} className="p-8 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              }} className="flex-1 flex flex-col min-h-0">
+                <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="col-span-2 space-y-3 p-5 bg-accent/5 rounded-3xl border border-accent/10 relative">
                     <label className="text-[10px] font-black uppercase text-accent tracking-widest px-1 flex items-center gap-2">
                       <Search size={12} /> Buscar en Catálogo Maestro
@@ -2902,8 +2907,9 @@ export default function AdminPlansPage() {
                     </div>
                   )}
                 </div>
+              </div>
 
-                <div className="pt-6 border-t border-border flex gap-4">
+              <div className="p-6 md:p-8 border-t border-border flex gap-4 flex-shrink-0 bg-surface pb-10 md:pb-8">
                   <Button variant="ghost" type="button" className="flex-1 rounded-2xl py-6 font-bold" onClick={() => setEditingHotel(null)}>Cancelar</Button>
                   <Button type="submit" className="flex-2 rounded-2xl py-6 font-black uppercase tracking-widest text-xs" disabled={isSubmitting}>
                     {isSubmitting ? <Loader2 className="animate-spin" /> : 'Guardar Hotel'}
@@ -2922,11 +2928,12 @@ export default function AdminPlansPage() {
             <motion.div 
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="bg-background border border-border w-full max-w-lg rounded-[32px] overflow-hidden shadow-2xl"
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-background border border-border w-full max-w-lg rounded-[32px] overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
             >
-              <div className="p-8 border-b border-border flex justify-between items-center bg-muted/20">
+              <div className="p-6 md:p-8 border-b border-border flex justify-between items-center bg-muted/20 flex-shrink-0">
                 <div>
-                  <h3 className="text-2xl font-black text-primary tracking-tighter">Editar Documento</h3>
+                  <h3 className="text-xl md:text-2xl font-black text-primary tracking-tighter">Editar Documento</h3>
                   <p className="text-[10px] text-muted font-black uppercase tracking-widest mt-1">Metadatos y Visibilidad</p>
                 </div>
                 <Button variant="ghost" className="rounded-full h-10 w-10 p-0" onClick={() => setEditingDocument(null)}>
@@ -2934,7 +2941,8 @@ export default function AdminPlansPage() {
                 </Button>
               </div>
               
-              <form onSubmit={handleSaveDocument} className="p-8 space-y-6">
+              <form onSubmit={handleSaveDocument} className="flex-1 flex flex-col min-h-0">
+                <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
                 <div className="space-y-4">
                   <FieldReview 
                     label="Título Visible (Cliente)" 
@@ -3074,8 +3082,9 @@ export default function AdminPlansPage() {
                     </div>
                   )}
                 </div>
+              </div>
 
-                <div className="pt-6 border-t border-border flex gap-4">
+              <div className="p-6 md:p-8 border-t border-border flex gap-4 flex-shrink-0 bg-surface pb-10 md:pb-8">
                   <Button variant="ghost" type="button" className="flex-1 rounded-2xl py-6 font-bold" onClick={() => setEditingDocument(null)}>Cancelar</Button>
                   <Button type="submit" className="flex-2 rounded-2xl py-6 font-black uppercase tracking-widest text-xs" disabled={isSubmitting}>
                     {isSubmitting ? <Loader2 className="animate-spin" /> : 'Guardar Cambios'}
@@ -3090,15 +3099,16 @@ export default function AdminPlansPage() {
       {/* Modal de Edición de Hospitality */}
       <AnimatePresence>
         {editingHospitality && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[70] flex items-center justify-center p-4 overflow-y-auto">
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[70] flex items-center justify-center p-4">
             <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-background border border-border w-full max-w-2xl rounded-[32px] overflow-hidden shadow-2xl my-8"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-background border border-border w-full max-w-2xl rounded-[32px] overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
             >
-              <div className="p-8 border-b border-border flex justify-between items-center bg-muted/20">
+              <div className="p-6 md:p-8 border-b border-border flex justify-between items-center bg-muted/20 flex-shrink-0">
                 <div>
-                  <h3 className="text-2xl font-black text-primary tracking-tighter">Gestionar Evento Hospitality</h3>
+                  <h3 className="text-xl md:text-2xl font-black text-primary tracking-tighter">Gestionar Evento Hospitality</h3>
                   <p className="text-[10px] text-muted font-black uppercase tracking-widest mt-1">Experiencia VIP y Agenda</p>
                 </div>
                 <Button variant="ghost" className="rounded-full h-10 w-10 p-0" onClick={() => setEditingHospitality(null)}>
@@ -3134,8 +3144,9 @@ export default function AdminPlansPage() {
                 } finally {
                   setIsSubmitting(false);
                 }
-              }} className="p-8 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              }} className="flex-1 flex flex-col min-h-0">
+                <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Tipo de Evento</label>
                     <select 
@@ -3535,8 +3546,9 @@ export default function AdminPlansPage() {
                     })}
                   </div>
                 </div>
+              </div>
 
-                <div className="pt-6 border-t border-border flex gap-4">
+              <div className="p-6 md:p-8 border-t border-border flex gap-4 flex-shrink-0 bg-surface pb-10 md:pb-8">
                   <Button variant="ghost" type="button" className="flex-1 rounded-2xl py-6 font-bold" onClick={() => setEditingHospitality(null)}>Cancelar</Button>
                   <Button type="submit" className="flex-2 rounded-2xl py-6 font-black uppercase tracking-widest text-xs" disabled={isSubmitting}>
                     {isSubmitting ? <Loader2 className="animate-spin" /> : 'Guardar Evento'}
@@ -3879,15 +3891,16 @@ export default function AdminPlansPage() {
       {/* Modal de Edición de Traslado */}
       <AnimatePresence>
         {editingTransfer && (
-          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[70] flex items-center justify-center p-4 overflow-y-auto">
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-[70] flex items-center justify-center p-4">
             <motion.div 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-background border border-border w-full max-w-2xl rounded-[32px] overflow-hidden shadow-2xl my-8"
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-background border border-border w-full max-w-2xl rounded-[32px] overflow-hidden shadow-2xl max-h-[90vh] flex flex-col"
             >
-              <div className="p-8 border-b border-border flex justify-between items-center bg-muted/20">
+              <div className="p-6 md:p-8 border-b border-border flex justify-between items-center bg-muted/20 flex-shrink-0">
                 <div>
-                  <h3 className="text-2xl font-black text-primary tracking-tighter">Gestionar Traslado</h3>
+                  <h3 className="text-xl md:text-2xl font-black text-primary tracking-tighter">Gestionar Traslado</h3>
                   <p className="text-[10px] text-muted font-black uppercase tracking-widest mt-1">Logística de Desplazamiento</p>
                 </div>
                 <Button variant="ghost" className="rounded-full h-10 w-10 p-0" onClick={() => setEditingTransfer(null)}>
@@ -3895,8 +3908,9 @@ export default function AdminPlansPage() {
                 </Button>
               </div>
               
-              <form onSubmit={handleSaveTransfer} className="p-8 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <form onSubmit={handleSaveTransfer} className="flex-1 flex flex-col min-h-0">
+                <div className="flex-1 overflow-y-auto p-6 md:p-8 space-y-6">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div className="col-span-2 space-y-2">
                     <label className="text-[10px] font-black uppercase text-muted tracking-widest px-1">Tipo de Trayecto</label>
                     <select 
@@ -4024,8 +4038,9 @@ export default function AdminPlansPage() {
                     </div>
                   </div>
                 </div>
+              </div>
 
-                <div className="pt-8 border-t border-border flex gap-4">
+              <div className="p-6 md:p-8 border-t border-border flex gap-4 flex-shrink-0 bg-surface pb-10 md:pb-8">
                   <Button variant="ghost" type="button" className="flex-1 rounded-2xl py-6 font-bold" onClick={() => setEditingTransfer(null)}>Cancelar</Button>
                   <Button type="submit" className="flex-2 rounded-2xl py-6 font-black uppercase tracking-widest text-xs" disabled={isSubmitting}>
                     {isSubmitting ? <Loader2 className="animate-spin" /> : 'Guardar Traslado'}

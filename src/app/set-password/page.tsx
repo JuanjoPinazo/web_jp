@@ -52,6 +52,10 @@ export default function SetPasswordPage() {
     setError(null);
 
     try {
+      // Get user email from the current session before updating password
+      const { data: { session: currentSession } } = await supabase.auth.getSession();
+      const email = currentSession?.user?.email;
+
       const { error } = await supabase.auth.updateUser({ password });
       if (error) throw error;
 
@@ -59,12 +63,11 @@ export default function SetPasswordPage() {
 
       // Notify Admin and clear DB flags - AWAIT this so database updates before we refresh session
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.access_token) {
+        if (currentSession?.access_token) {
           const res = await fetch('/api/auth/notify-password-change', {
             method: 'POST',
             headers: {
-              'Authorization': `Bearer ${session.access_token}`
+              'Authorization': `Bearer ${currentSession.access_token}`
             }
           });
           if (!res.ok) {
@@ -75,17 +78,47 @@ export default function SetPasswordPage() {
         console.error('Failed to notify admin about password change:', notifyErr);
       }
 
-      // Wait a bit, clean up, refresh session, and redirect to dashboard
+      // Wait a bit, clean up, re-authenticate, and redirect to dashboard
       setTimeout(async () => {
         try {
           if (typeof window !== 'undefined') {
             localStorage.removeItem('supabase.auth.recovery');
+            // Remove all sb-*-auth-token keys to avoid any stale data
+            const keysToRemove: string[] = [];
+            for (let i = 0; i < localStorage.length; i++) {
+              const key = localStorage.key(i);
+              if (key && key.startsWith('sb-') && key.endsWith('-auth-token')) {
+                keysToRemove.push(key);
+              }
+            }
+            keysToRemove.forEach(key => localStorage.removeItem(key));
             window.history.replaceState(null, '', window.location.pathname);
           }
+
+          // Force a clean sign out from the recovery session
+          await supabase.auth.signOut();
+
+          // If we successfully captured the email, sign in cleanly with the new password
+          if (email) {
+            const { error: signInError } = await supabase.auth.signInWithPassword({
+              email,
+              password
+            });
+            if (signInError) {
+              console.error('Failed to sign in after password reset:', signInError);
+              router.push('/login');
+              return;
+            }
+          } else {
+            console.warn('No email found in recovery session, redirecting to login');
+            router.push('/login');
+            return;
+          }
+
           if (typeof refreshSession === 'function') {
             await refreshSession();
           } else {
-            console.warn('refreshSession is not defined in the current auth context. Please reload the page.');
+            console.warn('refreshSession is not defined in the current auth context.');
           }
         } catch (refreshErr) {
           console.error('Failed to refresh session or clean up:', refreshErr);

@@ -30,6 +30,7 @@ import { AuthProvider } from "@/context/AuthContext";
 import { ThemeProvider } from "@/context/ThemeContext";
 import { DialogProvider } from "@/context/DialogContext";
 import { InstallAppPrompt } from "@/components/InstallAppPrompt";
+import { PwaUpdateManager } from "@/components/pwa/PwaUpdateManager";
 
 export default function RootLayout({
   children,
@@ -78,6 +79,7 @@ export default function RootLayout({
             <DialogProvider>
               {children}
               <InstallAppPrompt />
+              <PwaUpdateManager />
             </DialogProvider>
           </AuthProvider>
         </ThemeProvider>

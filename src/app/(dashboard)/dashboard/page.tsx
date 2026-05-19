@@ -41,6 +41,7 @@ import { TimelineEvent } from '@/components/premium/TimelineEvent';
 
 import { AirportModeView } from '@/components/premium/AirportModeView';
 import { processTimelineEvents } from '@/core/services/travel-timeline.service';
+import TodayMiniMap from '@/modules/live-map/components/TodayMiniMap';
 
 const WakeLockHandler = () => {
   useEffect(() => {
@@ -1090,6 +1091,9 @@ export default function DashboardPage() {
                     ))}
                   </div>
                 )}
+
+                {/* MINI MAPA EN VIVO OPERACIONAL */}
+                <TodayMiniMap activePlan={activePlan} nextAction={nextAction} />
               </div>
 
               {/* PRÓXIMA ACCIÓN */}

@@ -6,10 +6,12 @@ import {
   Plane, MapPin, Navigation, Smartphone, 
   Clock, Shield, ArrowRight, ExternalLink,
   MessageSquare, Car, FileText, QrCode,
-  Phone, Luggage, Check, Plus, ChevronRight
+  Phone, Luggage, Check, Plus, ChevronRight, X
 } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { cn } from '@/lib/utils';
+import LiveMap from '@/modules/live-map/components/LiveMap';
+import { MapLocation } from '@/modules/live-map/types';
 
 interface AirportModeViewProps {
   data: {
@@ -31,6 +33,59 @@ interface AirportModeViewProps {
 
 export const AirportModeView = ({ data, smartDeparture, isAdmin, onClose, onAction }: AirportModeViewProps) => {
   const { flight, statusText, diffMin, boardingPass, associatedTransfer, associatedHotel, transferVoucher, isLanded } = data;
+
+  const [showLiveMapModal, setShowLiveMapModal] = React.useState(false);
+
+  const locations = React.useMemo(() => {
+    const locs: MapLocation[] = [];
+    if (!flight) return locs;
+
+    if (isLanded) {
+      // Llegada: Aeropuerto -> Destino
+      if (flight.arrival_lat && flight.arrival_lng) {
+        locs.push({
+          id: 'airport-arrival',
+          name: `${flight.arrival_location} Airport`,
+          type: 'airport',
+          coordinates: { lat: flight.arrival_lat, lng: flight.arrival_lng }
+        });
+      }
+      if (associatedTransfer?.dropoff_lat && associatedTransfer?.dropoff_lng) {
+        locs.push({
+          id: 'destination-hotel',
+          name: associatedTransfer.dropoff_location || 'Destino',
+          type: 'hotel',
+          coordinates: { lat: associatedTransfer.dropoff_lat, lng: associatedTransfer.dropoff_lng }
+        });
+      } else if (associatedHotel?.latitude && associatedHotel?.longitude) {
+        locs.push({
+          id: 'destination-hotel',
+          name: associatedHotel.hotel_name || 'Hotel',
+          type: 'hotel',
+          coordinates: { lat: associatedHotel.latitude, lng: associatedHotel.longitude }
+        });
+      }
+    } else {
+      // Salida: Origen (Hotel) -> Aeropuerto
+      if (associatedHotel?.latitude && associatedHotel?.longitude) {
+        locs.push({
+          id: 'origin-hotel',
+          name: associatedHotel.hotel_name || 'Hotel',
+          type: 'hotel',
+          coordinates: { lat: associatedHotel.latitude, lng: associatedHotel.longitude }
+        });
+      }
+      if (flight.departure_lat && flight.departure_lng) {
+        locs.push({
+          id: 'airport-departure',
+          name: `${flight.departure_location} Airport`,
+          type: 'airport',
+          coordinates: { lat: flight.departure_lat, lng: flight.departure_lng }
+        });
+      }
+    }
+    return locs;
+  }, [flight, associatedTransfer, associatedHotel, isLanded]);
 
   return (
     <motion.div 
@@ -123,6 +178,33 @@ export const AirportModeView = ({ data, smartDeparture, isAdmin, onClose, onActi
                 </div>
               )}
             </div>
+
+            {/* Live Map Card (Arrival) */}
+            {locations.length > 0 && (
+              <div 
+                onClick={() => setShowLiveMapModal(true)}
+                className="relative w-full h-[180px] rounded-[2rem] bg-white/5 border border-white/10 overflow-hidden cursor-pointer hover:border-accent/40 transition-all group"
+              >
+                <div className="absolute inset-0 pointer-events-none">
+                  <LiveMap 
+                    locations={locations}
+                    activeLocationId={locations[locations.length - 1]?.id}
+                    showUserLocation={true}
+                    showRoutes={true}
+                    interactive={false}
+                  />
+                </div>
+                <div className="absolute top-4 left-6 z-10 flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                  <span className="text-[9px] font-black uppercase tracking-widest text-white/95">Radar de Traslado</span>
+                </div>
+                <div className="absolute bottom-4 right-4 z-10">
+                  <div className="w-8 h-8 rounded-lg bg-black/80 border border-white/10 flex items-center justify-center text-white group-hover:bg-accent transition-all">
+                    <ExternalLink size={12} />
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Quick Actions Grid */}
             {associatedTransfer && (
@@ -337,6 +419,33 @@ export const AirportModeView = ({ data, smartDeparture, isAdmin, onClose, onActi
                 </div>
               </div>
 
+              {/* Live Map Card (Departure) */}
+              {locations.length > 0 && (
+                <div 
+                  onClick={() => setShowLiveMapModal(true)}
+                  className="relative w-full h-[180px] rounded-[2rem] bg-white/5 border border-white/10 overflow-hidden cursor-pointer hover:border-accent/40 transition-all group"
+                >
+                  <div className="absolute inset-0 pointer-events-none">
+                    <LiveMap 
+                      locations={locations}
+                      activeLocationId={locations[locations.length - 1]?.id}
+                      showUserLocation={true}
+                      showRoutes={true}
+                      interactive={false}
+                    />
+                  </div>
+                  <div className="absolute top-4 left-6 z-10 flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+                    <span className="text-[9px] font-black uppercase tracking-widest text-white/95">Ruta al Aeropuerto</span>
+                  </div>
+                  <div className="absolute bottom-4 right-4 z-10">
+                    <div className="w-8 h-8 rounded-lg bg-black/80 border border-white/10 flex items-center justify-center text-white group-hover:bg-accent transition-all">
+                      <ExternalLink size={12} />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {/* Quick Actions Grid */}
               <div className="grid grid-cols-2 gap-3">
                 <button 
@@ -378,6 +487,39 @@ export const AirportModeView = ({ data, smartDeparture, isAdmin, onClose, onActi
           JP Intelligence Operational System
         </p>
       </div>
+
+      {/* Fullscreen Map Modal */}
+      {showLiveMapModal && locations.length > 0 && (
+        <div className="fixed inset-0 z-[200] bg-black flex flex-col animate-in fade-in duration-200">
+          {/* Header del Modal */}
+          <div className="bg-[#09090A] border-b border-white/5 px-6 py-4 flex items-center justify-between z-10 shrink-0 text-white">
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-accent animate-pulse" />
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-accent">RUTA EN VIVO</span>
+              </div>
+              <h2 className="text-lg font-black tracking-tighter text-white uppercase leading-none">Radar de Operaciones</h2>
+            </div>
+            <button 
+              onClick={() => setShowLiveMapModal(false)}
+              className="w-10 h-10 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/60 hover:text-white transition-colors"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Mapa Interactivo */}
+          <div className="flex-1 relative">
+            <LiveMap 
+              locations={locations}
+              activeLocationId={locations[locations.length - 1]?.id}
+              showUserLocation={true}
+              showRoutes={true}
+              interactive={true}
+            />
+          </div>
+        </div>
+      )}
     </motion.div>
   );
 };
